@@ -1,0 +1,20 @@
+{
+  "name": "@hearthold/witness",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Hearthold Witness — Companion: witness capture and evidence requests.",
+  "bin": {
+    "witness": "./dist/index.js"
+  },
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@hearthold/core": "0.1.0"
+  }
+}

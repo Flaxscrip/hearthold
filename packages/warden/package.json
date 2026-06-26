@@ -1,0 +1,24 @@
+{
+  "name": "@hearthold/warden",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Hearthold Warden — home Keeper service: vault, local-AI classification, index, prover.",
+  "bin": {
+    "warden": "./dist/index.js"
+  },
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./server": { "types": "./dist/server.d.ts", "import": "./dist/server.js" },
+    "./service": { "types": "./dist/service.d.ts", "import": "./dist/service.js" },
+    "./store": { "types": "./dist/store.d.ts", "import": "./dist/store.js" },
+    "./classifier": { "types": "./dist/classifier.d.ts", "import": "./dist/classifier.js" }
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@hearthold/core": "0.1.0"
+  }
+}

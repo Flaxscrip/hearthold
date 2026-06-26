@@ -1,0 +1,19 @@
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Local agent state — wallets, vault, index. NEVER commit.
+.hearthold/
+.hearthold-e2e/
+.hearthold-didcomm/
+*.wallet.json
+data/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+*.log

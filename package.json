@@ -1,0 +1,30 @@
+{
+  "name": "hearthold",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Hearthold — a Sovereign First Person's 7th Capital, made safely liquid. Two separated Archon agents: Warden (home Keeper) and Witness (Companion).",
+  "type": "module",
+  "license": "MIT",
+  "workspaces": [
+    "packages/core",
+    "packages/warden",
+    "packages/witness"
+  ],
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "tsc --build --clean",
+    "warden": "node --experimental-strip-types packages/warden/src/index.ts",
+    "witness": "node --experimental-strip-types packages/witness/src/index.ts",
+    "e2e": "npm run e2e:delegation && npm run e2e:submission",
+    "e2e:delegation": "npm run build && node --experimental-strip-types scripts/e2e-delegation.ts",
+    "e2e:submission": "npm run build && node --experimental-strip-types scripts/e2e-submission.ts",
+    "smoke:didcomm": "npm run build && node --experimental-strip-types scripts/didcomm-smoke.ts"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.0",
+    "typescript": "^5.9.3"
+  }
+}
