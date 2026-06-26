@@ -7,8 +7,9 @@ identity infrastructure. It gives a person a privileged, home-bound agent to man
 private data repository, and a mobile companion agent authorized to request **verifiable evidence**
 from that history when engaging with the world — proving a fact without spilling the data behind it.
 
-It draws on prior Privacy Value Model work for one principle: **separate the custodian of data from
-the agent that acts in the world**, so neither alone can reconstruct the whole.
+It draws on the [Privacy Value Model and City of Mages](https://github.com/Flaxscrip/cityofmages)
+work for one principle: **separate the custodian of data from the agent that acts in the world**, so
+neither alone can reconstruct the whole.
 
 ## The three identities
 
@@ -56,10 +57,19 @@ docs/
 
 ## Status
 
-Working and tested live: identity provisioning, the delegation handshake, and the
-witness → store → receipt loop over **Archon DIDComm v2** (`Transport` seam in
-`packages/core/src/transport.ts`). Next: the local-model classifier/index and the evidence-graph
-"prove" flow. See [docs/PLAN.md](docs/PLAN.md) and [docs/manual-testing.md](docs/manual-testing.md).
+Working and tested live: identity provisioning, the delegation handshake, the witness → store →
+receipt loop over **Archon DIDComm v2** (`Transport` seam in `packages/core/src/transport.ts`),
+and **on-device sensitivity classification** (local Ollama model, fail-safe to `SEALED`). Next: the
+evidence-graph "prove" flow. See [docs/PLAN.md](docs/PLAN.md) and
+[docs/manual-testing.md](docs/manual-testing.md).
+
+## Attribution
+
+Hearthold builds on [Archon](https://github.com/archetech/archon) and on the **Privacy Value Model**
+and **City of Mages** work — [github.com/Flaxscrip/cityofmages](https://github.com/Flaxscrip/cityofmages)
+(upstream [mitchuski/cityofmages](https://github.com/mitchuski/cityofmages), the agentprivacy
+collaboration) — from which it takes the principle of separating the custodian of data from the
+agent that acts in the world.
 
 ## License
 

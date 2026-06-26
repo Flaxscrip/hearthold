@@ -31,6 +31,7 @@ import {
 import { WardenService } from '@hearthold/warden/service';
 import { DelegationStore } from '@hearthold/warden/delegations';
 import { makeWardenHandler } from '@hearthold/warden/handler';
+import { QuarantineClassifier } from '@hearthold/warden/classifier';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const DATA_ROOT = join(here, '..', '.hearthold-e2e');
@@ -70,7 +71,10 @@ async function main(): Promise<void> {
   const wardenTransport = new DidCommTransport(warden, IDENTITY_NAME.warden, config.nodeUrl);
   await wardenTransport.ready();
   const stop = await wardenTransport.serve(
-    makeWardenHandler(new WardenService(warden), new DelegationStore(warden)),
+    makeWardenHandler(
+      new WardenService(warden, new QuarantineClassifier()),
+      new DelegationStore(warden),
+    ),
     { pollMs: 1000 },
   );
   check('warden endpoint published + serving', true);

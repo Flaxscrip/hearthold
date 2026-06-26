@@ -25,14 +25,20 @@ Usage:
   warden status            Show identity, vault size, and config
   warden delegate <did>    Issue a delegation credential to a Witness DID
   warden serve             Serve over DIDComm (poll mailbox, store submissions, reply)
+  warden classify <kind> <text>   Classify text with the local model (test the classifier)
   warden vault             List stored artefacts (metadata only; payloads stay encrypted)
   warden help              Show this message
 
 Env:
-  HEARTHOLD_PASSPHRASE   wallet passphrase (required)
-  HEARTHOLD_NODE_URL     Archon node (Drawbridge) URL; default http://flaxlap.local:4222
-  HEARTHOLD_DATA_ROOT    default ~/.hearthold
+  HEARTHOLD_PASSPHRASE       wallet passphrase (required)
+  HEARTHOLD_NODE_URL         Archon node (Drawbridge) URL; default http://flaxlap.local:4222
+  HEARTHOLD_DATA_ROOT        default ~/.hearthold
+  HEARTHOLD_OLLAMA_URL       local model endpoint; default http://localhost:11434
+  HEARTHOLD_CLASSIFIER_MODEL default qwen3:8b
+  HEARTHOLD_CLASSIFIER       set to 'quarantine' to disable the model (everything SEALED)
 `;
+
+const SENSITIVITY_NAMES = ['PUBLIC', 'LOW', 'MEDIUM', 'HIGH', 'SEALED'];
 
 async function main(): Promise<void> {
   const cmd = process.argv[2] ?? 'help';
@@ -58,14 +64,32 @@ async function main(): Promise<void> {
     case 'status': {
       const id = await ensureIdentity(handle, config);
       const items = await new VaultStore(handle.dataFolder).list();
-      createClassifier(); // ensure the local classifier wiring resolves
+      const classifier =
+        config.classifierMode === 'ollama'
+          ? `ollama ${config.classifierModel} @ ${config.ollamaUrl}`
+          : 'quarantine (model disabled)';
       process.stdout.write(
         `Warden ${id.did}\n` +
-          `  node:      ${config.nodeUrl}\n` +
-          `  data:      ${handle.dataFolder}\n` +
-          `  artefacts: ${items.length}\n` +
+          `  node:       ${config.nodeUrl}\n` +
+          `  data:       ${handle.dataFolder}\n` +
+          `  classifier: ${classifier}\n` +
+          `  artefacts:  ${items.length}\n` +
           `  e.g. SEALED requires tier ${requiredTier(Sensitivity.SEALED)} ` +
           `(MULTIFACTOR=${AuthzTier.MULTIFACTOR})\n`,
+      );
+      break;
+    }
+    case 'classify': {
+      const kind = process.argv[3];
+      const text = process.argv.slice(4).join(' ');
+      if (!kind || !text) throw new Error('usage: warden classify <kind> <text>');
+      const result = await createClassifier(config).classify({ kind, text });
+      const tags = (result.metadata.tags as string[] | undefined)?.join(', ') ?? '';
+      process.stdout.write(
+        `sensitivity: ${result.sensitivity} (${SENSITIVITY_NAMES[result.sensitivity]})\n` +
+          `  tags:    ${tags}\n` +
+          `  reason:  ${result.metadata.reason ?? result.metadata.error ?? ''}\n` +
+          `  confirm: ${result.needsHumanConfirmation}\n`,
       );
       break;
     }
@@ -91,7 +115,10 @@ async function main(): Promise<void> {
       const id = await ensureIdentity(handle, config);
       const transport = new DidCommTransport(handle, IDENTITY_NAME.warden, config.nodeUrl);
       await transport.ready();
-      const handler = makeWardenHandler(new WardenService(handle), new DelegationStore(handle));
+      const handler = makeWardenHandler(
+        new WardenService(handle, createClassifier(config)),
+        new DelegationStore(handle),
+      );
       const stop = await transport.serve(handler);
       process.stdout.write(
         `Warden serving over DIDComm\n  did:  ${id.did}\n  node: ${config.nodeUrl}\n` +

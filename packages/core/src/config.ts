@@ -17,11 +17,19 @@ export interface HearthholdConfig {
   dataRoot: string;
   /** Witness: the Warden's DID to address over DIDComm. */
   wardenDid?: string;
+  /** Warden: local model endpoint for the classifier (Ollama). Stays on-device. */
+  ollamaUrl: string;
+  /** Warden: local model used to classify sensitivity. */
+  classifierModel: string;
+  /** Warden: 'ollama' (local model) or 'quarantine' (fail-safe stub, everything SEALED). */
+  classifierMode: 'ollama' | 'quarantine';
 }
 
 const DEFAULT_NODE_URL = 'http://flaxlap.local:4222';
 const DEFAULT_REGISTRY = 'hyperswarm';
 const DEFAULT_DATA_ROOT = join(homedir(), '.hearthold');
+const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
+const DEFAULT_CLASSIFIER_MODEL = 'qwen3:8b';
 
 /** Build config from environment with sensible local-node defaults. */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): HearthholdConfig {
@@ -30,6 +38,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): HearthholdConf
     registry: env.HEARTHOLD_REGISTRY ?? DEFAULT_REGISTRY,
     dataRoot: env.HEARTHOLD_DATA_ROOT ?? DEFAULT_DATA_ROOT,
     wardenDid: env.HEARTHOLD_WARDEN_DID,
+    ollamaUrl: env.HEARTHOLD_OLLAMA_URL ?? DEFAULT_OLLAMA_URL,
+    classifierModel: env.HEARTHOLD_CLASSIFIER_MODEL ?? DEFAULT_CLASSIFIER_MODEL,
+    classifierMode: env.HEARTHOLD_CLASSIFIER === 'quarantine' ? 'quarantine' : 'ollama',
   };
 }
 

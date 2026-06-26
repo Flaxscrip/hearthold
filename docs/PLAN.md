@@ -63,8 +63,9 @@ See [security-model.md](security-model.md). In brief:
    authenticates the sender (no session handshake); Warden authorizes via the recorded delegation,
    unseals → classifies → stores → replies with a receipt correlated by `thid`. Tested live
    (`e2e:submission` + two-process CLI). CLI: `warden serve` / `witness submit`.
-4. **Index** — Warden classifies + indexes via the local model (Ollama: `qwen3:8b` classifier,
-   `nomic-embed-text` embeddings). Replaces the `QuarantineClassifier` seam.
+4. **Classifier** ✅ — Warden classifies sensitivity on-device via a local model (Ollama
+   `qwen3:8b`, structured output), fail-safe to `SEALED`. CLI: `warden classify`. **Index** (vector
+   retrieval via `nomic-embed-text`) follows when the evidence flow needs retrieval.
 5. **Prove + step-up** — Witness `POST /evidence`; Warden checks `authz clears sensitivity`,
    demands step-up (challenge / PIN / passphrase) for sensitive content, and returns a signed
    **evidence graph** — a derived attestation plus a redacted, hash-anchored provenance subgraph

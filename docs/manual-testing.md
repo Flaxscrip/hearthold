@@ -87,11 +87,12 @@ authorizes by the delegation it recorded; the Witness need not present it for su
 
 ## 4. What you should see (and what's not built yet)
 
-- `witness submit` prints a receipt with an artefact id and **`sensitivity: 4`** — everything
-  quarantines to `SEALED` for now because the classifier is the fail-safe `QuarantineClassifier`.
-  Real labels arrive when we wire **`qwen3:8b`** (step 4).
-- `warden vault` lists each artefact as `[4] <kind> observed <ts>` with **ciphertext only** at rest
-  (payloads are sealed in-band — nothing anchored on the registry).
+- `witness submit` prints a receipt with an artefact id and a **sensitivity** the local model
+  assigned (e.g. a tax document → `3` HIGH, a public tweet → `0` PUBLIC). Requires Ollama running
+  with the model (`HEARTHOLD_CLASSIFIER_MODEL`, default `qwen3:8b`); if Ollama is down it fails safe
+  to `4` SEALED. Test the classifier directly with `warden classify <kind> "<text>"`.
+- `warden vault` lists each artefact as `[sensitivity] <kind> observed <ts>` with **ciphertext
+  only** at rest (payloads are sealed in-band — nothing anchored on the registry).
 - The **"prove" half isn't built yet**: an evidence request returns a *denied* error. The real
   evidence + step-up flow is step 5 / milestone S.
 - Handy: `… warden … status` / `… witness … status` show identity + config; append `help` for the
@@ -105,6 +106,7 @@ authorizes by the delegation it recorded; the Witness need not present it for su
 | `status` — identity + config | `status` — identity + config |
 | `delegate <witnessDid>` — issue + record delegation | `accept <credDid>` — accept delegation (optional) |
 | `serve` — serve over DIDComm | `submit <kind> <text>` — seal + submit observation |
+| `classify <kind> <text>` — test the local classifier | |
 | `vault` — list stored artefacts | |
 
 `<kind>` ∈ `event | location | activity | browsing | document`
@@ -118,6 +120,12 @@ authorizes by the delegation it recorded; the Witness need not present it for su
 | `HEARTHOLD_DATA_ROOT` | both | `~/.hearthold` | per-agent wallets + vault |
 | `HEARTHOLD_REGISTRY` | both | `hyperswarm` | anchoring registry |
 | `HEARTHOLD_WARDEN_DID` | Witness | — | required for `submit`; the Warden's `did:cid` |
+| `HEARTHOLD_OLLAMA_URL` | Warden | `http://localhost:11434` | local model endpoint (on-device) |
+| `HEARTHOLD_CLASSIFIER_MODEL` | Warden | `qwen3:8b` | local classifier model |
+| `HEARTHOLD_CLASSIFIER` | Warden | `ollama` | set to `quarantine` to disable the model |
+
+> The Warden classifies on-device via Ollama — run `ollama serve` with the model pulled
+> (`ollama pull qwen3:8b`). No artefact content leaves the machine.
 
 ## 7. Reset / troubleshooting
 
