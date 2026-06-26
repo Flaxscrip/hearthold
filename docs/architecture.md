@@ -89,9 +89,10 @@ Each identity calls `publishDidComm()` once to advertise its endpoint. The proto
 (`WitnessSubmission`, `EvidenceRequest`/`EvidenceResponse`, …) are transport-agnostic and carried as
 DIDComm message bodies.
 
-> Status: this is the decided transport. The current code uses a direct HTTP/Tailscale path behind
-> the same protocol types; migration to DIDComm is in progress, via a `Transport` seam that keeps
-> both interchangeable (HTTP retained as a simple LAN option).
+> Status: **implemented.** The Witness↔Warden flow runs over DIDComm v2 via the `Transport` seam
+> (`core/transport.ts` → `DidCommTransport`). `warden serve` polls its mailbox and replies;
+> `witness submit` sends and correlates the receipt by `thid`. Tested live (`e2e:submission` +
+> a two-process CLI run).
 
 ## Data flow — witness→store→prove (v1)
 

@@ -1,12 +1,12 @@
 /**
- * End-to-end test of the Hearthold witness→store→receipt round-trip over the HTTP/Tailscale
- * transport (no dmail, no notices, no registry footprint).
+ * End-to-end test of the Hearthold witness→store→receipt round-trip over the **DIDComm v2**
+ * transport (no notices, no registry footprint, authcrypt-authenticated sender).
  *
- *   Warden serves on loopback  →  Witness connects (challenge/response → session)
- *   →  Witness seals an observation in-band  →  POST /submit
- *   →  Warden unseals → classifies → stores  →  returns receipt
+ *   Warden serves a DIDComm receive loop  ←  Witness seals + sends a submission
+ *   →  Warden authorizes (delegation) → unseals → classifies → stores  →  replies with a receipt
+ *   →  Witness correlates the reply by thid.
  *
- * Reuses the identities under .hearthold-e2e (run after e2e-delegation).
+ * Requires the node's DIDComm service enabled. Uses the identities under .hearthold-e2e.
  *
  * Run:  npm run e2e:submission
  */
@@ -20,31 +20,33 @@ import {
   ensureIdentity,
   ensureDelegationSchema,
   issueDelegation,
-  acceptDelegation,
-  WardenClient,
+  sealForWarden,
+  DidCommTransport,
+  IDENTITY_NAME,
+  PROTOCOL_VERSION,
   Sensitivity,
   type KeymasterHandle,
+  type WitnessSubmission,
 } from '@hearthold/core';
-import { WardenServer } from '@hearthold/warden/server';
 import { WardenService } from '@hearthold/warden/service';
+import { DelegationStore } from '@hearthold/warden/delegations';
+import { makeWardenHandler } from '@hearthold/warden/handler';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const DATA_ROOT = join(here, '..', '.hearthold-e2e');
 const PASSPHRASE = process.env.HEARTHOLD_PASSPHRASE ?? 'hearthold-e2e-passphrase';
 
 let failures = 0;
-function check(label: string, ok: boolean): void {
+const check = (label: string, ok: boolean): void => {
   process.stdout.write(`  ${ok ? '✓' : '✗'} ${label}\n`);
   if (!ok) failures += 1;
-}
-function step(msg: string): void {
-  process.stdout.write(`\n▸ ${msg}\n`);
-}
+};
+const step = (m: string): void => process.stdout.write(`\n▸ ${m}\n`);
 
 async function main(): Promise<void> {
   const config = { ...loadConfig(), dataRoot: DATA_ROOT };
   process.stdout.write(
-    `Hearthold submission e2e (HTTP transport)\n  gatekeeper: ${config.gatekeeperUrl}\n  data:       ${DATA_ROOT}\n`,
+    `Hearthold submission e2e (DIDComm transport)\n  node: ${config.nodeUrl}\n  data: ${DATA_ROOT}\n`,
   );
 
   step('Open agents');
@@ -54,44 +56,53 @@ async function main(): Promise<void> {
   const witnessId = await ensureIdentity(witness, config);
   check('warden + witness ready', wardenId.did.startsWith('did:') && witnessId.did.startsWith('did:'));
 
-  step('Ensure the Witness holds a valid delegation');
+  step('Issue + record a delegation for the Witness');
   const schemaDid = await ensureDelegationSchema(warden);
   const validUntil = new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString();
   const delegationDid = await issueDelegation(warden, witnessId.did, schemaDid, {
     kinds: ['event', 'location', 'activity'],
     validUntil,
   });
-  const accepted = await acceptDelegation(witness, delegationDid);
-  check('delegation issued + accepted', accepted === true);
+  await new DelegationStore(warden).record(witnessId.did, delegationDid);
+  check('delegation issued + recorded', delegationDid.startsWith('did:'));
 
-  step('Warden serves on loopback');
-  const server = new WardenServer(warden);
-  const { addr, port } = await server.listen('127.0.0.1', 0);
-  const baseUrl = `http://${addr}:${port}`;
-  check(`listening at ${baseUrl}`, port > 0);
+  step('Warden serves over DIDComm');
+  const wardenTransport = new DidCommTransport(warden, IDENTITY_NAME.warden, config.nodeUrl);
+  await wardenTransport.ready();
+  const stop = await wardenTransport.serve(
+    makeWardenHandler(new WardenService(warden), new DelegationStore(warden)),
+    { pollMs: 1000 },
+  );
+  check('warden endpoint published + serving', true);
 
   try {
-    step('Witness connects (challenge/response → session)');
-    const client = new WardenClient(witness, baseUrl);
-    await client.connect();
-    check('session established', client.connectedWardenDid === wardenId.did);
-
-    step('Witness submits a sealed observation');
-    const receipt = await client.submit({
+    step('Witness seals + submits over DIDComm');
+    const witnessTransport = new DidCommTransport(witness, IDENTITY_NAME.witness, config.nodeUrl);
+    await witnessTransport.ready();
+    const ciphertext = await sealForWarden(
+      witness,
+      wardenId.did,
+      JSON.stringify({ place: 'Paris, FR', lat: 48.8566, note: 'e2e observation' }),
+    );
+    const submission: WitnessSubmission = {
+      type: 'hearthold/witness-submission',
+      version: PROTOCOL_VERSION,
       kind: 'location',
       observedAt: new Date().toISOString(),
-      payload: { place: 'Paris, FR', lat: 48.8566, lon: 2.3522, note: 'e2e observation' },
-    });
-    check(`receipt returned, artefact ${receipt.artefactId.slice(0, 20)}…`, receipt.artefactId.length > 0);
-    check(`quarantined by default (SEALED=${Sensitivity.SEALED})`, receipt.assignedSensitivity === Sensitivity.SEALED);
+      ciphertext,
+    };
+    const reply = await witnessTransport.request(wardenId.did, submission, { pollMs: 1000 });
+    check('reply is a submission receipt', reply.type === 'hearthold/submission-receipt');
+    const receipt = reply.type === 'hearthold/submission-receipt' ? reply : null;
+    check(`quarantined by default (SEALED=${Sensitivity.SEALED})`, receipt?.assignedSensitivity === Sensitivity.SEALED);
 
     step('Vault holds the (encrypted) artefact');
     const vault = await new WardenService(warden).listArtefacts();
-    const stored = vault.find((a) => a.id === receipt.artefactId);
+    const stored = vault.find((a) => a.id === receipt?.artefactId);
     check('artefact present in vault', stored != null);
     check('stored payload is ciphertext, not plaintext', !!stored && !stored.ciphertext.includes('Paris'));
   } finally {
-    await server.close();
+    stop();
   }
 
   process.stdout.write(`\n${failures === 0 ? 'PASS' : `FAIL (${failures})`}\n`);

@@ -9,8 +9,9 @@
   },
   "exports": {
     ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
-    "./server": { "types": "./dist/server.d.ts", "import": "./dist/server.js" },
     "./service": { "types": "./dist/service.d.ts", "import": "./dist/service.js" },
+    "./handler": { "types": "./dist/handler.d.ts", "import": "./dist/handler.js" },
+    "./delegations": { "types": "./dist/delegations.d.ts", "import": "./dist/delegations.js" },
     "./store": { "types": "./dist/store.d.ts", "import": "./dist/store.js" },
     "./classifier": { "types": "./dist/classifier.d.ts", "import": "./dist/classifier.js" }
   },

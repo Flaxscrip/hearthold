@@ -4,7 +4,11 @@ import {
   openKeymaster,
   ensureIdentity,
   acceptDelegation,
-  WardenClient,
+  sealForWarden,
+  DidCommTransport,
+  IDENTITY_NAME,
+  PROTOCOL_VERSION,
+  type WitnessSubmission,
 } from '@hearthold/core';
 
 const HELP = `Hearthold Witness — Companion
@@ -13,17 +17,16 @@ Usage:
   witness init                 Provision the Witness identity (wallet + did:cid)
   witness status               Show identity and config
   witness accept <credDid>     Accept a delegation credential from the Warden
-  witness submit <kind> <text> Seal an observation and submit it to the Warden
+  witness submit <kind> <text> Seal an observation and submit it to the Warden over DIDComm
   witness help                 Show this message
 
   <kind> ∈ event | location | activity | browsing | document
 
 Env:
-  HEARTHOLD_PASSPHRASE      wallet passphrase (required)
-  HEARTHOLD_WARDEN_URL      base URL of the Warden over your private/Tailscale network
-                            (e.g. http://100.x.y.z:8787) — required for submit
-  HEARTHOLD_GATEKEEPER_URL  default http://flaxlap.local:4224
-  HEARTHOLD_DATA_ROOT       default ~/.hearthold
+  HEARTHOLD_PASSPHRASE   wallet passphrase (required)
+  HEARTHOLD_WARDEN_DID   the Warden's did:cid — required for submit
+  HEARTHOLD_NODE_URL     Archon node (Drawbridge) URL; default http://flaxlap.local:4222
+  HEARTHOLD_DATA_ROOT    default ~/.hearthold
 `;
 
 async function main(): Promise<void> {
@@ -47,9 +50,9 @@ async function main(): Promise<void> {
     }
     case 'status': {
       process.stdout.write(
-        `Witness ${id.did}\n  gatekeeper: ${config.gatekeeperUrl}\n` +
-          `  warden:     ${config.wardenUrl ?? '(set HEARTHOLD_WARDEN_URL)'}\n` +
-          `  data:       ${handle.dataFolder}\n`,
+        `Witness ${id.did}\n  node:   ${config.nodeUrl}\n` +
+          `  warden: ${config.wardenDid ?? '(set HEARTHOLD_WARDEN_DID)'}\n` +
+          `  data:   ${handle.dataFolder}\n`,
       );
       break;
     }
@@ -64,20 +67,34 @@ async function main(): Promise<void> {
       const kind = process.argv[3];
       const text = process.argv.slice(4).join(' ');
       if (!kind || !text) throw new Error('usage: witness submit <kind> <text>');
-      if (!config.wardenUrl) throw new Error('HEARTHOLD_WARDEN_URL is required for submit');
+      const wardenDid = config.wardenDid;
+      if (!wardenDid) throw new Error('HEARTHOLD_WARDEN_DID is required for submit');
 
-      const client = new WardenClient(handle, config.wardenUrl);
-      await client.connect();
-      const receipt = await client.submit({
+      const transport = new DidCommTransport(handle, IDENTITY_NAME.witness, config.nodeUrl);
+      await transport.ready();
+      const ciphertext = await sealForWarden(handle, wardenDid, JSON.stringify({ text }));
+      const submission: WitnessSubmission = {
+        type: 'hearthold/witness-submission',
+        version: PROTOCOL_VERSION,
         kind: kind as never,
         observedAt: new Date().toISOString(),
-        payload: { text },
-      });
-      process.stdout.write(
-        `Submitted ${kind} to Warden ${client.connectedWardenDid?.slice(0, 24)}…\n` +
-          `  artefact:    ${receipt.artefactId.slice(0, 28)}…\n` +
-          `  sensitivity: ${receipt.assignedSensitivity} (stored ${receipt.storedAt})\n`,
-      );
+        ciphertext,
+      };
+      const reply = await transport.request(wardenDid, submission);
+
+      if (reply.type === 'hearthold/submission-receipt') {
+        process.stdout.write(
+          `Submitted ${kind} to Warden ${wardenDid.slice(0, 24)}…\n` +
+            `  artefact:    ${reply.artefactId.slice(0, 28)}…\n` +
+            `  sensitivity: ${reply.assignedSensitivity} (stored ${reply.storedAt})\n`,
+        );
+      } else if (reply.type === 'hearthold/error') {
+        process.stderr.write(`Warden refused: ${reply.reason}\n`);
+        process.exitCode = 1;
+      } else {
+        process.stderr.write(`Unexpected reply: ${reply.type}\n`);
+        process.exitCode = 1;
+      }
       break;
     }
     default:

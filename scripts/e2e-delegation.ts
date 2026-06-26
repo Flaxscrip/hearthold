@@ -44,7 +44,7 @@ function step(msg: string): void {
 async function main(): Promise<void> {
   const config = { ...loadConfig(), dataRoot: DATA_ROOT };
   process.stdout.write(
-    `Hearthold delegation e2e\n  gatekeeper: ${config.gatekeeperUrl}\n` +
+    `Hearthold delegation e2e\n  node:       ${config.nodeUrl}\n` +
       `  registry:   ${config.registry}\n  data:       ${DATA_ROOT}\n`,
   );
 

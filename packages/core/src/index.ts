@@ -9,5 +9,4 @@ export * from './credentials.js';
 export * from './schema.js';
 export * from './auth.js';
 export * from './payload.js';
-export * from './http.js';
-export * from './client.js';
+export * from './transport.js';

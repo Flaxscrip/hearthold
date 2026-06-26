@@ -23,7 +23,7 @@ export async function openKeymaster(
   config: HearthholdConfig,
   passphrase: string,
 ): Promise<KeymasterHandle> {
-  const gatekeeper = await GatekeeperClient.create({ url: config.gatekeeperUrl });
+  const gatekeeper = await GatekeeperClient.create({ url: config.nodeUrl });
   const dataFolder = agentDataFolder(config, role);
   const wallet = new WalletJson('wallet.json', dataFolder);
   const cipher = new CipherNode();

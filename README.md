@@ -57,9 +57,9 @@ docs/
 ## Status
 
 Working and tested live: identity provisioning, the delegation handshake, and the
-witness → store → receipt loop over a private HTTP (Tailscale) transport. Next: the local-model
-classifier/index and the evidence-graph "prove" flow. See [docs/PLAN.md](docs/PLAN.md) and
-[docs/manual-testing.md](docs/manual-testing.md).
+witness → store → receipt loop over **Archon DIDComm v2** (`Transport` seam in
+`packages/core/src/transport.ts`). Next: the local-model classifier/index and the evidence-graph
+"prove" flow. See [docs/PLAN.md](docs/PLAN.md) and [docs/manual-testing.md](docs/manual-testing.md).
 
 ## License
 

@@ -61,7 +61,7 @@ async function waitForEndpoint(resolver: KeymasterHandle, did: string, attempts 
 }
 
 async function main(): Promise<void> {
-  const config = { ...loadConfig(), gatekeeperUrl: NODE_URL, dataRoot: DATA_ROOT };
+  const config = { ...loadConfig(), nodeUrl: NODE_URL, dataRoot: DATA_ROOT };
   process.stdout.write(`DIDComm smoke\n  node: ${NODE_URL}\n  data: ${DATA_ROOT}\n`);
 
   step('Provision identities + advertise DIDComm endpoints');

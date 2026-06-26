@@ -59,9 +59,10 @@ See [security-model.md](security-model.md). In brief:
 1. **Identities** ✅ — Hearthold Keymaster wiring; `Warden` + `Witness` DIDs (`init`).
 2. **Delegation handshake** ✅ — `HearthholdDelegation` VC issue/accept + challenge/response;
    tested live (`e2e:delegation`). CLI: `warden delegate` / `witness accept`.
-3. **Transport + Witness → store** ✅ — HTTP/Tailscale service; session via challenge/response;
-   in-band sealed submission; Warden unseals → classifies → stores → receipt. Tested live
-   (`e2e:submission`). CLI: `warden serve` / `witness submit`.
+3. **Transport + Witness → store** ✅ — **DIDComm v2** transport (`Transport` seam); authcrypt
+   authenticates the sender (no session handshake); Warden authorizes via the recorded delegation,
+   unseals → classifies → stores → replies with a receipt correlated by `thid`. Tested live
+   (`e2e:submission` + two-process CLI). CLI: `warden serve` / `witness submit`.
 4. **Index** — Warden classifies + indexes via the local model (Ollama: `qwen3:8b` classifier,
    `nomic-embed-text` embeddings). Replaces the `QuarantineClassifier` seam.
 5. **Prove + step-up** — Witness `POST /evidence`; Warden checks `authz clears sensitivity`,

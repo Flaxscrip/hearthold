@@ -1,12 +1,13 @@
 /**
- * Hearthold wire protocol — the messages exchanged between Witness and Warden over the private
- * (Tailscale) HTTP channel. Payloads are sealed in-band as bare ciphertext (see payload.ts);
- * nothing is anchored on a registry, so the Witness↔Warden relationship is never observable.
+ * Hearthold wire protocol — the messages exchanged between Witness and Warden. They are carried as
+ * DIDComm v2 message bodies (see transport.ts); payloads are sealed in-band as bare ciphertext
+ * (see payload.ts), so nothing is anchored on a registry and the relationship is not observable.
+ * The messages are transport-agnostic: the same shapes would ride any request/reply transport.
  */
 
 import type { Sensitivity, AuthzTier, DisclosureMode } from './security.js';
 
-export const PROTOCOL_VERSION = '0.2.0' as const;
+export const PROTOCOL_VERSION = '0.3.0' as const;
 
 /** Kinds of observation the Witness can submit. Extended over time. */
 export type WitnessKind = 'event' | 'location' | 'activity' | 'browsing' | 'document';
@@ -35,26 +36,6 @@ export interface SubmissionReceipt {
   /** Sensitivity the Warden assigned (post-classification, or quarantine default). */
   assignedSensitivity: Sensitivity;
   storedAt: string;
-}
-
-// ── Session handshake (challenge/response → token) ─────────────────────────────
-
-/** Warden → Witness: a challenge to be answered to open a session. */
-export interface SessionChallenge {
-  challengeDid: string;
-}
-
-/** Witness → Warden: the response proving DID control + delegation. */
-export interface SessionRequest {
-  responseDid: string;
-}
-
-/** Warden → Witness: an opened session, scoped to the baseline STANDING tier. */
-export interface SessionGrant {
-  token: string;
-  /** The authorization tier this session establishes without step-up. */
-  tier: AuthzTier;
-  expiresAt: string;
 }
 
 // ── Witness → Warden: evidence (with per-request step-up) ──────────────────────
@@ -106,8 +87,16 @@ export interface StepUpProof {
   value: string;
 }
 
+/** Warden → Witness: a request was refused (e.g. not authorized). */
+export interface ErrorMessage {
+  type: 'hearthold/error';
+  version: typeof PROTOCOL_VERSION;
+  reason: string;
+}
+
 export type HearthholdMessage =
   | WitnessSubmission
   | SubmissionReceipt
   | EvidenceRequest
-  | EvidenceResponse;
+  | EvidenceResponse
+  | ErrorMessage;
