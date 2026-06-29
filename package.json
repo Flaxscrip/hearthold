@@ -23,7 +23,9 @@
     "smoke:didcomm": "npm run build && node --experimental-strip-types scripts/didcomm-smoke.ts",
     "e2e:issued": "npm run build && node --experimental-strip-types scripts/e2e-issued.ts",
     "e2e:prove": "npm run build && node --experimental-strip-types scripts/e2e-prove.ts",
-    "e2e:prove-didcomm": "npm run build && node --experimental-strip-types scripts/e2e-prove-didcomm.ts"
+    "e2e:prove-didcomm": "npm run build && node --experimental-strip-types scripts/e2e-prove-didcomm.ts",
+    "e2e:projector": "npm run build && node --experimental-strip-types scripts/e2e-projector.ts",
+    "proto:vwc": "npm run build && node --experimental-strip-types scripts/proto-vwc.ts"
   },
   "engines": {
     "node": ">=22"

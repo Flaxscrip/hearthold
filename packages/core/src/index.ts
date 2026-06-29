@@ -12,3 +12,4 @@ export * from './payload.js';
 export * from './transport.js';
 export * from './issued.js';
 export * from './prove.js';
+export * from './dtg.js';
