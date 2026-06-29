@@ -9,7 +9,8 @@
     "packages/core",
     "packages/warden",
     "packages/witness",
-    "packages/sovereign"
+    "packages/sovereign",
+    "packages/verifier"
   ],
   "scripts": {
     "build": "tsc --build",

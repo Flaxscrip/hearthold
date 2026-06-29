@@ -1,0 +1,17 @@
+{
+  "name": "@hearthold/verifier",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Hearthold Verifier — a relying party: request a proof and verify it against a trusted issuer.",
+  "bin": {
+    "verifier": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@hearthold/core": "0.1.0"
+  }
+}

@@ -6,6 +6,7 @@ export const IDENTITY_NAME = {
   warden: 'hearthold-warden',
   witness: 'hearthold-witness',
   sovereign: 'hearthold-sovereign',
+  verifier: 'hearthold-verifier',
 } as const;
 
 export interface AgentIdentity {

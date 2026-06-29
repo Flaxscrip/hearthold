@@ -98,6 +98,36 @@ authorizes by the delegation it recorded; the Witness need not present it for su
 - Handy: `… warden … status` / `… witness … status` show identity + config; append `help` for the
   full verb list.
 
+## Prove flow — proving an `issued` credential
+
+A verifier proves a Sovereign holds a valid third-party credential (e.g. a guild membership),
+gated by the Signet. The fully automated loop is `npm run e2e:prove-didcomm`; the manual version:
+
+Prereq: the Sovereign holds a credential issued to it (`sovereign accept <credDid>`). The issuer (a
+guild manager) issues it from their own wallet — note the `schemaDid` and the issuer's DID, which
+the verifier needs.
+
+**Terminal A — Sovereign serves (the Signet prompts for your PIN on each disclosure):**
+
+```bash
+export HEARTHOLD_PASSPHRASE='choose-a-passphrase'
+export HEARTHOLD_SIGNET_PIN='1234'
+node packages/sovereign/dist/index.js serve     # stays running
+```
+
+**Terminal B — Verifier requests + verifies:**
+
+```bash
+export HEARTHOLD_PASSPHRASE='choose-a-passphrase'
+node packages/verifier/dist/index.js init
+node packages/verifier/dist/index.js verify <sovereign-did> <schema-did> <issuer-did> role=Raid-Lead
+```
+
+When the request arrives, **Terminal A shows the Signet prompt** — type the PIN to approve (blank to
+deny). **Terminal B** prints `✓ VERIFIED` with the disclosed claims and the trusted issuer, or `✗`
+if the Sovereign declined or the issuer isn't trusted. Trust rests on the **issuer's** signature,
+not the Warden's.
+
 ## 5. Command reference
 
 | Warden | Witness |

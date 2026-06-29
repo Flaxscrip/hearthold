@@ -2,7 +2,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 /** Which Hearthold agent a process is acting as. */
-export type AgentRole = 'warden' | 'witness' | 'sovereign';
+export type AgentRole = 'warden' | 'witness' | 'sovereign' | 'verifier';
 
 export interface HearthholdConfig {
   /**
