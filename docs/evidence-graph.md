@@ -161,6 +161,23 @@ Every leaf carries a **`descriptionSource`**: `issuer-asserted` | `sovereign-con
 such; the Sovereign can override one, producing a `sovereign-confirmed` description that supersedes
 it.
 
+## Verifying an `issued` claim (built)
+
+For "I hold a valid credential of type X from issuer Y", the proof is an **Archon
+challenge/response presentation** — no new credential is minted:
+
+- the **verifier** issues a challenge naming the schema it requires and the **issuers it trusts**
+  (a fresh, verifier-bound, single-use challenge — this is the audience binding);
+- the **Sovereign** (holder) presents the credential — the act of presenting *is* the
+  external-disclosure approval;
+- `verifyResponse` returns `match: true` plus the disclosed credential in `vps[]` — its
+  `credentialSubject` claims **and** its `issuer` and `proof`. The verifier reads the claims and
+  confirms the issuer is one it trusts.
+
+So the verifier's trust rests on the **original issuer's** signature, surfaced directly by the
+presentation. See `core/prove.ts` (`requestProof` / `presentProof` / `verifyProof`). Derived and
+`witnessed` claims (a Warden-minted evidence graph over sealed data) build on top of this.
+
 ## Trust model
 
 The Warden is the **assembler and custodian**: for `issued` leaves it verifies the *original

@@ -66,11 +66,13 @@ See [security-model.md](security-model.md). In brief:
 4. **Classifier** ✅ — Warden classifies sensitivity on-device via a local model (Ollama
    `qwen3:8b`, structured output), fail-safe to `SEALED`. CLI: `warden classify`. **Index** (vector
    retrieval via `nomic-embed-text`) follows when the evidence flow needs retrieval.
-5. **Prove + step-up** — Witness `POST /evidence`; Warden checks `authz clears sensitivity`,
-   demands step-up (challenge / PIN / passphrase) for sensitive content, and returns a signed
-   **evidence graph** — a derived attestation plus a redacted, hash-anchored provenance subgraph
-   (see [evidence-graph.md](evidence-graph.md)). A third party verifies it against the Warden's
-   (and, when co-signed, the Sovereign's) DID. Disclosure is issuer-attested.
+5. **Prove** — for an `issued` claim ("I hold a valid credential of type X from issuer Y") the proof
+   is an Archon challenge/response presentation: the verifier challenges (naming the schema + trusted
+   issuers = audience binding), the Sovereign presents (which *is* the disclosure approval), and the
+   verifier reads the disclosed claims + confirms the original issuer's signature. **Built & tested**
+   (`core/prove.ts`, `e2e:prove`). Foundation done: Sovereign DID + `accept-credential` → `issued`
+   leaf. **Next:** derived/`witnessed` claims via a Warden-minted evidence graph + Sovereign
+   co-sign (see [evidence-graph.md](evidence-graph.md)).
 
 ### S — Sovereign control plane (Signet)  ◀ pairs with step 5
 Third identity (**Sovereign**) + **Signet** app (dev: 3rd wallet → separate device). Lift policy
