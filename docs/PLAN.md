@@ -81,6 +81,14 @@ out of `security.ts` into a **Sovereign-signed configuration** the Warden verifi
 Signet as a **proof-of-human aggregator** (PIN → biometric → face-liveness). SEALED-to-Sovereign
 encryption deferred. Full design + open questions in [sovereign-signet.md](sovereign-signet.md).
 
+### W — Witness as projector + per-device model
+Make the **Witness** the world-facing projector (PVM Mage): a verifier contacts the Witness, which
+**relays sensitive disclosures to the Signet** for proof-of-human approval + signing, then carries
+the proof out — moving presentation off `sovereign serve` (which keeps the Signet an *occasional*
+authority, not a server). Plus **per-device Witnesses** (one Sovereign, many Witnesses) with
+**kind-scope enforcement** (a submission's `kind` must be in that Witness's delegated `kinds`). See
+the actors table in [architecture.md](architecture.md).
+
 ### P2 — NAS / filesystem ingestion
 Filesystem connector, bulk classification, fail-safe quarantine, human-confirm triage.
 

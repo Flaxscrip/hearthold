@@ -51,6 +51,39 @@ const keymaster  = new Keymaster({
 });
 ```
 
+## Actors & exclusive purposes
+
+The three identities keep deliberately exclusive jobs — drawn from the PVM archetypes (Mage /
+First Person / Swordsman):
+
+| | does | never |
+|---|---|---|
+| **Witness** (many, per device) — *Mage* | **interfaces with the world**: *sees in* (witnesses local context) **and** *projects out* (presents proofs, carries requests), carrying delegated authority and **no secrets** | is the authority, the subject of a claim, or the approver of a disclosure |
+| **Sovereign** (one, the Signet) — *First Person* | **decides + approves + signs**: authorizes disclosures with proof-of-human, holds credentials as subject, signs the Warden's policy | witnesses routine context, or runs as an always-on server |
+| **Warden** (one) — *Swordsman* | **protects + custodies + derives**: holds the sealed vault, classifies on-device, assembles/derives evidence | acts in the world, or holds the deciding secret |
+
+**One Sovereign, many Witnesses.** A Witness DID is a *per-device session recorder* — each device
+(phone, browser) gets its own. This is not optional: a shared Witness DID would mean the same key on
+every device, with **mailbox contention** (the relay keys messages by recipient DID, so devices
+would compete for replies), **endpoint conflicts** (last writer wins), and a blast radius the size
+of your least-secure device. Per-device gives precise provenance (`witnessedBy` per artefact),
+granular revocation, and scoped capability — a phone witnesses location, a browser witnesses
+browsing. (`backupId`/`recoverId` *moves* a Witness to a new device; it does not run one concurrently
+on several.) The Warden already tracks *N* Witnesses (`DelegationStore` is a list); a **kind-scope**
+refinement (reject a submission whose `kind` isn't in *that* Witness's delegated `kinds`) makes the
+per-device scope enforceable.
+
+**Projection is a Witness act; the authority behind it is the Sovereign's.** The Witness is the
+world-facing emissary that carries a proof out — but it carries *delegated* authority, not the
+deciding secret. For a sensitive disclosure it **relays to the Signet**, the Sovereign approves with
+proof-of-human and signs, and the Witness projects the result. Low-stakes/pre-authorized projections
+the Witness may do alone under standing delegation. This matches §7.7 (the relaying agent carries, it
+does not author or approve) and keeps the Signet an *occasional* authority, not a server.
+
+> Status: the current build simplifies this — `sovereign serve` presents proofs directly. Moving
+> presentation to a **Witness that relays to the Signet for approval** is a planned refactor (see
+> [PLAN.md](PLAN.md)); it is the PVM-faithful and operationally correct shape.
+
 ## Trust relationship
 
 ```

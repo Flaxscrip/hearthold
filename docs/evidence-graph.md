@@ -208,6 +208,42 @@ is referenceable by DID from this graph.
    revocation status. For `witnessed`/`attested` it reasons (local model) over the evidence — *do
    142 pings over six months constitute "residence"?* — a fallible, `machine-derived` judgement that
    is disclosed as such and that the Sovereign may override.
+4. **Evidence resolution & review (incl. vision).** When a submission *references* an evidence DID
+   (e.g. a Sovereign-created photo, a GPS asset), the Warden does not just read the citation as text
+   — it **resolves the DID, fetches the asset, and reviews the content** with a local model: the text
+   model for JSON/GPS, a local **vision** model for images (`qwen3` is text-only, so image review
+   needs e.g. llava / qwen2-vl behind the classifier seam). The resolved-and-verified asset then
+   enters the graph as a leaf, rather than as an unverified text mention.
+   *Caveat:* if the asset is encrypted to the Sovereign, the Warden cannot open it — it can confirm
+   the asset exists and who signed it, but content review requires a Warden-readable (or
+   Sovereign-assisted) asset.
+
+## Composite & multi-signer evidence (multi-sig, done differently)
+
+Archon has no co-signed-single-credential (one object, N issuer signatures). The evidence graph
+makes that unnecessary: instead of *one object with N signatures*, you **link N single-sig objects**
+and the verifier checks each. This is strictly more flexible — every attestation is **independently
+verifiable** *and* **selectively disclosable** (reveal a subset). The graph *is* the composition.
+
+Archon already supports the verification side: a challenge's `credentials` is an **array**, so a
+verifier can require *several* credentials from *several* issuers at once — *"a guild VC **and** a
+witnessed observation **and** a Sovereign-signed asset"* — satisfied by presenting several VPs. No
+native multi-sig needed.
+
+Two degrees of this:
+
+- **Multi-agent (one person, several keys).** A Sovereign-signed asset (`create-asset-image`) cited
+  by a Witness-submitted observation is *two of the same person's keys* attesting to related objects.
+  For *external* trust it is still self-attested (`witnessed` class), but it buys **separation of
+  duties** (the field agent observes; the principal signs) and **tamper-evidence** (forging the
+  bundle needs *both* keys, on two devices). This is the single-person warm-up.
+- **Multi-party (different people's DIDs).** The same graph with leaves signed by *independent*
+  parties — a notary, a witness, the subject — is the corroboration an external verifier actually
+  wants (the third-party-attestation point, F6). This is where composite evidence becomes powerful.
+
+So "multi-sig" in Hearthold is a graph of single-sig leaves, and Q-resolution (above) is how the
+Warden turns a *referenced* Sovereign-signed asset into a *verified* leaf — realizing the
+two-signature bundle a verifier can check.
 
 ## Decisions
 
