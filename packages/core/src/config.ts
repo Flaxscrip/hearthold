@@ -17,6 +17,8 @@ export interface HearthholdConfig {
   dataRoot: string;
   /** Witness: the Warden's DID to address over DIDComm. */
   wardenDid?: string;
+  /** Witness (projector): the Sovereign's DID to relay sensitive disclosures to (the Signet). */
+  sovereignDid?: string;
   /** Warden: local model endpoint for the classifier (Ollama). Stays on-device. */
   ollamaUrl: string;
   /** Warden: local model used to classify sensitivity. */
@@ -40,6 +42,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): HearthholdConf
     registry: env.HEARTHOLD_REGISTRY ?? DEFAULT_REGISTRY,
     dataRoot: env.HEARTHOLD_DATA_ROOT ?? DEFAULT_DATA_ROOT,
     wardenDid: env.HEARTHOLD_WARDEN_DID,
+    sovereignDid: env.HEARTHOLD_SOVEREIGN_DID,
     ollamaUrl: env.HEARTHOLD_OLLAMA_URL ?? DEFAULT_OLLAMA_URL,
     classifierModel: env.HEARTHOLD_CLASSIFIER_MODEL ?? DEFAULT_CLASSIFIER_MODEL,
     classifierMode: env.HEARTHOLD_CLASSIFIER === 'quarantine' ? 'quarantine' : 'ollama',

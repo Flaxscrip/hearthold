@@ -11,22 +11,26 @@ import {
   type WitnessSubmission,
 } from '@hearthold/core';
 
+import { makeWitnessProjectorHandler } from './handler.js';
+
 const HELP = `Hearthold Witness — Companion
 
 Usage:
-  witness init                 Provision the Witness identity (wallet + did:cid)
+  witness init                 Provision the Witness identity + publish its DIDComm endpoint
   witness status               Show identity and config
   witness accept <credDid>     Accept a delegation credential from the Warden
   witness submit <kind> <text> Seal an observation and submit it to the Warden over DIDComm
+  witness serve                Project to the world: relay proof-requests to the Sovereign (Signet)
   witness help                 Show this message
 
   <kind> ∈ event | location | activity | browsing | document
 
 Env:
-  HEARTHOLD_PASSPHRASE   wallet passphrase (required)
-  HEARTHOLD_WARDEN_DID   the Warden's did:cid — required for submit
-  HEARTHOLD_NODE_URL     Archon node (Drawbridge) URL; default http://flaxlap.local:4222
-  HEARTHOLD_DATA_ROOT    default ~/.hearthold
+  HEARTHOLD_PASSPHRASE     wallet passphrase (required)
+  HEARTHOLD_WARDEN_DID     the Warden's did:cid — required for submit
+  HEARTHOLD_SOVEREIGN_DID  the Sovereign's did:cid — required for serve (relay target)
+  HEARTHOLD_NODE_URL       Archon node (Drawbridge) URL; default http://flaxlap.local:4222
+  HEARTHOLD_DATA_ROOT      default ~/.hearthold
 `;
 
 async function main(): Promise<void> {
@@ -45,7 +49,17 @@ async function main(): Promise<void> {
 
   switch (cmd) {
     case 'init': {
-      process.stdout.write(`Witness ready\n  name: ${id.name}\n  did:  ${id.did}\n`);
+      let published = false;
+      try {
+        await new DidCommTransport(handle, IDENTITY_NAME.witness, config.nodeUrl).ready();
+        published = true;
+      } catch {
+        published = false;
+      }
+      process.stdout.write(
+        `Witness ready\n  name: ${id.name}\n  did:  ${id.did}\n` +
+          `  didcomm: ${published ? 'endpoint published' : 'NOT published (run init again once DIDComm is up)'}\n`,
+      );
       break;
     }
     case 'status': {
@@ -95,6 +109,29 @@ async function main(): Promise<void> {
         process.stderr.write(`Unexpected reply: ${reply.type}\n`);
         process.exitCode = 1;
       }
+      break;
+    }
+    case 'serve': {
+      const sovereignDid = config.sovereignDid;
+      if (!sovereignDid) {
+        throw new Error(
+          'HEARTHOLD_SOVEREIGN_DID is required to serve — the Witness relays disclosures to the Sovereign',
+        );
+      }
+      const transport = new DidCommTransport(handle, IDENTITY_NAME.witness, config.nodeUrl);
+      await transport.ready();
+      const stop = await transport.serve(makeWitnessProjectorHandler(transport, sovereignDid));
+      process.stdout.write(
+        `Witness projecting over DIDComm (relays proof-requests to the Sovereign/Signet)\n` +
+          `  did:       ${id.did}\n` +
+          `  sovereign: ${sovereignDid.slice(0, 28)}…\n  (Ctrl-C to stop)\n`,
+      );
+      const shutdown = (): void => {
+        stop();
+        process.exit(0);
+      };
+      process.on('SIGINT', shutdown);
+      process.on('SIGTERM', shutdown);
       break;
     }
     default:

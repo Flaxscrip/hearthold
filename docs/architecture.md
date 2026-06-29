@@ -80,9 +80,12 @@ proof-of-human and signs, and the Witness projects the result. Low-stakes/pre-au
 the Witness may do alone under standing delegation. This matches §7.7 (the relaying agent carries, it
 does not author or approve) and keeps the Signet an *occasional* authority, not a server.
 
-> Status: the current build simplifies this — `sovereign serve` presents proofs directly. Moving
-> presentation to a **Witness that relays to the Signet for approval** is a planned refactor (see
-> [PLAN.md](PLAN.md)); it is the PVM-faithful and operationally correct shape.
+> Status: **implemented.** `witness serve` is the world-facing projector: a verifier addresses the
+> Witness, which relays the proof-request to the Sovereign over DIDComm; the Signet approves with
+> proof-of-human and presents, and the Witness carries the presentation back. The Witness holds no
+> deciding secret (it only carries — §7.7), and the Signet stays an *occasional* approver. The direct
+> `sovereign serve` path remains for headless/standalone use. Tested live (`e2e:projector`, approve +
+> decline). Verifier target: pass the **Witness** DID (`verifier verify <witnessDid> …`).
 
 ## Trust relationship
 

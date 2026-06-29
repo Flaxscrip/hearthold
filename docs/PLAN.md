@@ -82,10 +82,12 @@ Signet as a **proof-of-human aggregator** (PIN → biometric → face-liveness).
 encryption deferred. Full design + open questions in [sovereign-signet.md](sovereign-signet.md).
 
 ### W — Witness as projector + per-device model
-Make the **Witness** the world-facing projector (PVM Mage): a verifier contacts the Witness, which
-**relays sensitive disclosures to the Signet** for proof-of-human approval + signing, then carries
-the proof out — moving presentation off `sovereign serve` (which keeps the Signet an *occasional*
-authority, not a server). Plus **per-device Witnesses** (one Sovereign, many Witnesses) with
+**Projector ✅** — the **Witness** is now the world-facing projector (PVM Mage): a verifier contacts
+the Witness (`witness serve`), which **relays the proof-request to the Signet** for proof-of-human
+approval + presentation, then carries the proof out. Presentation no longer has to run on
+`sovereign serve` (the Signet stays an *occasional* approver, not a server); the Witness carries and
+never approves (§7.7). Built & tested (`core` + `witness/handler.ts`, `e2e:projector` — approve +
+decline). **Still to do:** **per-device Witnesses** (one Sovereign, many Witnesses) with
 **kind-scope enforcement** (a submission's `kind` must be in that Witness's delegated `kinds`). See
 the actors table in [architecture.md](architecture.md).
 

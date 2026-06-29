@@ -16,9 +16,12 @@ const HELP = `Hearthold Verifier — a relying party
 Usage:
   verifier init                                       Provision the verifier identity + endpoint
   verifier status                                     Show identity and config
-  verifier verify <holderDid> <schemaDid> <issuerDid> [key=value ...]
-                                                      Request a proof and verify it. Trusts
-                                                      <issuerDid>; optional key=value require claims.
+  verifier verify <presenterDid> <schemaDid> <issuerDid> [key=value ...]
+                                                      Request a proof and verify it. <presenterDid>
+                                                      is whoever fields the request — the Sovereign
+                                                      directly, or (preferred) the Witness projector,
+                                                      which relays to the Signet. Trusts <issuerDid>;
+                                                      optional key=value require claims.
   verifier help                                       Show this message
 
 Env:
@@ -61,11 +64,11 @@ async function main(): Promise<void> {
       break;
     }
     case 'verify': {
-      const holderDid = process.argv[3];
+      const presenterDid = process.argv[3];
       const schemaDid = process.argv[4];
       const issuerDid = process.argv[5];
-      if (!holderDid || !schemaDid || !issuerDid) {
-        throw new Error('usage: verifier verify <holderDid> <schemaDid> <issuerDid> [key=value ...]');
+      if (!presenterDid || !schemaDid || !issuerDid) {
+        throw new Error('usage: verifier verify <presenterDid> <schemaDid> <issuerDid> [key=value ...]');
       }
       const requiredClaims: Record<string, unknown> = {};
       for (const kv of process.argv.slice(6)) {
@@ -77,13 +80,13 @@ async function main(): Promise<void> {
       await transport.ready();
 
       process.stdout.write(
-        `Requesting proof from ${holderDid.slice(0, 24)}…\n` +
+        `Requesting proof from ${presenterDid.slice(0, 24)}…\n` +
           `  trusting issuer ${issuerDid.slice(0, 24)}…\n` +
           (Object.keys(requiredClaims).length ? `  requiring ${JSON.stringify(requiredClaims)}\n` : ''),
       );
 
       const challengeDid = await requestProof(handle, { schema: schemaDid, trustedIssuers: [issuerDid] });
-      const reply = await transport.request(holderDid, {
+      const reply = await transport.request(presenterDid, {
         type: 'hearthold/proof-request',
         version: PROTOCOL_VERSION,
         challengeDid,

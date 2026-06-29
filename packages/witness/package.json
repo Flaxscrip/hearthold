@@ -8,7 +8,8 @@
     "witness": "./dist/index.js"
   },
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./handler": { "types": "./dist/handler.d.ts", "import": "./dist/handler.js" }
   },
   "scripts": {
     "build": "tsc --build",
