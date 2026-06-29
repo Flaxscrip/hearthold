@@ -9,6 +9,9 @@ import {
   IssuedStore,
   DidCommTransport,
   IDENTITY_NAME,
+  ensureSchema,
+  openSchema,
+  issueClaim,
 } from '@hearthold/core';
 
 import { makeSovereignHandler } from './handler.js';
@@ -21,6 +24,8 @@ Usage:
   sovereign status           Show identity and config
   sovereign accept <credDid> Accept a third-party credential and record it in the vault
   sovereign issued           List the issued (third-party) credentials in the vault
+  sovereign issue <subjectDid> <type> [key=value ...]
+                             Issue a credential to a subject (act as an issuer, e.g. a guild manager)
   sovereign serve            Serve over DIDComm: present proofs on request
   sovereign help             Show this message
 
@@ -101,6 +106,30 @@ async function main(): Promise<void> {
           `  type:   ${leaf.credentialType}\n` +
           `  issuer: ${leaf.issuer.slice(0, 32)}…\n` +
           `  claims: ${JSON.stringify(leaf.claims)}\n`,
+      );
+      break;
+    }
+    case 'issue': {
+      const subjectDid = process.argv[3];
+      const type = process.argv[4];
+      if (!subjectDid || !type) {
+        throw new Error('usage: sovereign issue <subjectDid> <type> [key=value ...]');
+      }
+      const claims: Record<string, unknown> = { type };
+      for (const kv of process.argv.slice(5)) {
+        const eq = kv.indexOf('=');
+        if (eq > 0) claims[kv.slice(0, eq)] = kv.slice(eq + 1);
+      }
+      const schemaDid = await ensureSchema(handle, type, openSchema(type));
+      const validUntil = new Date(Date.now() + 1000 * 60 * 60 * 24 * 365).toISOString();
+      const credDid = await issueClaim(handle, subjectDid, schemaDid, claims, validUntil);
+      process.stdout.write(
+        `Issued ${type} to ${subjectDid.slice(0, 28)}…\n` +
+          `  claims:     ${JSON.stringify(claims)}\n` +
+          `  credential: ${credDid}\n` +
+          `  schema:     ${schemaDid}\n` +
+          `  → subject runs:  sovereign accept ${credDid}\n` +
+          `  → verifier uses: <schema>=${schemaDid} <issuer>=${id.did}\n`,
       );
       break;
     }

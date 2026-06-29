@@ -103,9 +103,17 @@ authorizes by the delegation it recorded; the Witness need not present it for su
 A verifier proves a Sovereign holds a valid third-party credential (e.g. a guild membership),
 gated by the Signet. The fully automated loop is `npm run e2e:prove-didcomm`; the manual version:
 
-Prereq: the Sovereign holds a credential issued to it (`sovereign accept <credDid>`). The issuer (a
-guild manager) issues it from their own wallet — note the `schemaDid` and the issuer's DID, which
-the verifier needs.
+Prereq: the Sovereign holds a credential. The issuer (a guild manager — itself a Sovereign) issues
+it from their own wallet, then the gamer accepts it:
+
+```bash
+# guild manager (its own HEARTHOLD_DATA_ROOT): issue to the gamer's DID
+node packages/sovereign/dist/index.js issue <gamer-did> GuildMembership 'guild=Drake Island' role=Raid-Lead
+#   → prints the credential DID, the schema DID, and the issuer DID (the verifier needs the last two)
+
+# gamer: accept it into the vault
+node packages/sovereign/dist/index.js accept <credential-did>
+```
 
 **Terminal A — Sovereign serves (the Signet prompts for your PIN on each disclosure):**
 

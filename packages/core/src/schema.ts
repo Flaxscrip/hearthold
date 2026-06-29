@@ -23,6 +23,43 @@ export const DELEGATION_SCHEMA = {
 
 interface SchemaRegistryFile {
   delegationSchemaDid?: string;
+  /** name → schema DID, for issuer-registered credential schemas. */
+  schemas?: Record<string, string>;
+}
+
+/** A permissive schema for a credential type: requires a `type` field, allows any other claims. */
+export function openSchema(type: string): unknown {
+  return {
+    $schema: 'http://json-schema.org/draft-07/schema#',
+    title: type,
+    type: 'object',
+    properties: { type: { type: 'string' } },
+    required: ['type'],
+    additionalProperties: true,
+  };
+}
+
+/**
+ * Ensure a named schema is registered, returning its DID. Idempotent and persisted in the handle's
+ * data folder, so the same name reuses the same schema DID (which a verifier can rely on per type).
+ */
+export async function ensureSchema(
+  handle: KeymasterHandle,
+  name: string,
+  schema: unknown,
+): Promise<string> {
+  const reg = await readRegistry(handle.dataFolder);
+  const existing = reg.schemas?.[name];
+  if (existing) {
+    const ok = await handle.keymaster.getSchema(existing).then((s) => s != null, () => false);
+    if (ok) return existing;
+  }
+  const schemaDid = await handle.keymaster.createSchema(schema);
+  await writeRegistry(handle.dataFolder, {
+    ...reg,
+    schemas: { ...(reg.schemas ?? {}), [name]: schemaDid },
+  });
+  return schemaDid;
 }
 
 function registryPath(dataFolder: string): string {

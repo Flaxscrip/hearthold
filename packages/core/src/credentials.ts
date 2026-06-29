@@ -39,6 +39,22 @@ export async function issueDelegation(
   return warden.keymaster.issueCredential(bound, { schema: schemaDid, validUntil: scope.validUntil });
 }
 
+/**
+ * Issue a credential of arbitrary claims to a subject, bound to `schemaDid`. The issuer must be the
+ * current identity on `issuer`. Returns the credential DID. (This is how a Sovereign acts as an
+ * issuer — e.g. a guild manager issuing membership or raid tickets to gamers.)
+ */
+export async function issueClaim(
+  issuer: KeymasterHandle,
+  subjectDid: string,
+  schemaDid: string,
+  claims: Record<string, unknown>,
+  validUntil?: string,
+): Promise<string> {
+  const bound = await issuer.keymaster.bindCredential(subjectDid, { schema: schemaDid, validUntil, claims });
+  return issuer.keymaster.issueCredential(bound, { schema: schemaDid, validUntil });
+}
+
 /** Accept any credential issued to this identity into its wallet. */
 export async function acceptCredential(
   handle: KeymasterHandle,
