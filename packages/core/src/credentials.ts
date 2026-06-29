@@ -39,6 +39,14 @@ export async function issueDelegation(
   return warden.keymaster.issueCredential(bound, { schema: schemaDid, validUntil: scope.validUntil });
 }
 
+/** Accept any credential issued to this identity into its wallet. */
+export async function acceptCredential(
+  handle: KeymasterHandle,
+  credentialDid: string,
+): Promise<boolean> {
+  return handle.keymaster.acceptCredential(credentialDid);
+}
+
 /** Witness accepts a delegation credential into its wallet. */
 export async function acceptDelegation(
   witness: KeymasterHandle,

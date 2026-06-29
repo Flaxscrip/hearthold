@@ -8,7 +8,8 @@
   "workspaces": [
     "packages/core",
     "packages/warden",
-    "packages/witness"
+    "packages/witness",
+    "packages/sovereign"
   ],
   "scripts": {
     "build": "tsc --build",
@@ -18,7 +19,8 @@
     "e2e": "npm run e2e:delegation && npm run e2e:submission",
     "e2e:delegation": "npm run build && node --experimental-strip-types scripts/e2e-delegation.ts",
     "e2e:submission": "npm run build && node --experimental-strip-types scripts/e2e-submission.ts",
-    "smoke:didcomm": "npm run build && node --experimental-strip-types scripts/didcomm-smoke.ts"
+    "smoke:didcomm": "npm run build && node --experimental-strip-types scripts/didcomm-smoke.ts",
+    "e2e:issued": "npm run build && node --experimental-strip-types scripts/e2e-issued.ts"
   },
   "engines": {
     "node": ">=22"

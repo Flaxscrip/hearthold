@@ -87,6 +87,15 @@ Authorization is **dynamic per request**, carried over the private HTTP channel:
   `requiredTier` and the methods it will accept (`challenge`, `pin`, `passphrase`). The Witness
   satisfies one and retries; the Warden re-runs the release decision at the elevated tier.
 
+**External disclosure always requires the Sovereign's approval.** Internal-access sensitivity is
+*not* the right trigger for proofs that leave to a third party: the operation that matters is *data
+crossing the boundary to a named verifier*. So **any evidence disclosed externally requires a fresh
+Sovereign approval** (the purpose-bearing challenge co-signed via the Signet), independent of how
+sensitive the source artefacts are. The **proof-of-human level** then scales *with* source
+sensitivity — device-unlock for a low-stakes claim, face-liveness for `SEALED`-backed ones. This
+decouples "who/what may read the vault internally" (the tier ladder) from "the Sovereign approves
+what leaves, to whom" (external disclosure).
+
 The `pin` / `passphrase` methods exist to address a problem the delegation alone cannot: a valid
 session proves the *Witness device* is authorized, but **not that the Sovereign is the one holding
 it**. Possession of the device ≠ presence of the person. A per-request secret the Sovereign must

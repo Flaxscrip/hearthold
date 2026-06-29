@@ -21,8 +21,9 @@ import { makeWardenHandler } from './handler.js';
 const HELP = `Hearthold Warden — home Keeper
 
 Usage:
-  warden init              Provision the Warden identity (wallet + did:cid)
+  warden init              Provision the Warden identity + publish its DIDComm endpoint
   warden status            Show identity, vault size, and config
+  warden publish           (Re)publish the Warden's DIDComm endpoint
   warden delegate <did>    Issue a delegation credential to a Witness DID
   warden serve             Serve over DIDComm (poll mailbox, store submissions, reply)
   warden classify <kind> <text>   Classify text with the local model (test the classifier)
@@ -39,6 +40,23 @@ Env:
 `;
 
 const SENSITIVITY_NAMES = ['PUBLIC', 'LOW', 'MEDIUM', 'HIGH', 'SEALED'];
+
+/**
+ * Publish the Warden's DIDComm endpoint so peers can reach it even when `serve` isn't running
+ * (the relay holds messages until the Warden next polls). Best-effort: returns false if the node's
+ * DIDComm isn't available yet, leaving the identity intact to publish later.
+ */
+async function publishEndpoint(
+  handle: Awaited<ReturnType<typeof openKeymaster>>,
+  nodeUrl: string,
+): Promise<boolean> {
+  try {
+    await new DidCommTransport(handle, IDENTITY_NAME.warden, nodeUrl).ready();
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 async function main(): Promise<void> {
   const cmd = process.argv[2] ?? 'help';
@@ -58,7 +76,21 @@ async function main(): Promise<void> {
   switch (cmd) {
     case 'init': {
       const id = await ensureIdentity(handle, config);
-      process.stdout.write(`Warden ready\n  name: ${id.name}\n  did:  ${id.did}\n`);
+      const published = await publishEndpoint(handle, config.nodeUrl);
+      process.stdout.write(
+        `Warden ready\n  name: ${id.name}\n  did:  ${id.did}\n` +
+          `  didcomm: ${
+            published
+              ? 'endpoint published'
+              : 'NOT published — run `warden publish` once the node DIDComm is up'
+          }\n`,
+      );
+      break;
+    }
+    case 'publish': {
+      await ensureIdentity(handle, config);
+      await new DidCommTransport(handle, IDENTITY_NAME.warden, config.nodeUrl).ready();
+      process.stdout.write('Warden DIDComm endpoint published.\n');
       break;
     }
     case 'status': {

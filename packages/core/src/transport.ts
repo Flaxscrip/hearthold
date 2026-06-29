@@ -65,7 +65,27 @@ export class DidCommTransport implements Transport {
     const endpoint = await fetch(`${this.nodeUrl}/api/v1/didcomm-endpoint`)
       .then((r) => r.json())
       .then((j: unknown) => (j as { endpoint: string }).endpoint);
+    if (await this.hasEndpoint(endpoint)) return; // already advertised — avoid DID-doc churn
     await this.handle.keymaster.publishDidComm(endpoint, this.idName);
+  }
+
+  /** Whether this identity already advertises the given DIDComm endpoint in its DID document. */
+  private async hasEndpoint(endpoint: string): Promise<boolean> {
+    try {
+      const doc = (await this.handle.keymaster.resolveDID(this.idName)) as {
+        didDocument?: { service?: Array<{ type?: unknown; serviceEndpoint?: unknown }> };
+      };
+      return (doc.didDocument?.service ?? []).some((s) => {
+        const isDidComm = /DIDCommMessaging/.test(JSON.stringify(s?.type));
+        const uri =
+          typeof s?.serviceEndpoint === 'string'
+            ? s.serviceEndpoint
+            : (s?.serviceEndpoint as { uri?: string } | undefined)?.uri;
+        return isDidComm && uri === endpoint;
+      });
+    } catch {
+      return false;
+    }
   }
 
   async request(

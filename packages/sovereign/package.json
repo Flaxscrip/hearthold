@@ -1,0 +1,20 @@
+{
+  "name": "@hearthold/sovereign",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Hearthold Sovereign — the principal identity (Signet precursor): accept third-party credentials, co-sign approvals.",
+  "bin": {
+    "sovereign": "./dist/index.js"
+  },
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@hearthold/core": "0.1.0"
+  }
+}

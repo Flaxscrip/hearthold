@@ -62,9 +62,9 @@ node packages/witness/dist/index.js init        # → copy the Witness did:cid
 ```bash
 cd ~/Projects/personal/hearthold
 export HEARTHOLD_PASSPHRASE='choose-a-passphrase'
-node packages/warden/dist/index.js init                     # → copy the Warden did:cid
+node packages/warden/dist/index.js init                     # → copy the Warden did:cid (publishes its DIDComm endpoint)
 node packages/warden/dist/index.js delegate <witness-did>   # records the delegation
-node packages/warden/dist/index.js serve                    # publishes endpoint, polls; stays running
+node packages/warden/dist/index.js serve                    # polls the mailbox and replies; stays running
 ```
 
 **Terminal B — submit observations (address the Warden by DID):**
@@ -131,10 +131,11 @@ authorizes by the delegation it recorded; the Witness need not present it for su
 
 - **`HEARTHOLD_PASSPHRASE is required`** → not exported in that terminal.
 - **`HEARTHOLD_WARDEN_DID is required for submit`** → export it in the Witness terminal.
-- **`recipient has no DIDCommMessaging endpoint`** → the Warden hasn't `serve`d yet (it publishes
-  its endpoint on `serve`); start the Warden first.
-- **submit hangs / times out** → the Warden `serve` process isn't running, or DIDComm isn't enabled
-  on the node (check `/api/v1/capabilities`).
+- **`recipient has no DIDCommMessaging endpoint`** → the Warden never published its endpoint. Run
+  `warden init` (which publishes) or `warden publish` on the Warden, once the node's DIDComm is up.
+- **submit hangs / times out** → the Warden published its endpoint (so the send succeeded and the
+  submission is queued in the relay) but no `warden serve` is running to process it and reply.
+  Start `warden serve`. Also check DIDComm is enabled (`/api/v1/capabilities`).
 - **`Warden refused: no valid delegation`** → run `warden delegate <witness-did>` first.
 - **`invalid ghash tag` / wallet won't open** → wrong passphrase for an existing wallet. Start
   clean with `rm -rf ~/.hearthold` (real identities) or `rm -rf .hearthold-e2e` (test identities).

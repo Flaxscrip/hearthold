@@ -5,6 +5,7 @@ import type { HearthholdConfig } from './config.js';
 export const IDENTITY_NAME = {
   warden: 'hearthold-warden',
   witness: 'hearthold-witness',
+  sovereign: 'hearthold-sovereign',
 } as const;
 
 export interface AgentIdentity {

@@ -3,6 +3,7 @@
   "references": [
     { "path": "packages/core" },
     { "path": "packages/warden" },
-    { "path": "packages/witness" }
+    { "path": "packages/witness" },
+    { "path": "packages/sovereign" }
   ]
 }

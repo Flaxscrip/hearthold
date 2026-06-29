@@ -138,22 +138,63 @@ revealing them, and lets it later reveal any single leaf + Merkle path on reques
    holder supplied `SELECTIVE` leaves, recompute digests and check Merkle paths against the root.
 6. **Decide.** Do you trust this Warden/Sovereign as issuer for this claim? If yes, accept.
 
+## Trust classes of evidence (provenance leaves)
+
+A roleplay (landlord asks for proof of FR residence) surfaced that **self-attested evidence does
+not convince an external verifier** — the Warden vouching for the Sovereign's own data is "I say
+so." So each provenance leaf is typed by **trust class**, and the verifier weighs it by *whom it
+trusts*, not by the Warden alone:
+
+| Class | What it is | Verifier trusts | Example |
+|---|---|---|---|
+| `issued` | a third-party Archon VC issued to the Sovereign's DID by an external issuer | the external **issuer's** DID | rental agreement, utility VC, RYT-500 cert |
+| `witnessed` | a self-attested observation, represented as a VC the **Warden issues** (subject = Sovereign, holder = Witness, `witnessedBy` = Witness DID) | the Sovereign's own infrastructure (weak alone) | photo at the Eiffel Tower, location pings |
+| `attested` | a Warden-derived summary over sealed data, **disclosed as machine-derived** | the Warden + the disclosed `descriptionSource` | "142 pings in FR" |
+
+Archon already supports `issued` (third-party VCs); Hearthold *adds* `witnessed`/`attested`
+self-attested proofs — using the same `issueCredential`/`accept` flow, no new mechanism. **Proof
+quality scales with how much is `issued`, and with whether the verifier is itself in the system**
+(a verifier who also runs a Warden can verify inside a shared trust fabric).
+
+Every leaf carries a **`descriptionSource`**: `issuer-asserted` | `sovereign-confirmed` |
+`machine-derived`. Machine descriptions (from the local model) are fallible and are disclosed as
+such; the Sovereign can override one, producing a `sovereign-confirmed` description that supersedes
+it.
+
 ## Trust model
 
-The Warden is the **issuer**: it derives and signs the fact, the Sovereign co-signs the sensitive
-ones, and provenance is hash-anchored to witnessed artefacts. A verifier's trust rests on the
-issuer's signature — exactly as with any credential — plus its own decision to trust that issuer
-for the claim. Privacy comes from **derivation + selective disclosure**: revealing the fact and a
-hash-committed summary of its support, rather than the underlying data.
+The Warden is the **assembler and custodian**: for `issued` leaves it verifies the *original
+issuer's* signature and revocation status, then selectively discloses; for `witnessed`/`attested`
+leaves it issues/derives and signs. A verifier's trust rests on the signature of **each leaf's
+issuer** — the external party for `issued`, the Sovereign's own infrastructure for the rest — plus
+its own decision to trust that issuer for the claim. Privacy comes from **derivation + selective
+disclosure**. Disclosures are **audience-bound** to the verifier's DID (so a proof can't be
+replayed to a different verifier, while the named verifier may retain its copy).
 
 The Sovereign co-signature (the `approval` block) is the **signed response to a purpose-bearing
 Archon challenge** the Warden issued for this `txn` — a dated, DID-attributable approval. Because
 it is a signed artefact (not a repudiable transport message), it stands on its own as evidence and
 is referenceable by DID from this graph.
 
+## Producing a proof — flow (from roleplay)
+
+1. **Canonical claim — authored by the Warden, confirmed by the Sovereign.** The Witness relays the
+   Sovereign's intent (NL or guided); the **Warden** normalizes it to a structured predicate
+   (`{type, …}`) — it is the issuer that must evaluate the claim, so the agent does not get to shape
+   the assertion (§7.7). The Sovereign confirms that canonical claim in the Signet approval preview.
+2. **Retrieval — governed by Sovereign config.** Finding supporting evidence is easy for `issued`
+   leaves (structured credentials, indexed by type/issuer) and harder for `witnessed` ones (the fact
+   is inside sealed payloads → the classifier's **structured-extraction** pass, or decrypt-and-scan).
+   How much structured metadata sits in the clear at rest is a **Sovereign-set Warden config**
+   (signed per the control plane), not a hardcode.
+3. **Claim evaluation.** For `issued` leaves the Warden verifies the original issuer's signature and
+   revocation status. For `witnessed`/`attested` it reasons (local model) over the evidence — *do
+   142 pings over six months constitute "residence"?* — a fallible, `machine-derived` judgement that
+   is disclosed as such and that the Sovereign may override.
+
 ## Decisions
 
-Settled (to be validated by a scenario roleplay before implementation):
+Settled (validated by the residence + third-party-credential roleplays):
 
 1. **Container encoding** — W3C VC 1.1 as the envelope (Keymaster-native), with SD-JWT-VC-style
    salted digests added when `SELECTIVE` is used.
