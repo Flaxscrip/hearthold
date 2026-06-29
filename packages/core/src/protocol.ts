@@ -96,11 +96,21 @@ export interface ProofRequestMessage {
   challengeDid: string;
 }
 
+/** A proof-of-human assertion the Signet produces when the Sovereign approves a disclosure. */
+export interface HumanPresenceAssertion {
+  method: 'pin' | 'passphrase' | 'biometric' | 'face-liveness';
+  /** Assurance level (higher = stronger presence evidence), cf. NIST AAL. */
+  level: number;
+  timestamp: string;
+}
+
 /** Holder → Verifier: the presentation (response DID) for the verifier to verify. */
 export interface ProofPresentationMessage {
   type: 'hearthold/proof-presentation';
   version: typeof PROTOCOL_VERSION;
   responseDid: string;
+  /** The Signet's proof-of-human assertion for this disclosure (when gated). */
+  humanProof?: HumanPresenceAssertion;
 }
 
 /** Warden → Witness: a request was refused (e.g. not authorized). */

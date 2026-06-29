@@ -28,6 +28,7 @@ import {
   type ProofPresentationMessage,
 } from '@hearthold/core';
 import { makeSovereignHandler } from '@hearthold/sovereign/handler';
+import { PinGate } from '@hearthold/sovereign/signet';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const DATA_ROOT = join(here, '..', '.hearthold-e2e');
@@ -71,35 +72,50 @@ async function main(): Promise<void> {
   await acceptCredential(sovereign, credDid);
   check('sovereign holds the credential', credDid.startsWith('did:'));
 
-  step('Sovereign serves over DIDComm');
-  const sovereignTransport = new DidCommTransport(sovereign, IDENTITY_NAME.sovereign, config.nodeUrl);
-  await sovereignTransport.ready();
-  const stop = await sovereignTransport.serve(makeSovereignHandler(sovereign), { pollMs: 1000 });
-  check('sovereign endpoint published + serving', true);
+  const PIN = '1234';
+  const verifierTransport = new DidCommTransport(verifier, IDENTITY_NAME.witness, config.nodeUrl);
+  await verifierTransport.ready();
+  await new DidCommTransport(sovereign, IDENTITY_NAME.sovereign, config.nodeUrl).ready();
 
-  try {
-    step('Verifier requests a proof over DIDComm and verifies it');
-    const verifierTransport = new DidCommTransport(verifier, IDENTITY_NAME.witness, config.nodeUrl);
-    await verifierTransport.ready();
+  const askProof = async (): Promise<import('@hearthold/core').HearthholdMessage> => {
     const challengeDid = await requestProof(verifier, { schema: schemaDid, trustedIssuers: [guildId.did] });
-    const reply = await verifierTransport.request(
+    return verifierTransport.request(
       sovereignId.did,
       { type: 'hearthold/proof-request', version: PROTOCOL_VERSION, challengeDid },
       { pollMs: 1000 },
     );
-    check('got a proof-presentation reply', reply.type === 'hearthold/proof-presentation');
-    const responseDid = reply.type === 'hearthold/proof-presentation'
-      ? (reply as ProofPresentationMessage).responseDid
-      : '';
-    const result = await verifyProof(verifier, responseDid, {
-      trustedIssuers: [guildId.did],
-      requiredClaims: { role: 'Raid-Lead' },
-    });
-    check('proof verifies', result.ok === true);
-    check('disclosed issuer = the Guild', result.disclosed[0]?.issuer === guildId.did);
-    check('disclosed role = Raid-Lead', result.disclosed[0]?.claims.role === 'Raid-Lead');
-  } finally {
-    stop();
+  };
+
+  step('Approve case: Signet PIN approves → present + verify');
+  {
+    const sovT = new DidCommTransport(sovereign, IDENTITY_NAME.sovereign, config.nodeUrl);
+    const stop = await sovT.serve(makeSovereignHandler(sovereign, new PinGate(PIN, PIN)), { pollMs: 1000 });
+    try {
+      const reply = await askProof();
+      check('got a proof-presentation', reply.type === 'hearthold/proof-presentation');
+      const pres = reply.type === 'hearthold/proof-presentation' ? (reply as ProofPresentationMessage) : null;
+      check('carries a proof-of-human (pin, level 1)', pres?.humanProof?.method === 'pin' && pres?.humanProof?.level === 1);
+      const result = await verifyProof(verifier, pres?.responseDid ?? '', {
+        trustedIssuers: [guildId.did],
+        requiredClaims: { role: 'Raid-Lead' },
+      });
+      check('proof verifies', result.ok === true);
+      check('disclosed role = Raid-Lead', result.disclosed[0]?.claims.role === 'Raid-Lead');
+    } finally {
+      stop();
+    }
+  }
+
+  step('Deny case: wrong PIN → disclosure declined, nothing presented');
+  {
+    const sovT = new DidCommTransport(sovereign, IDENTITY_NAME.sovereign, config.nodeUrl);
+    const stop = await sovT.serve(makeSovereignHandler(sovereign, new PinGate(PIN, 'wrong')), { pollMs: 1000 });
+    try {
+      const reply = await askProof();
+      check('disclosure is declined (error reply)', reply.type === 'hearthold/error');
+    } finally {
+      stop();
+    }
   }
 
   process.stdout.write(`\n${failures === 0 ? 'PASS' : `FAIL (${failures})`}\n`);

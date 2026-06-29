@@ -12,6 +12,7 @@ import {
 } from '@hearthold/core';
 
 import { makeSovereignHandler } from './handler.js';
+import { PromptGate } from './signet.js';
 
 const HELP = `Hearthold Sovereign — the principal (Signet precursor)
 
@@ -27,6 +28,7 @@ Env:
   HEARTHOLD_PASSPHRASE   wallet passphrase (required)
   HEARTHOLD_NODE_URL     Archon node (Drawbridge) URL; default http://flaxlap.local:4222
   HEARTHOLD_DATA_ROOT    default ~/.hearthold
+  HEARTHOLD_SIGNET_PIN   Signet PIN that gates each disclosure (required for serve)
 `;
 
 async function main(): Promise<void> {
@@ -62,11 +64,15 @@ async function main(): Promise<void> {
       break;
     }
     case 'serve': {
+      if (!config.signetPin) {
+        throw new Error('HEARTHOLD_SIGNET_PIN is required to serve — it gates each disclosure');
+      }
+      const gate = new PromptGate(config.signetPin);
       const transport = new DidCommTransport(handle, IDENTITY_NAME.sovereign, config.nodeUrl);
       await transport.ready();
-      const stop = await transport.serve(makeSovereignHandler(handle));
+      const stop = await transport.serve(makeSovereignHandler(handle, gate));
       process.stdout.write(
-        `Sovereign serving over DIDComm (presenting proofs on request)\n  did: ${id.did}\n  (Ctrl-C to stop)\n`,
+        `Sovereign serving over DIDComm (Signet PIN approval on each disclosure)\n  did: ${id.did}\n  (Ctrl-C to stop)\n`,
       );
       const shutdown = (): void => {
         stop();

@@ -23,6 +23,8 @@ export interface HearthholdConfig {
   classifierModel: string;
   /** Warden: 'ollama' (local model) or 'quarantine' (fail-safe stub, everything SEALED). */
   classifierMode: 'ollama' | 'quarantine';
+  /** Signet: PIN that gates the Sovereign's approval of a disclosure (the first proof-of-human). */
+  signetPin?: string;
 }
 
 const DEFAULT_NODE_URL = 'http://flaxlap.local:4222';
@@ -41,6 +43,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): HearthholdConf
     ollamaUrl: env.HEARTHOLD_OLLAMA_URL ?? DEFAULT_OLLAMA_URL,
     classifierModel: env.HEARTHOLD_CLASSIFIER_MODEL ?? DEFAULT_CLASSIFIER_MODEL,
     classifierMode: env.HEARTHOLD_CLASSIFIER === 'quarantine' ? 'quarantine' : 'ollama',
+    signetPin: env.HEARTHOLD_SIGNET_PIN,
   };
 }
 

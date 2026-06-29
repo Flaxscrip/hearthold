@@ -6,18 +6,23 @@ import {
   type KeymasterHandle,
 } from '@hearthold/core';
 
+import type { ApprovalGate } from './signet.js';
+
 /**
- * The Sovereign's inbound handler: present a proof in response to a verifier's challenge.
- *
- * NOTE: for now this presents automatically. Presenting *is* the external-disclosure approval, so
- * the production Signet will gate it behind a human approval + proof-of-human before responding;
- * that prompt is the next milestone.
+ * The Sovereign's inbound handler: present a proof in response to a verifier's challenge — but only
+ * after the Signet's `ApprovalGate` confirms a fresh human approval (proof-of-human). Presenting is
+ * the external disclosure, so it is never automatic.
  */
-export function makeSovereignHandler(sovereign: KeymasterHandle): RequestHandler {
-  return async (message) => {
+export function makeSovereignHandler(sovereign: KeymasterHandle, gate: ApprovalGate): RequestHandler {
+  return async (message, fromDid) => {
     if (message.type === 'hearthold/proof-request') {
-      const responseDid = await presentProof(sovereign, (message as ProofRequestMessage).challengeDid);
-      return { type: 'hearthold/proof-presentation', version: PROTOCOL_VERSION, responseDid };
+      const challengeDid = (message as ProofRequestMessage).challengeDid;
+      const humanProof = await gate.approve({ requester: fromDid, challengeDid });
+      if (!humanProof) {
+        return { type: 'hearthold/error', version: PROTOCOL_VERSION, reason: 'disclosure declined by the Sovereign' };
+      }
+      const responseDid = await presentProof(sovereign, challengeDid);
+      return { type: 'hearthold/proof-presentation', version: PROTOCOL_VERSION, responseDid, humanProof };
     }
     return null;
   };

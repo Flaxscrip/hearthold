@@ -99,6 +99,20 @@ liveness proves *a live, verified human now*, with the strength explicit and pol
 - **Signet app.** New front-end on `core`, holding the Sovereign wallet; admin signing + approval
   co-signing surfaces.
 
+## Status — the first Signet (built)
+
+The proof-of-human **approval gate** is built and tested. Presenting a proof is the external
+disclosure, so the Sovereign's serve handler no longer auto-presents: an `ApprovalGate`
+(`packages/sovereign/src/signet.ts`) must return a `HumanPresenceAssertion` first. The first
+provider is a **PIN** (assurance level 1) — `PromptGate` reads it interactively on `sovereign
+serve`; `PinGate` is the headless/test variant. The assertion (`{ method, level, timestamp }`)
+rides the `proof-presentation` back to the verifier. Tested live (`e2e:prove-didcomm`): a correct
+PIN presents + carries the proof-of-human; a wrong PIN declines and presents nothing.
+
+Next on the Signet: stronger providers behind the same gate (biometric, camera face-liveness),
+binding the assertion cryptographically, scaling the required level with sensitivity, and moving
+the Signet to a separate device.
+
 ## Open questions
 
 - **Classification before sealing (for SEALED-to-Sovereign).** The Warden classifies *after*
