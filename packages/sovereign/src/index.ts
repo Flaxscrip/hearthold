@@ -7,15 +7,20 @@ import {
   recordIssuedCredential,
   agentDataFolder,
   IssuedStore,
+  DidCommTransport,
+  IDENTITY_NAME,
 } from '@hearthold/core';
+
+import { makeSovereignHandler } from './handler.js';
 
 const HELP = `Hearthold Sovereign — the principal (Signet precursor)
 
 Usage:
-  sovereign init             Provision the Sovereign identity (wallet + did:cid)
+  sovereign init             Provision the Sovereign identity + publish its DIDComm endpoint
   sovereign status           Show identity and config
   sovereign accept <credDid> Accept a third-party credential and record it in the vault
   sovereign issued           List the issued (third-party) credentials in the vault
+  sovereign serve            Serve over DIDComm: present proofs on request
   sovereign help             Show this message
 
 Env:
@@ -43,7 +48,32 @@ async function main(): Promise<void> {
 
   switch (cmd) {
     case 'init': {
-      process.stdout.write(`Sovereign ready\n  name: ${id.name}\n  did:  ${id.did}\n`);
+      let published = false;
+      try {
+        await new DidCommTransport(handle, IDENTITY_NAME.sovereign, config.nodeUrl).ready();
+        published = true;
+      } catch {
+        published = false;
+      }
+      process.stdout.write(
+        `Sovereign ready\n  name: ${id.name}\n  did:  ${id.did}\n` +
+          `  didcomm: ${published ? 'endpoint published' : 'NOT published (run init again once DIDComm is up)'}\n`,
+      );
+      break;
+    }
+    case 'serve': {
+      const transport = new DidCommTransport(handle, IDENTITY_NAME.sovereign, config.nodeUrl);
+      await transport.ready();
+      const stop = await transport.serve(makeSovereignHandler(handle));
+      process.stdout.write(
+        `Sovereign serving over DIDComm (presenting proofs on request)\n  did: ${id.did}\n  (Ctrl-C to stop)\n`,
+      );
+      const shutdown = (): void => {
+        stop();
+        process.exit(0);
+      };
+      process.on('SIGINT', shutdown);
+      process.on('SIGTERM', shutdown);
       break;
     }
     case 'status': {

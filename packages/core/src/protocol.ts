@@ -87,6 +87,22 @@ export interface StepUpProof {
   value: string;
 }
 
+// ── Prove (verifier ↔ holder) ─────────────────────────────────────────────────
+
+/** Verifier → Holder: answer this challenge (which names the schema + trusted issuers). */
+export interface ProofRequestMessage {
+  type: 'hearthold/proof-request';
+  version: typeof PROTOCOL_VERSION;
+  challengeDid: string;
+}
+
+/** Holder → Verifier: the presentation (response DID) for the verifier to verify. */
+export interface ProofPresentationMessage {
+  type: 'hearthold/proof-presentation';
+  version: typeof PROTOCOL_VERSION;
+  responseDid: string;
+}
+
 /** Warden → Witness: a request was refused (e.g. not authorized). */
 export interface ErrorMessage {
   type: 'hearthold/error';
@@ -99,4 +115,6 @@ export type HearthholdMessage =
   | SubmissionReceipt
   | EvidenceRequest
   | EvidenceResponse
+  | ProofRequestMessage
+  | ProofPresentationMessage
   | ErrorMessage;
