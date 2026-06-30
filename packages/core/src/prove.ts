@@ -16,12 +16,16 @@
  */
 
 import type { KeymasterHandle } from './keymaster.js';
+import type { TrustEvaluator } from './trust-registry.js';
 
 export interface ProofRequest {
   /** Credential schema (DID) the verifier requires. */
   schema: string;
-  /** Issuer DIDs the verifier trusts to assert this. */
-  trustedIssuers: string[];
+  /**
+   * Issuer DIDs the verifier trusts to assert this. Omit (or pass empty) to leave the challenge
+   * open to any issuer — appropriate when issuer trust is decided at verify time by a trust registry.
+   */
+  trustedIssuers?: string[];
 }
 
 /** A credential disclosed to the verifier, with its claims and (trusted) issuer. */
@@ -39,11 +43,21 @@ export interface ProofResult {
   reason?: string;
 }
 
-/** Verifier: create a challenge requiring a credential of `schema` from a trusted issuer. */
+/**
+ * Verifier: create a challenge requiring a credential of `schema`. If `trustedIssuers` is given the
+ * challenge constrains the issuer set; otherwise it is left open (any issuer) and trust is decided at
+ * verify time — e.g. by a trust registry.
+ *
+ * Archon gotcha: **omitting** `issuers` means *any* issuer may fulfill the challenge, whereas
+ * `issuers: []` constrains it to *no* issuer (unfulfillable). So for registry-decided trust we drop
+ * the key entirely rather than pass an empty array.
+ */
 export async function requestProof(verifier: KeymasterHandle, req: ProofRequest): Promise<string> {
-  return verifier.keymaster.createChallenge({
-    credentials: [{ schema: req.schema, issuers: req.trustedIssuers }],
-  });
+  const credential =
+    req.trustedIssuers && req.trustedIssuers.length > 0
+      ? { schema: req.schema, issuers: req.trustedIssuers }
+      : { schema: req.schema };
+  return verifier.keymaster.createChallenge({ credentials: [credential] });
 }
 
 /** Holder (Sovereign): present the held credential in response to the verifier's challenge. */
@@ -53,13 +67,23 @@ export async function presentProof(holder: KeymasterHandle, challengeDid: string
 
 /**
  * Verifier: verify the response, then read the disclosed evidence. Returns the disclosed
- * credentials (claims + issuer) and whether the proof holds — every leaf issued by a trusted
- * issuer, the challenge satisfied, and any `requiredClaims` present.
+ * credentials (claims + issuer) and whether the proof holds — every leaf from a trusted issuer, the
+ * challenge satisfied, and any `requiredClaims` present.
+ *
+ * Issuer trust is established by **either** a static `trustedIssuers` list **or** a `trustRegistry`
+ * (TRQP) the verifier consults — `(issuer, issue, schema)` — for ecosystem-scale trust. Provide one
+ * or both (an issuer is trusted if it satisfies either); at least one is required.
  */
 export async function verifyProof(
   verifier: KeymasterHandle,
   responseDid: string,
-  opts: { trustedIssuers: string[]; requiredClaims?: Record<string, unknown> },
+  opts: {
+    trustedIssuers?: string[];
+    trustRegistry?: TrustEvaluator;
+    /** Schema DID the proof concerned — passed to the registry as the `resource`. */
+    schema?: string;
+    requiredClaims?: Record<string, unknown>;
+  },
 ): Promise<ProofResult> {
   const res = await verifier.keymaster.verifyResponse(responseDid);
 
@@ -81,10 +105,24 @@ export async function verifyProof(
 
   const fail = (reason: string): ProofResult => ({ ok: false, responder: res.responder, disclosed, reason });
 
+  if (!opts.trustedIssuers && !opts.trustRegistry) {
+    return fail('no trust source: provide trustedIssuers and/or a trustRegistry');
+  }
   if (!res.match || res.fulfilled < res.requested || res.requested === 0) {
     return fail('challenge not satisfied');
   }
-  if (!disclosed.every((d) => opts.trustedIssuers.includes(d.issuer))) {
+
+  // An issuer is trusted if it's in the static list OR the registry authorizes it to issue this schema.
+  const isTrusted = async (issuer: string): Promise<boolean> => {
+    if (opts.trustedIssuers?.includes(issuer)) return true;
+    if (opts.trustRegistry) {
+      const r = await opts.trustRegistry.authorize({ entity_id: issuer, action: 'issue', resource: opts.schema });
+      return r.authorized;
+    }
+    return false;
+  };
+  const trust = await Promise.all(disclosed.map((d) => isTrusted(d.issuer)));
+  if (!trust.every(Boolean)) {
     return fail('disclosed credential is from an untrusted issuer');
   }
   if (opts.requiredClaims) {

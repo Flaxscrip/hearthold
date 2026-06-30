@@ -94,6 +94,12 @@ export interface ProofRequestMessage {
   type: 'hearthold/proof-request';
   version: typeof PROTOCOL_VERSION;
   challengeDid: string;
+  /**
+   * The (public) schema DID the challenge concerns. Lets the holder side apply its own disclosure
+   * policy — e.g. the Witness projector maps schema → sensitivity to decide act-alone vs relay. The
+   * sensitivity itself is never taken from the verifier.
+   */
+  schema?: string;
 }
 
 /** A proof-of-human assertion the Signet produces when the Sovereign approves a disclosure. */

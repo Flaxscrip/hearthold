@@ -121,6 +121,31 @@ So: the same TRQP primitive governs both "whom we trust to issue to us" and "whi
 we trust to act, and how far." One mechanism, two directions — and it is exactly DTG's
 thin-credential/fat-registry split, turned inward.
 
+> **Status: built (2026-06-29).** `packages/core/src/trust-registry.ts` adopts the TRQP v2.0 shape
+> from `archon-trust-registry` (`POST /authorization {authority_id, entity_id, action, resource}` →
+> `{authorized, message}`) behind a `TrustEvaluator` seam: `HttpTrustRegistry` consumes a remote
+> registry (outward, the guild/HATPro registry on :4260); `GroupTrustRegistry` runs one in-process
+> over **Archon groups** (inward), authorizing **per `(action, resource)`** — finer than
+> archon-trust-registry's per-role model, which is what grading autonomy needs. `verifyProof` gained a
+> `trustRegistry` option (issuer trusted if in the static list **or** authorized by the registry).
+> `npm run e2e:trust-registry` (PASS, live) shows both: **outward** — a verifier trusts the registry
+> with *no* hardcoded issuers (before grant rejected, after `grantAuthorization` verified); **inward**
+> — a Witness's `present`+`HIGH` clearance granted (act alone) then revoked (auto-downgrade to
+> relay-to-Signet). Note: a registry-trusted proof uses a **schema-only challenge** (open issuer set);
+> the registry decides issuer trust post-disclosure, since the verifier can't enumerate issuers up
+> front.
+>
+> **Wired into the projector (2026-06-29).** `makeWitnessProjectorHandler` takes an optional
+> `ProjectorAutonomy { registry, witness, witnessDid, sensitivityFor }`. On a proof-request the Witness
+> derives the disclosure's **sensitivity from local policy** (never from the verifier), asks the inward
+> registry `(witnessDid, present, <level>)`, and: if cleared, **presents a credential it holds on its
+> own** — no Signet, no proof-of-human (the standing grant is the authority); if above its ceiling, it
+> **relays to the Signet** (the milestone-W path). `npm run e2e:inward-registry` (PASS, live) shows
+> both over DIDComm: a LOW request the Witness fields alone (presentation carries no `humanProof`); a
+> HIGH request it relays, returned with the Signet's `humanProof`. This closes the standing-delegation
+> loop end-to-end: the Sovereign signs the envelope once (registry membership = the standing grant),
+> and the Signet is consulted only above the line.
+
 ## 7. Open design forks
 
 1. **Capability token model.** DTG's relationship layer says *nothing* about the on-the-wire capability
@@ -180,11 +205,13 @@ prototype** (§8) and kept here for the record.
    for predicate/SD presentation (BBS+, SD-JWT-VC)? Determines how soon DTG's ZKP-default is reachable.
 5. **DID-per-relationship cost.** Is a fresh `did:cid` per counterparty (R-DID rule) cheap enough on
    the hyperswarm registry to be routine, or should we scope R-DIDs to higher-value relationships only?
-6. **Trust registry as the policy plane.** `archon-trust-registry` (TRQP) is our registry. Can it serve
-   DTG's role-mapping (DID→role, acceptable issuers, revocation) **and** per-entity **assurance
-   attributes** that change with condition (the inward registry, §6)? Is dynamic/short-TTL evaluation
-   in scope, or do we model condition as a separately-issued, short-lived posture credential the
-   registry references?
+6. **Trust registry as the policy plane.** *(Partly answered — §6 build.)* We reuse the TRQP wire
+   shape and back it with Archon groups, authorizing **per `(action, resource)`** rather than per-role.
+   Open: archon-trust-registry today maps role→actions and passes `resource` through without matching
+   it to storage — would you take a **per-resource binding** upstream (a group per `(action,
+   resource)`)? And for the inward registry's **dynamic condition**: model it as **live group
+   membership** a posture daemon updates (what we prototyped — grant/revoke), or as a **short-lived
+   posture credential** the registry references? This is the main fork still open for the inward side.
 7. **Capability primitive.** Should Archon grow a **native attenuated-delegation object**, or do we
    layer **UCAN/ZCAP** on top of the existing VC + challenge/response? This is the §7.1 fork; we'd
    rather model proper Archon usage than bolt on a token Archon doesn't want.

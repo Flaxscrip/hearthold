@@ -90,6 +90,7 @@ async function main(): Promise<void> {
         type: 'hearthold/proof-request',
         version: PROTOCOL_VERSION,
         challengeDid,
+        schema: schemaDid,
       });
 
       if (reply.type === 'hearthold/error') {
