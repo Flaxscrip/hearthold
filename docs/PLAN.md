@@ -55,7 +55,12 @@ See [security-model.md](security-model.md). In brief:
 
 ## Milestones
 
-### v1 — the witness→store→prove loop  ◀ current target
+The back-end is now broad — identities, DIDComm transport, the on-device classifier, the full prove
+flow, the **DTG credential set**, the **TRQP trust registry**, the **Witness projector**, the **Signet**
+gate, and the **Game-of-42 bridge** all run and are tested live. The next focus returns to **Hearthold
+itself**: graphical front-ends that make the system demonstrable.
+
+### v1 — the witness→store→prove loop  ✅
 1. **Identities** ✅ — Hearthold Keymaster wiring; `Warden` + `Witness` DIDs (`init`).
 2. **Delegation handshake** ✅ — `HearthholdDelegation` VC issue/accept + challenge/response;
    tested live (`e2e:delegation`). CLI: `warden delegate` / `witness accept`.
@@ -74,22 +79,51 @@ See [security-model.md](security-model.md). In brief:
    leaf. **Next:** derived/`witnessed` claims via a Warden-minted evidence graph + Sovereign
    co-sign (see [evidence-graph.md](evidence-graph.md)).
 
-### S — Sovereign control plane (Signet)  ◀ pairs with step 5
-Third identity (**Sovereign**) + **Signet** app (dev: 3rd wallet → separate device). Lift policy
-out of `security.ts` into a **Sovereign-signed configuration** the Warden verifies/fails-safe;
-**co-sign HIGH/SEALED disclosures** (= `MULTIFACTOR`) carrying a graded proof-of-human assertion;
-Signet as a **proof-of-human aggregator** (PIN → biometric → face-liveness). SEALED-to-Sovereign
-encryption deferred. Full design + open questions in [sovereign-signet.md](sovereign-signet.md).
+### T — Trust graph & registry  ✅
+The **DTG credential set** (VRC / VMC / VIC / VPC / VEC / VWC + RCard) issued and verified natively on
+Archon (`core/dtg.ts`, `e2e:dtg-set`), and a **ToIP TRQP v2.0 trust registry** (`core/trust-registry.ts`,
+`packages/registry`) — `HttpTrustRegistry` (consume any registry) + `GroupTrustRegistry` (over Archon
+groups), authorizing per `(action, resource)`: *outward* (which issuers a verifier trusts) and *inward*
+(a Witness's autonomy ceiling). Interop with an independent TRQP deployment verified. See
+[trust-graph-and-delegation.md](trust-graph-and-delegation.md).
 
-### W — Witness as projector + per-device model
-**Projector ✅** — the **Witness** is now the world-facing projector (PVM Mage): a verifier contacts
-the Witness (`witness serve`), which **relays the proof-request to the Signet** for proof-of-human
-approval + presentation, then carries the proof out. Presentation no longer has to run on
-`sovereign serve` (the Signet stays an *occasional* approver, not a server); the Witness carries and
-never approves (§7.7). Built & tested (`core` + `witness/handler.ts`, `e2e:projector` — approve +
-decline). **Still to do:** **per-device Witnesses** (one Sovereign, many Witnesses) with
-**kind-scope enforcement** (a submission's `kind` must be in that Witness's delegated `kinds`). See
-the actors table in [architecture.md](architecture.md).
+### W — Witness as projector  ✅ (per-device pending)
+The **Witness** is the world-facing projector (PVM Mage): a verifier contacts `witness serve`, which
+either presents on its own (below its cleared ceiling, under standing delegation) or **relays the
+proof-request to the Signet** for proof-of-human approval, then carries the proof out — never approving
+itself (§7.7). The autonomy ceiling is read from the inward trust registry. Built & tested
+(`witness/handler.ts`, `e2e:projector`, `e2e:inward-registry`). **Still to do:** **per-device Witnesses**
+(one Sovereign, many Witnesses) with **kind-scope enforcement**. See the actors table in
+[architecture.md](architecture.md).
+
+### S — Sovereign control plane (Signet)  ◐ partial
+The **Sovereign** identity and the **Signet** proof-of-human gate are built (`packages/sovereign`, the
+`ApprovalGate` seam — PIN today; the gate scales to biometric / face-liveness). **Still to do:** lift
+policy out of `security.ts` into a **Sovereign-signed configuration** the Warden verifies / fails-safe,
+and co-sign HIGH/SEALED disclosures carrying a graded proof-of-human assertion. SEALED-to-Sovereign
+encryption deferred. Full design in [sovereign-signet.md](sovereign-signet.md).
+
+### G42 — Game-of-42 / agentprivacy bridge  ✅
+A **byte-exact** implementation of the agentprivacy Game-of-42 canon (`VRC → κ → seal`, verified against
+the reference code) plus the City-Key projection (`core/game42.ts`). A sealed governance board (the Drake
+Gamers Guild) becomes a constellation node and a soulbis City Key — the constellation *is* the trust
+registry, rendered visually. See [for the City of Mages](../demos/game-of-42/for-the-city-of-mages.md).
+
+### GUIs — graphical front-ends for demos  ◀ current focus
+Thin **Vite / React** apps over the same `@hearthold/core` the CLIs already use (Buffer shim per house
+rules), to make the system demonstrable without a terminal:
+
+- **Signet** — the Sovereign's proof-of-human approval screen: the disclosure context (who is asking,
+  what, at what sensitivity) with approve / deny and the chosen PoH method. Replaces the terminal PIN —
+  the human-in-the-loop moment, made visible.
+- **Warden console** — the vault (classified artefacts), delegations, and the trust registry (groups,
+  bindings, the trust graph): the back-end made visible.
+- **Verifier** — request a proof and watch it verify (✓ + disclosed claims, issuer / registry trust):
+  the *prove-it-to-a-stranger* moment.
+- **Board / constellation viewer** — a live Game-of-42 board + constellation fed by `core` (building on
+  the static SVG viewer in `demos/game-of-42/`).
+
+Demo-first steps toward the layered Hearthold GUI (admin base → DID cards → themes).
 
 ### P2 — NAS / filesystem ingestion
 Filesystem connector, bulk classification, fail-safe quarantine, human-confirm triage.
@@ -109,6 +143,7 @@ not issue.
 
 - Local-model default (e.g. `llama3.1` vs a smaller classifier) and the embedding model.
 - Index backend: flat file → SQLite + `sqlite-vec` → dedicated vector store.
-- Whether the Warden runs as a long-lived HTTP service or a CLI-invoked process for v1
-  (current lean: CLI-invoked, with a service wrapper in P2).
-- Human-in-the-loop approval channel (terminal prompt now; push-to-device later).
+- Whether the agents run as long-lived services or CLI-invoked processes — **resolved** for v1:
+  CLI-invoked, each with a DIDComm `serve` loop; a service / GUI wrapper arrives with the GUIs milestone.
+- Human-in-the-loop approval channel (terminal prompt now; the **Signet GUI** is the next step,
+  push-to-device later).

@@ -5,13 +5,11 @@ maintainer (macterra) are collected in [§8](#8-questions-for-archon-macterra).
 
 ## 1. Why this note
 
-We need a *structured* model for relationships and **delegation of authority** — who may act for
-the Sovereign, and how far. An earlier sketch reached for the HATPro "VRC" (allow/deny/actions/limits/
-`confirmAbove`). That was a convenient *vocabulary*, not a standard, and HATPro borrowed the term
-**VRC** from upstream ToIP anyway. So the right move is to source the model from the upstream body:
-the **Decentralized Trust Graph (DTG)** work at ToIP / the First Person Network, plus the adjacent
-capability and approval standards. This note maps Hearthold onto those standards and records where
-Archon would need to support them.
+Hearthold needs a *structured* model for relationships and **delegation of authority** — who may act
+for the Sovereign, and how far. The model is sourced from upstream standards rather than an ad-hoc
+vocabulary: the **Decentralized Trust Graph (DTG)** at ToIP / the First Person Network for the
+relationship layer, plus the adjacent capability and approval standards below. This note maps
+Hearthold onto those standards and records where Archon supports them.
 
 ## 2. "Delegation" is three layers — keep them separate
 
@@ -103,12 +101,12 @@ confirmation?* DTG gives the structurally-correct answer:
 - **What the Witness may do, and how far** = the **trust registry**, not the credential. The registry
   maps the W-DID → role, acceptable scope, and **assurance level**. Below the line the Witness acts on
   its standing credential; above it, the Warden's release decision (reading the registry) requires a
-  Signet-cosigned approval (the relay we built).
+  Signet-cosigned approval (the projector relay).
 
 This makes the registry **two-sided** — and folds in the platform/location/condition idea:
 
-- **Outward registry** (the HATPro adopt): a verifier trusts a *registry of issuers* —
-  `issuerAuthorized(issuer, schema)`.
+- **Outward registry:** a verifier trusts a *registry of issuers* — `issuerAuthorized(issuer, schema)`,
+  the ToIP TRQP authorization query.
 - **Inward registry** (the Sovereign's own): each **Witness W-DID** carries an **assurance profile**,
   so autonomy is graded by **platform** (TEE server vs phone vs browser ext.), **location** (home LAN
   vs public internet), and **condition** (attested boot / health-check / recent human presence).
@@ -121,45 +119,31 @@ So: the same TRQP primitive governs both "whom we trust to issue to us" and "whi
 we trust to act, and how far." One mechanism, two directions — and it is exactly DTG's
 thin-credential/fat-registry split, turned inward.
 
-> **Status: built (2026-06-29).** `packages/core/src/trust-registry.ts` adopts the TRQP v2.0 shape
-> from `archon-trust-registry` (`POST /authorization {authority_id, entity_id, action, resource}` →
-> `{authorized, message}`) behind a `TrustEvaluator` seam: `HttpTrustRegistry` consumes a remote
-> registry (outward, the guild/HATPro registry on :4260); `GroupTrustRegistry` runs one in-process
-> over **Archon groups** (inward), authorizing **per `(action, resource)`** — finer than
-> archon-trust-registry's per-role model, which is what grading autonomy needs. `verifyProof` gained a
-> `trustRegistry` option (issuer trusted if in the static list **or** authorized by the registry).
-> `npm run e2e:trust-registry` (PASS, live) shows both: **outward** — a verifier trusts the registry
-> with *no* hardcoded issuers (before grant rejected, after `grantAuthorization` verified); **inward**
-> — a Witness's `present`+`HIGH` clearance granted (act alone) then revoked (auto-downgrade to
-> relay-to-Signet). Note: a registry-trusted proof uses a **schema-only challenge** (open issuer set);
-> the registry decides issuer trust post-disclosure, since the verifier can't enumerate issuers up
-> front.
->
-> **Wired into the projector (2026-06-29).** `makeWitnessProjectorHandler` takes an optional
-> `ProjectorAutonomy { registry, witness, witnessDid, sensitivityFor }`. On a proof-request the Witness
-> derives the disclosure's **sensitivity from local policy** (never from the verifier), asks the inward
-> registry `(witnessDid, present, <level>)`, and: if cleared, **presents a credential it holds on its
-> own** — no Signet, no proof-of-human (the standing grant is the authority); if above its ceiling, it
-> **relays to the Signet** (the milestone-W path). `npm run e2e:inward-registry` (PASS, live) shows
-> both over DIDComm: a LOW request the Witness fields alone (presentation carries no `humanProof`); a
-> HIGH request it relays, returned with the Signet's `humanProof`. This closes the standing-delegation
-> loop end-to-end: the Sovereign signs the envelope once (registry membership = the standing grant),
-> and the Signet is consulted only above the line.
->
-> **Registry CLI (`packages/registry`).** Operates the registry: `bind` / `grant` / `revoke` /
-> `check` / `list` over the Archon-group store, and `serve` — a dependency-free TRQP v2.0 HTTP endpoint
-> (`POST /authorization`, `/metadata`, `/health`) wire-compatible with `archon-trust-registry`, so any
-> TRQP client (including our own `HttpTrustRegistry`, or HATPro's verifiers) can query it. Smoke-tested
-> live: grant → `check ✓` / serve → `curl /authorization` returns the expected `{authorized}`.
->
-> **Cross-project interop proven (2026-06-30).** `npm run interop:registry` (`scripts/interop-http-registry.ts`)
-> points our `HttpTrustRegistry` at the **live `archon-trust-registry`** ("HATPro Trust Registry", a
-> different codebase) on `:4260` and gets correct role-scoped answers over the wire: an admin entity is
-> authorized to `issue`+`verify`; a `member` entity is refused `issue` ("Role 'member' is not authorized
-> for action 'issue'") but allowed `verify`; a non-member is refused. This is the same client
-> `verifyProof` uses, so Hearthold can trust an ecosystem registry it did not build. Interop note: the
-> reference registry **requires** `authority_id` on every query (our client always sends it; our own
-> `serve` treats it as optional) — bidirectional compatibility holds.
+**Implementation.** `packages/core/src/trust-registry.ts` realizes this on the **ToIP TRQP v2.0** shape
+(`POST /authorization {authority_id, entity_id, action, resource}` → `{authorized, message}`) behind a
+`TrustEvaluator` seam: `HttpTrustRegistry` consumes any remote TRQP registry; `GroupTrustRegistry` runs
+one in-process over **Archon groups**, authorizing **per `(action, resource)`** — finer than role-only,
+which is what grading autonomy needs. `verifyProof` accepts a `trustRegistry`: an issuer is trusted if
+it is in a static list **or** authorized by the registry. A registry-trusted proof uses a *schema-only
+challenge* — the verifier cannot enumerate issuers in advance, so the registry decides trust after
+disclosure.
+
+The **projector** consults the inward registry on each proof-request: it derives the disclosure's
+sensitivity from local policy (never from the verifier) and either presents a held credential on its own
+(below the cleared ceiling — no proof-of-human, the standing grant is the authority) or relays to the
+Signet (above it). Registry membership is the standing grant; the Signet is consulted only above the
+line — the standing-delegation loop, closed.
+
+The **`registry` package** operates a registry (`bind` / `grant` / `revoke` / `check` / `list` over the
+Archon-group store) and `serve`s a dependency-free TRQP v2.0 HTTP endpoint (`/authorization`,
+`/metadata`, `/health`). Being standard TRQP, it interoperates both ways with independent registries:
+Hearthold's `HttpTrustRegistry` returns correct role-scoped answers against an external
+`archon-trust-registry` deployment (one such ecosystem registry backs the HATPro travel demo), and any
+TRQP client can query Hearthold's. Interop note: some deployments require `authority_id` on every query
+— Hearthold's client always sends it; its `serve` treats it as optional.
+
+Verified live in both directions and through the projector relay (`e2e:trust-registry`,
+`e2e:inward-registry`, `interop:registry`).
 
 ## 7. Open design forks
 
@@ -180,41 +164,34 @@ thin-credential/fat-registry split, turned inward.
    per-device Witness DIDs; per-*relationship* DIDs multiply DID creation on the registry — a cost
    question for the hyperswarm registry (§8).
 
-## 8. Prototype: VWC on Archon — verified live (2026-06-29)
+## 8. DTG credentials on Archon
 
-`packages/core/src/dtg.ts` + `scripts/proto-vwc.ts` (`npm run proto:vwc`) issue the witnessed-VRC
-pair on the live node: the Sovereign mints a **VRC** to a counterparty; the **Witness (W-DID)** issues
-a **VWC** about the Sovereign, digesting the VRC and recording `witnessContext`; we read it back and
-present it through the prove flow. **All checks pass.** Findings:
+Archon issues and verifies the full DTG credential set natively on the live node — `core/dtg.ts`
+(`issueVrc`/`issueVmc`/`issueVic`/`issueVpc`/`issueVec`/`issueVwc`/`issueRCard`). The Witness mints a
+**VWC** about a subject, digesting the witnessed **VRC** and recording `witnessContext`; both round-trip
+and present through `createChallenge`/`createResponse`/`verifyResponse`. Confirmed properties:
 
-- **VC 2.0, natively.** Archon emits `@context: https://www.w3.org/ns/credentials/v2` with
-  `validFrom`/`validUntil`. (Answers old Q#1: yes, 2.0 — no 1.1 fallback needed.)
-- **The DTG type hierarchy round-trips.** `bindCredential` returns a full credential object;
-  mutating `type` to `["VerifiableCredential","DTGCredential","WitnessCredential"]` and `@context`
-  before `issueCredential` persists exactly. **Nested `credentialSubject` (the `witnessContext`
-  object) round-trips intact.** (Answers old Q#2: yes.)
-- **A VWC is a first-class Archon credential.** It presents and verifies through `createChallenge`/
-  `createResponse`/`verifyResponse`; the verifier reads the full `witnessContext`, trusting the W-DID.
-- **Two quirks observed:**
-  1. `bindCredential` injects `…/credentials/examples/v2` into `@context` by default — we strip it for
-     a clean DTG credential (`withDtgContext`). *Q for macterra: can the examples context be omitted?*
-  2. Proof suite is **`EcdsaSecp256k1Signature2019`**, where DTG's examples use
-     `Ed25519Signature2020`. A DTG verifier must accept secp256k1 — an interop note, not a blocker.
+- **VC Data Model 2.0, natively** — `@context: https://www.w3.org/ns/credentials/v2`,
+  `validFrom`/`validUntil`; no 1.1 fallback needed.
+- **The DTG type hierarchy round-trips** — a bound credential's `type` and `@context` shape to
+  `["VerifiableCredential","DTGCredential","WitnessCredential"]` and persist exactly; nested
+  `credentialSubject` (the `witnessContext` object) is preserved.
+- **Each type persists its correct shape** — VEC's `endorsement`, RCard's `card` jCard, and RCard
+  correctly *without* a `DTGCredential` parent.
+- **A VWC is a first-class credential** — presentable and verifiable; the verifier reads the full
+  `witnessContext`, trusting the W-DID.
+- **Two interop notes:** the node injects a `…/credentials/examples/v2` context (stripped for a clean
+  DTG credential); the proof suite is `EcdsaSecp256k1Signature2019` where DTG examples use
+  `Ed25519Signature2020`, so a DTG verifier must accept secp256k1.
 
-So the relationship layer (VRC) and our Witness's core output (VWC) run on Archon **today**, unchanged.
-
-**Full set implemented (2026-06-30).** `core/dtg.ts` now issues all six DTG credential types plus the
-RCard VDS — `issueVrc` / `issueVmc` / `issueVic` / `issueVpc` / `issueVec` / `issueVwc` / `issueRCard`.
-`npm run e2e:dtg-set` (PASS, live) issues one of each and confirms the node persisted the right type
-hierarchy and credentialSubject shape (e.g. VEC's `endorsement`, RCard's `card` jCard, RCard correctly
-*without* a `DTGCredential` parent). This is the credential layer a Game-of-42 / governance back-end
-would draw on: **VMC** = board/community membership, **VEC** = role/reputation, **VIC** = onboarding,
-**VRC** = the relationship edges, **VWC** = third-party attestation.
+The relationship layer (VRC) and the Witness's attestation (VWC) run on Archon unchanged — the
+credential layer a governance back-end draws on: **VMC** membership · **VEC** role · **VIC** onboarding ·
+**VRC** edges · **VWC** attestation.
 
 ## 9. Questions for Archon (macterra)
 
-Collected so the maintainer can pick what to pull upstream. Q#1/Q#2 are now **answered by the
-prototype** (§8) and kept here for the record.
+Collected so the maintainer can pick what to pull upstream. Q#1/Q#2 are now **answered** (§8) and kept
+here for the record.
 
 1. ~~**VC Data Model 2.0.**~~ **Answered: yes**, Archon is 2.0-native (`validFrom`/`validUntil`).
 2. ~~**Custom `type` arrays + `@context`.**~~ **Answered: yes**, via mutating the bound credential

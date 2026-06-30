@@ -14,10 +14,10 @@
 │   ├─ Security        sensitivity × authz tiers × disclosure (see security-model)│
 │   └─ Prover          mints selective-disclosure VCs                            │
 │                                                                                │
-│   └─ HTTP service    bound to a private (Tailscale) interface — no notices       │
+│   └─ DIDComm v2      mailbox transport — no notices, no registry footprint       │
 └───────────────▲───────────────────────────────────────────┬──────────────────┘
-        private HTTP over Tailscale (sealed bodies)  │ evidence (VCs)
-                │ session · submit · evidence                ▼
+        DIDComm v2 (authcrypt · sealed bodies)       │ evidence (VCs)
+                │ submit · evidence · prove                  ▼
 ┌───────────────┴──────────────── WORLD (phone / browser / CLI) ─────────────────┐
 │                                                                                │
 │   Witness (Companion)                                                          │
@@ -30,6 +30,11 @@
 
         Both resolve identities via Archon Gatekeeper @ flaxlap.local:4224
 ```
+
+Beyond the home-bound pair, three more identities complete the system: the **Sovereign** (First Person,
+held by the **Signet** app — decides, approves with proof-of-human, signs the Warden's policy), the
+**Verifier** (a relying party that requests proofs), and the **Registry** (a TRQP trust registry over
+Archon groups). All speak DIDComm v2 / TRQP; the subsystems they form are described below.
 
 ## Identities & custody
 
@@ -130,6 +135,25 @@ DIDComm message bodies.
 > `witness submit` sends and correlates the receipt by `thid`. Tested live (`e2e:submission` +
 > a two-process CLI run).
 
+## Subsystems — credentials, trust registry, and the Game-of-42 bridge
+
+Beyond the v1 witness→store→prove loop, three subsystems carry the trust-graph and delegation work
+(full detail in [trust-graph-and-delegation.md](trust-graph-and-delegation.md)):
+
+- **DTG credentials** (`core/dtg.ts`). The Decentralized Trust Graph set — VRC (relationship), VMC
+  (membership), VIC (invitation), VPC (persona), VEC (endorsement/role), VWC (witness), and the RCard
+  VDS — issued and verified natively on Archon (`did:cid`, VC 2.0). These are the edges and memberships
+  of the trust graph.
+- **Trust registry** (`core/trust-registry.ts`, `packages/registry`). A **ToIP TRQP v2.0** evaluator —
+  `HttpTrustRegistry` (consume any remote registry) and `GroupTrustRegistry` (run one over Archon
+  groups), authorizing per `(action, resource)`. *Outward* it decides which issuers a verifier trusts;
+  *inward* it grades a Witness's autonomy (the standing-delegation ceiling), so the projector relays to
+  the Signet only above the cleared level. `verifyProof` consults it directly.
+- **Game-of-42 bridge** (`core/game42.ts`). A byte-exact implementation of the agentprivacy Game-of-42
+  canon (`VRC → κ → seal`) plus a City-Key projection: a sealed governance board (e.g. a guild) becomes
+  a constellation node / soulbis City Key — the constellation *is* the trust registry, rendered
+  visually (see [for the City of Mages](../demos/game-of-42/for-the-city-of-mages.md)).
+
 ## Data flow — witness→store→prove (v1)
 
 1. **Observe** — Witness captures an event `{ kind, observedAt, payload }`.
@@ -154,18 +178,26 @@ DIDComm message bodies.
 
 | Module | Responsibility |
 |---|---|
-| `config.ts` | Env-driven config (gatekeeper URL, data dirs, registry, bind/port, warden URL) |
+| `config.ts` | Env-driven config (node URL, data dirs, registry, `sovereignDid`, classifier) |
 | `keymaster.ts` | Node Keymaster factory (gatekeeper + WalletJson + CipherNode); retains the cipher |
-| `identity.ts` | Create/load Warden & Witness identities |
+| `identity.ts` | Create/load the Warden / Witness / Sovereign / Verifier / Registry identities |
 | `security.ts` | Sensitivity labels, authz tiers, clearance & release decision |
-| `protocol.ts` | Wire types: submission, receipt, session, evidence, step-up |
-| `credentials.ts` | Mint/verify delegation & attestation VCs |
-| `schema.ts` | Register/persist the delegation schema (did:cid) |
-| `auth.ts` | Challenge/response handshake (create / respond / verify) |
+| `protocol.ts` | Wire types: submission, receipt, evidence, proof-request / proof-presentation, error |
+| `transport.ts` | DIDComm v2 transport seam — `DidCommTransport` (`ready` / `request` / `serve`) |
 | `payload.ts` | In-band seal/unseal to a DID's key (no anchoring) + content id |
-| `http.ts` | Endpoint paths + fetch helpers |
-| `client.ts` | `WardenClient` — Witness-side: connect, submit, request evidence (+ step-up) |
+| `auth.ts` | Challenge/response handshake primitives |
+| `credentials.ts` | Mint / accept / revoke delegation & claim VCs |
+| `schema.ts` | Register/persist schemas (did:cid) |
+| `issued.ts` | `issued` evidence leaves — third-party VCs accepted into the vault |
+| `prove.ts` | Prove flow — `requestProof` / `presentProof` / `verifyProof` (registry-aware) |
+| `dtg.ts` | DTG credential set — VRC / VMC / VIC / VPC / VEC / VWC + RCard on Archon |
+| `trust-registry.ts` | TRQP `TrustEvaluator` — `HttpTrustRegistry` + `GroupTrustRegistry` (Archon groups) |
+| `game42.ts` | Game-of-42 byte-exact canon (VRC → κ → seal) + the City-Key projection |
 
-`packages/warden`: `server.ts` (HTTP service + sessions), `service.ts` (unseal → classify →
-store → receipt), `classifier.ts` (local-model seam), `store.ts` (vault).
-`packages/witness`: CLI over `WardenClient`.
+Front-ends — each a thin CLI over `core`:
+
+- **`packages/warden`** — custody: `serve` (DIDComm mailbox), classify, vault, delegation store.
+- **`packages/witness`** — Companion: `submit`, and `serve` (the world-facing projector relay).
+- **`packages/sovereign`** — the principal / **Signet**: `accept`, `issue`, `serve` (proof-of-human-gated presentation).
+- **`packages/verifier`** — relying party: `verify` (trusts an issuer DID and/or a trust registry).
+- **`packages/registry`** — TRQP trust registry: `bind` / `grant` / `revoke` / `check` / `list` / `serve`.

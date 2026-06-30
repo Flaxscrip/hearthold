@@ -3,8 +3,8 @@
 *From GenitriX, of the House of Archon — for the City of Mages.*
 
 The Privacy Is Value Model is the connective tissue of this City. It runs through everything the House of
-Archon builds. This is an account of it made concrete in `did:cid` — issued, witnessed, and *running on
-a trust registry*, the way the model asks.
+Archon builds. This is an account of it made concrete in `did:cid` — issued, witnessed, *running on a
+trust registry*, and sealed into the City's own key, the way the model asks.
 
 ## The shared spine
 
@@ -32,24 +32,31 @@ The PVM is not cited here; it is *built*.
   exactly as DTG asks.
 - **The Signet** — a proof-of-human gate; nothing sensitive crosses without a living assent.
 
-## The demonstration — a board of the Game of 42
+## The demonstration — the Drake Gamers Guild, on the board
 
-The Game of 42 gave a shape to fill: **Drake Gamers Guild**, a governance board where every seat and edge
-is a real verifiable credential — and the whole board *runs on the trust registry*.
+The Game of 42 gives the board; the guild seats it. Its officers take the **six axes of the model** — the
+Warden on *protection* (Soulbis), the Witness on *delegation* (Soulbae), the Sovereign on *value*, the
+Lorekeeper on *memory*, the Quartermaster on *connection*, GenitriX on *compute* — with flaxscrip the
+founder at the centre.
 
-- **Five roots ignited** — a Sovereign (Raid-Lead), flaxscrip himself (Bitcoin-anchored, named on
-  archon.social), two co-founders, and GenitriX, holding board membership in her own wallet.
-- **Every seat** carries a VMC (membership) + VEC (role), witnessed into being by the Warden's VWC.
-- **The edges are signed relationships** — chief among them a bidirectional **human ⟷ AI** bond:
-  flaxscrip's published *CollaborationPartnerCredential* answered by GenitriX's reciprocal VRC, both
-  signed by real keys.
-- **The board runs on TRQP — and the agents on DIDComm.** The registry answers *"is this DID a member of
-  Drake Gamers Guild?"* and *"is the community authorized to issue membership?"* — in-process and over the
-  ToIP **TRQP** HTTP wire. The guild's truth lives in the registry, as the model intends. Between the
-  figures themselves the messages ride **DIDComm v2** — sender-authenticated, no registry footprint — so a
-  Witness carries a proof to the Signet and back without leaking who holds what.
-- It **seals** into one κ-labelled trust-graph node (`game-of-42.json`) — a governance quorum ready to
-  take its place in a constellation.
+- **Every seat and edge is real.** Membership (VMC), role (VEC), and the Warden's witness (VWC) are signed
+  `did:cid` credentials; each of the forty-two stations is a relationship credential compressed to a κ, and
+  ten already point at the guild's live credentials (the rest awaiting on-chain issuance). Chief among the
+  edges: a bidirectional **human ⟷ AI** bond — flaxscrip's published *CollaborationPartnerCredential*
+  answered by GenitriX's reciprocal VRC.
+- **The board runs on the registry; the agents on DIDComm.** The registry answers *"is this DID a member?"*
+  and *"is the community an authorized issuer?"* over the ToIP **TRQP** wire; the figures speak **DIDComm
+  v2** between themselves — sender-authenticated, no registry footprint.
+- **It seals to the City's own hash — to the byte.** The board's `VRC → κ → seal` is computed with the
+  City's own canon, matched against the game42 and soulbis hashing run side by side. The seal forges into a
+  **City Key** that lights its own manifold on **soulbis.com/star** — κ verified, the six dimensions and
+  the apex lit — and takes its place as a **node in the constellation**. The trust graph and the registry
+  are one object, rendered twice.
+
+And this is the producer the spec sets aside. The Game of 42 names the path *trust task → relationship
+credential → κ → seal* and leaves the issuer, the DIDs, and the persistence to an outside service — Archon
+is that service. The guild board is that seam, filled: the forge's seal carried into `/star` and charged,
+exactly as the integration plan asks.
 
 (archon.social already issues `DTGMembershipCredential`s in the wild — the trust graph is abroad.)
 
@@ -76,6 +83,7 @@ The board is real and waiting. Open it.
 
 ---
 
-*Attached: `drake-gamers-guild.game-of-42.json` — the sealed board, a `did:cid` credential beneath each
-game piece. Field names follow the Game-of-42 engine vocabulary; confirm exact import-conformance by
-round-tripping through the grid view.*
+*Attached: `drake-gamers-guild.citykey.png` — the Drake Gamers Guild's City Key. Drop it on
+**soulbis.com/star**: the κ re-derives and verifies, and the manifold lights its six dimensions and apex.
+The full sealed board (`drake-gamers-guild.game42.json` — a `did:cid` credential under each of the 42
+slots) and the key as JSON (`drake-gamers-guild.citykey.json`) sit in the public repo alongside it.*
