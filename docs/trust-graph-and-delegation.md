@@ -151,6 +151,15 @@ thin-credential/fat-registry split, turned inward.
 > (`POST /authorization`, `/metadata`, `/health`) wire-compatible with `archon-trust-registry`, so any
 > TRQP client (including our own `HttpTrustRegistry`, or HATPro's verifiers) can query it. Smoke-tested
 > live: grant → `check ✓` / serve → `curl /authorization` returns the expected `{authorized}`.
+>
+> **Cross-project interop proven (2026-06-30).** `npm run interop:registry` (`scripts/interop-http-registry.ts`)
+> points our `HttpTrustRegistry` at the **live `archon-trust-registry`** ("HATPro Trust Registry", a
+> different codebase) on `:4260` and gets correct role-scoped answers over the wire: an admin entity is
+> authorized to `issue`+`verify`; a `member` entity is refused `issue` ("Role 'member' is not authorized
+> for action 'issue'") but allowed `verify`; a non-member is refused. This is the same client
+> `verifyProof` uses, so Hearthold can trust an ecosystem registry it did not build. Interop note: the
+> reference registry **requires** `authority_id` on every query (our client always sends it; our own
+> `serve` treats it as optional) — bidirectional compatibility holds.
 
 ## 7. Open design forks
 
