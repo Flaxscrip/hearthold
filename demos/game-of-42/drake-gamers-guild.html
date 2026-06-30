@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Drake Gamers Guild · Game of 42 — Hearthold board</title>
+<style>
+  :root{
+    --bg:#0B0E14; --panel:#121622; --ink:#e9ecf4; --dim:#8c95ad; --line:rgba(255,255,255,.10);
+    --sword:#E0A526; --mage:#2563EB; --accent:#38BDF8; --npc:#5b6472; --open:rgba(255,255,255,.16);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:radial-gradient(900px 600px at 50% -10%,#131826 0%,var(--bg) 60%) fixed,var(--bg);
+    color:var(--ink);font:14px/1.5 ui-monospace,Menlo,Consolas,monospace}
+  .wrap{max-width:1080px;margin:0 auto;padding:26px 18px 60px}
+  h1{font:600 26px/1.1 Georgia,serif;margin:0 0 2px}
+  .sub{color:var(--dim);margin:0 0 16px}
+  .meta{display:flex;flex-wrap:wrap;gap:8px 18px;color:var(--dim);font-size:12px;margin-bottom:14px}
+  .meta b{color:var(--ink);font-weight:600}
+  .grid{display:grid;grid-template-columns:1fr 360px;gap:20px}
+  @media(max-width:880px){.grid{grid-template-columns:1fr}}
+  .board{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:8px}
+  svg{width:100%;height:auto;display:block}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:14px}
+  .card h2{font:600 13px/1 ui-monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin:0 0 10px}
+  .root{display:flex;gap:10px;align-items:flex-start;padding:7px 0;border-top:1px solid var(--line)}
+  .root:first-of-type{border-top:0}
+  .dot{width:11px;height:11px;border-radius:50%;margin-top:4px;flex:none}
+  .rname{font-weight:600}
+  .rmeta{color:var(--dim);font-size:12px}
+  .rdid{color:var(--dim);font-size:11px;word-break:break-all}
+  .pill{display:inline-block;font-size:10px;padding:1px 7px;border-radius:20px;border:1px solid var(--line);color:var(--dim);margin-left:6px}
+  .edge{padding:6px 0;border-top:1px solid var(--line);font-size:12.5px}
+  .edge:first-of-type{border-top:0}
+  .edge .r{color:var(--accent)}
+  .edge .s{color:var(--dim)}
+  .seal{font-size:11px;color:var(--dim);word-break:break-all}
+  .foot{color:var(--dim);font-size:11.5px;margin-top:18px;max-width:70ch}
+  .glyphkey{display:flex;gap:14px;flex-wrap:wrap;color:var(--dim);font-size:11.5px;margin-top:6px}
+  .glyphkey span{display:inline-flex;align-items:center;gap:6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🎲 Drake Gamers Guild</h1>
+  <p class="sub">A Game-of-42 board where every seat and edge is a real <code>did:cid</code> credential · sealed by Hearthold</p>
+  <div class="meta" id="meta"></div>
+
+  <div class="grid">
+    <div class="board"><svg id="svg" viewBox="0 0 760 720" role="img" aria-label="Drake Gamers Guild constellation"></svg>
+      <div class="glyphkey" style="padding:0 10px 10px">
+        <span><b style="color:var(--sword)">●</b> principal (human / Sovereign)</span>
+        <span><b style="color:var(--mage)">●</b> agent (AI)</span>
+        <span><b style="color:var(--npc)">●</b> NPC co-founder</span>
+        <span><b style="color:var(--open)">○</b> open root</span>
+      </div>
+    </div>
+    <div>
+      <div class="card"><h2>Seats · <span id="filled"></span></h2><div id="roots"></div></div>
+      <div class="card"><h2>Edges (signed VRCs)</h2><div id="edges"></div></div>
+      <div class="card"><h2>Group seal</h2><div class="seal" id="seal"></div></div>
+    </div>
+  </div>
+  <p class="foot">Static snapshot of <code>drake-gamers-guild.game-of-42.json</code>. Geometry: 6 axes × 7 stations = 42;
+  5 of 6 roots ignited. The seal is SHA-256 over the seats' κ-labels + the folded geometry. Field names follow the
+  agentprivacy engine vocabulary; confirm exact import-conformance by round-tripping through the grid view.</p>
+</div>
+
+<script>
+const GAME = {
+  name:"Drake Gamers Guild", phase:"building", seal:"sha256:5c46fc7b99c56446bc9326e92cfe7d601de36d3efafcd9f868d9dfae751f8be7",
+  filled:{roots:5,of:6,seats:5,ofSeats:42}, geometry:"star-tetrahedron · 6×7",
+  axes:[
+    {axis:0,faculty:"head",domain:"soil"},{axis:1,faculty:"heart",domain:"soul"},
+    {axis:2,faculty:"hands",domain:"society"},{axis:3,faculty:"axis-3",domain:"—"},
+    {axis:4,faculty:"axis-4",domain:"—"},{axis:5,faculty:"axis-5",domain:"—"}
+  ],
+  roots:[
+    {root:"I",axis:0,name:"Sovereign",role:"Raid Leadership",kind:"principal",did:"did:cid:bagaaieraeckzoz4…",binding:3,kappa:"fbb619d1"},
+    {root:"II",axis:1,name:"flaxscrip",role:"Guild Founder",kind:"principal",did:"did:cid:bagaaiera7vsjlu6…",binding:3,kappa:"d0746da7",star:true},
+    {root:"III",axis:2,name:"Quartermaster",role:"Quartermaster",kind:"npc",did:"did:cid:bagaaieratqqdamm…",binding:3,kappa:"181aa0d0"},
+    {root:"IV",axis:3,name:"Lorekeeper",role:"Lorekeeper",kind:"npc",did:"did:cid:bagaaieranza2an2…",binding:3,kappa:"56dd1f99"},
+    {root:"V",axis:4,name:"GenitriX",role:"Scribe",kind:"agent",did:"did:cid:bagaaieraxdxq4fm2…",binding:3,kappa:"791e4d1b",star:true}
+  ],
+  edges:[
+    {from:"II",to:"V",relationship:"Assistant",signer:"flaxscrip"},
+    {from:"V",to:"II",relationship:"Principal",signer:"GenitriX"},
+    {from:"V",to:"I",relationship:"Scribe",signer:"GenitriX"},
+    {from:"II",to:"I",relationship:"Sovereign",signer:"flaxscrip"}
+  ]
+};
+
+const SVGNS="http://www.w3.org/2000/svg";
+const COLOR={principal:"var(--sword)",agent:"var(--mage)",npc:"var(--npc)"};
+const CX=380,CY=350,R=250;
+const el=(n,a={},kids=[])=>{const e=document.createElementNS(SVGNS,n);for(const k in a)e.setAttribute(k,a[k]);for(const c of kids)e.appendChild(c);return e};
+const txt=(x,y,s,a={})=>{const t=el("text",{x,y,...a});t.textContent=s;return t};
+const pos=axis=>{const ang=(-90+axis*60)*Math.PI/180;return{x:CX+R*Math.cos(ang),y:CY+R*Math.sin(ang)}};
+const byRoot={}; GAME.roots.forEach(r=>byRoot[r.root]={...r,...pos(r.axis)});
+
+const svg=document.getElementById("svg");
+
+// spokes (all 6 axes)
+GAME.axes.forEach(a=>{const p=pos(a.axis);
+  svg.appendChild(el("line",{x1:CX,y1:CY,x2:p.x,y2:p.y,stroke:"var(--line)","stroke-width":1}));
+  const occupied=GAME.roots.some(r=>r.axis===a.axis);
+  if(!occupied){
+    svg.appendChild(el("circle",{cx:p.x,cy:p.y,r:14,fill:"none",stroke:"var(--open)","stroke-width":1.5,"stroke-dasharray":"3 3"}));
+    svg.appendChild(txt(p.x,p.y+34,"open",{fill:"var(--dim)","font-size":11,"text-anchor":"middle"}));
+  }
+  svg.appendChild(txt(p.x,p.y-44,a.faculty,{fill:"var(--dim)","font-size":10.5,"text-anchor":"middle","letter-spacing":".08em"}));
+});
+
+// edges (dedupe by unordered pair; bidirectional = accent + ⟷)
+const pairs={};
+GAME.edges.forEach(e=>{const k=[e.from,e.to].sort().join("·");(pairs[k]=pairs[k]||[]).push(e)});
+Object.values(pairs).forEach(list=>{
+  const a=byRoot[list[0].from],b=byRoot[list[0].to];if(!a||!b)return;
+  const bi=list.length>1;
+  svg.appendChild(el("line",{x1:a.x,y1:a.y,x2:b.x,y2:b.y,stroke:bi?"var(--accent)":"var(--sword)","stroke-width":bi?2.4:1.6,"stroke-opacity":.75}));
+  const mx=(a.x+b.x)/2,my=(a.y+b.y)/2;
+  const label=bi?list.map(e=>e.relationship).join(" ⟷ "):list[0].relationship+" →";
+  const bg=el("rect",{x:mx-label.length*3.4,y:my-9,width:label.length*6.8,height:16,rx:8,fill:"var(--bg)","fill-opacity":.85});
+  svg.appendChild(bg);
+  svg.appendChild(txt(mx,my+3,label,{fill:bi?"var(--accent)":"var(--sword)","font-size":11,"text-anchor":"middle"}));
+});
+
+// centre — the board seal
+svg.appendChild(el("circle",{cx:CX,cy:CY,r:30,fill:"var(--panel)",stroke:"var(--line)"}));
+svg.appendChild(txt(CX,CY-2,"DRAKE",{fill:"var(--dim)","font-size":10,"text-anchor":"middle","letter-spacing":".1em"}));
+svg.appendChild(txt(CX,CY+11,"GAMERS",{fill:"var(--dim)","font-size":9,"text-anchor":"middle","letter-spacing":".08em"}));
+
+// root nodes
+GAME.roots.forEach(r=>{const p=byRoot[r.root];
+  svg.appendChild(el("circle",{cx:p.x,cy:p.y,r:30,fill:"var(--panel)",stroke:COLOR[r.kind],"stroke-width":2.5}));
+  svg.appendChild(txt(p.x,p.y+4,r.root,{fill:COLOR[r.kind],"font-size":15,"font-weight":700,"text-anchor":"middle"}));
+  svg.appendChild(txt(p.x,p.y+50,(r.star?"★ ":"")+r.name,{fill:"var(--ink)","font-size":13,"text-anchor":"middle","font-weight":600}));
+  svg.appendChild(txt(p.x,p.y+66,r.role,{fill:"var(--dim)","font-size":11,"text-anchor":"middle"}));
+});
+
+// panels
+document.getElementById("meta").innerHTML=
+  `<span>phase <b>${GAME.phase}</b></span><span>roots <b>${GAME.filled.roots}/${GAME.filled.of}</b></span>`+
+  `<span>seats <b>${GAME.filled.seats}/${GAME.filled.ofSeats}</b></span><span>geometry <b>${GAME.geometry}</b></span>`+
+  `<span>edges <b>${GAME.edges.length}</b></span>`;
+document.getElementById("filled").textContent=`${GAME.filled.roots} ignited`;
+document.getElementById("roots").innerHTML=GAME.roots.map(r=>
+  `<div class="root"><span class="dot" style="background:${COLOR[r.kind]}"></span><div>
+   <div class="rname">${r.star?"★ ":""}${r.name} <span class="pill">${r.root}</span></div>
+   <div class="rmeta">${r.role} · κ ${r.kappa}… · ${r.binding} creds (VMC·VEC·VWC)</div>
+   <div class="rdid">${r.did}</div></div></div>`).join("");
+document.getElementById("edges").innerHTML=GAME.edges.map(e=>
+  `<div class="edge">${e.from} → ${e.to} · <span class="r">${e.relationship}</span> <span class="s">signed by ${e.signer}</span></div>`).join("");
+document.getElementById("seal").textContent=GAME.seal;
+</script>
+</body>
+</html>
