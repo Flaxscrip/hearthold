@@ -4,8 +4,7 @@ dist/
 
 # Local agent state — wallets, vault, index. NEVER commit.
 .hearthold/
-.hearthold-e2e/
-.hearthold-didcomm/
+.hearthold-*/
 *.wallet.json
 data/
 

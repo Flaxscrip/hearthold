@@ -10,13 +10,15 @@
     "packages/warden",
     "packages/witness",
     "packages/sovereign",
-    "packages/verifier"
+    "packages/verifier",
+    "packages/registry"
   ],
   "scripts": {
     "build": "tsc --build",
     "clean": "tsc --build --clean",
     "warden": "node --experimental-strip-types packages/warden/src/index.ts",
     "witness": "node --experimental-strip-types packages/witness/src/index.ts",
+    "registry": "node --experimental-strip-types packages/registry/src/index.ts",
     "e2e": "npm run e2e:delegation && npm run e2e:submission",
     "e2e:delegation": "npm run build && node --experimental-strip-types scripts/e2e-delegation.ts",
     "e2e:submission": "npm run build && node --experimental-strip-types scripts/e2e-submission.ts",

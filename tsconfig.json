@@ -5,6 +5,7 @@
     { "path": "packages/warden" },
     { "path": "packages/witness" },
     { "path": "packages/sovereign" },
-    { "path": "packages/verifier" }
+    { "path": "packages/verifier" },
+    { "path": "packages/registry" }
   ]
 }

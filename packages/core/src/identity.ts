@@ -7,6 +7,7 @@ export const IDENTITY_NAME = {
   witness: 'hearthold-witness',
   sovereign: 'hearthold-sovereign',
   verifier: 'hearthold-verifier',
+  registry: 'hearthold-registry',
 } as const;
 
 export interface AgentIdentity {

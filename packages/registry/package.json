@@ -1,0 +1,21 @@
+{
+  "name": "@hearthold/registry",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Hearthold Registry — a TRQP trust registry over Archon groups: authorize issuers (outward) and grade Witness autonomy (inward).",
+  "bin": {
+    "registry": "./dist/index.js"
+  },
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./serve": { "types": "./dist/serve.d.ts", "import": "./dist/serve.js" }
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@hearthold/core": "0.1.0"
+  }
+}

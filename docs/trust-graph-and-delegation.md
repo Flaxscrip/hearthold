@@ -145,6 +145,12 @@ thin-credential/fat-registry split, turned inward.
 > HIGH request it relays, returned with the Signet's `humanProof`. This closes the standing-delegation
 > loop end-to-end: the Sovereign signs the envelope once (registry membership = the standing grant),
 > and the Signet is consulted only above the line.
+>
+> **Registry CLI (`packages/registry`).** Operates the registry: `bind` / `grant` / `revoke` /
+> `check` / `list` over the Archon-group store, and `serve` — a dependency-free TRQP v2.0 HTTP endpoint
+> (`POST /authorization`, `/metadata`, `/health`) wire-compatible with `archon-trust-registry`, so any
+> TRQP client (including our own `HttpTrustRegistry`, or HATPro's verifiers) can query it. Smoke-tested
+> live: grant → `check ✓` / serve → `curl /authorization` returns the expected `{authorized}`.
 
 ## 7. Open design forks
 
