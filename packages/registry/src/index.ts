@@ -24,7 +24,8 @@ grades a Witness's autonomy by sensitivity level.
 Usage:
   registry init                                Provision the registry identity
   registry status                              Show identity and bindings
-  registry bind <action> <resource>            Create/reuse the group for (action, resource)
+  registry bind <action> <resource> [group]    Create/reuse the (action,resource) group, or bind an
+                                               existing group DID (e.g. a board's membership group)
   registry grant <action> <resource> <did>     Authorize <did> (add to the group)
   registry revoke <action> <resource> <did>    De-authorize <did> (remove from the group)
   registry check <action> <resource> <did>     Query: is <did> authorized?
@@ -48,17 +49,21 @@ const parseResource = (raw?: string): string | undefined => (!raw || raw === '*'
 const groupName = (action: string, resource?: string): string =>
   `hearthold-${action}-${resource ? (resource.replace(/[^a-zA-Z0-9]+/g, '').slice(-16) || 'any') : 'any'}`;
 
-/** Find the binding for (action, resource), creating its group on first use. */
+/**
+ * Find the binding for (action, resource). On first use, bind `existingGroup` if given (e.g. a group
+ * created elsewhere, like a board's membership group), otherwise create a fresh group.
+ */
 async function ensureBinding(
   handle: KeymasterHandle,
   store: BindingStore,
   registry: string,
   action: string,
   resource?: string,
+  existingGroup?: string,
 ): Promise<GroupBinding> {
   const existing = await store.find(action, resource);
   if (existing) return existing;
-  const group = await createRegistryGroup(handle, groupName(action, resource), registry);
+  const group = existingGroup ?? (await createRegistryGroup(handle, groupName(action, resource), registry));
   const all = await store.upsert({ action, resource, group });
   return all.find((b) => b.action === action && b.resource === resource) ?? { action, resource, group };
 }
@@ -93,8 +98,9 @@ async function main(): Promise<void> {
     case 'bind': {
       const action = process.argv[3];
       const resource = parseResource(process.argv[4]);
-      if (!action) throw new Error('usage: registry bind <action> <resource>');
-      const b = await ensureBinding(handle, store, config.registry, action, resource);
+      const existingGroup = process.argv[5]?.startsWith('did:') ? process.argv[5] : undefined;
+      if (!action) throw new Error('usage: registry bind <action> <resource> [existingGroupDid]');
+      const b = await ensureBinding(handle, store, config.registry, action, resource, existingGroup);
       process.stdout.write(`Bound ${action} / ${resource ?? '*'}\n  group: ${b.group}\n`);
       break;
     }
