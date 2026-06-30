@@ -1,17 +1,22 @@
 /**
- * Decentralized Trust Graph (DTG) credentials on Archon — prototype.
+ * Decentralized Trust Graph (DTG) credentials on Archon.
  *
  * DTG (ToIP / First Person Network, repo `trustoverip/dtgwg-cred-tf`) defines six W3C-VC-2.0 types
- * subtyping an abstract `DTGCredential`. This module prototypes two of them on Archon keymaster:
+ * subtyping an abstract `DTGCredential`, plus one Verifiable Data Structure. This module implements the
+ * full set on Archon keymaster:
  *
  *   - **VRC** RelationshipCredential — a relationship edge (issuer R-DID → subject R-DID)
- *   - **VWC** WitnessCredential — a third-party attestation that an edge was established, issued by a
- *     Witness DID (W-DID), carrying `digest` (hash of the witnessed VRC) + `witnessContext`.
+ *   - **VMC** MembershipCredential — membership of an entity in a community (C-DID → M-DID)
+ *   - **VIC** InvitationCredential — authorizes onboarding a prospective member
+ *   - **VPC** PersonaCredential — links a persona (P-DID) to a relationship
+ *   - **VEC** EndorsementCredential — endorses a skill/reputation of the subject
+ *   - **VWC** WitnessCredential — third-party attestation of an edge, by a Witness DID (W-DID)
+ *   - **RCard** RelationshipCard — a VDS (human-readable jCard), NOT a `DTGCredential` subtype
  *
- * The interesting question for Archon is whether we can shape a credential to the DTG type hierarchy:
- * `bindCredential` returns a full credential object and `issueCredential` accepts a partial one, so we
- * mutate `type` + `@context` on the bound credential before issuing and then read it back to see what
- * the node actually persisted. See docs/trust-graph-and-delegation.md §8 (Q#2).
+ * Shaping technique: `bindCredential` returns a full credential object and `issueCredential` accepts a
+ * partial one, so we mutate `type` + `@context` on the bound credential before issuing. The node
+ * round-trips the DTG type hierarchy, custom @context, and nested credentialSubject (verified live —
+ * see docs/trust-graph-and-delegation.md §8).
  */
 
 import { createHash } from 'node:crypto';
@@ -34,6 +39,9 @@ export const DtgType = {
   WITNESS: 'WitnessCredential', // VWC
 } as const;
 
+/** RCard is a Verifiable Data Structure, implemented as a W3C VC but NOT a `DTGCredential` subtype. */
+export const RCARD_TYPE = 'RelationshipCard';
+
 /** Context of a witnessing event (DTG VWC `witnessContext`). */
 export interface WitnessContext {
   /** Human-readable event name, e.g. "Drake Island raid form-up". */
@@ -49,23 +57,20 @@ export interface WitnessContext {
  * schema documents the shape, while staying open (additionalProperties) for forward-compat.
  */
 export function dtgSchema(subtype: string): unknown {
+  // credentialSubject shapes vary by subtype (digest+witnessContext for VWC, endorsement for VEC,
+  // card for RCard, bare id for VRC/VMC); the subtype itself lives in the top-level `type` array, so
+  // the schema documents the union of fields and stays open (additionalProperties). Archon's
+  // createSchema requires a non-empty `properties` object.
   return {
     $schema: 'http://json-schema.org/draft-07/schema#',
     title: subtype,
     type: 'object',
     properties: {
       digest: { type: 'string' },
-      witnessContext: {
-        type: 'object',
-        properties: {
-          event: { type: 'string' },
-          sessionId: { type: 'string' },
-          method: { type: 'string' },
-        },
-        additionalProperties: true,
-      },
+      witnessContext: { type: 'object', additionalProperties: true },
+      endorsement: { type: 'object', additionalProperties: true },
+      card: { type: 'array' },
     },
-    // The DTG subtype lives in the top-level `type` array, not in credentialSubject.
     additionalProperties: true,
   };
 }
@@ -153,4 +158,84 @@ export async function issueVwc(
   if (opts.witnessedVrc !== undefined) claims.digest = credentialDigest(opts.witnessedVrc);
   if (opts.witnessContext) claims.witnessContext = opts.witnessContext;
   return issueDtgCredential(witness, observedDid, DtgType.WITNESS, schemaDid, claims, opts.validUntil);
+}
+
+/**
+ * Issue a DTG Membership Credential (VMC): the community (current identity on `community`, the C-DID)
+ * attests `memberDid` belongs to it. A complete edge is a bidirectional pair (one each direction).
+ */
+export async function issueVmc(
+  community: KeymasterHandle,
+  memberDid: string,
+  schemaDid: string,
+  validUntil?: string,
+): Promise<string> {
+  return issueDtgCredential(community, memberDid, DtgType.MEMBERSHIP, schemaDid, {}, validUntil);
+}
+
+/** Issue a DTG Invitation Credential (VIC): authorizes `prospectDid` to join (onboarding). */
+export async function issueVic(
+  issuer: KeymasterHandle,
+  prospectDid: string,
+  schemaDid: string,
+  validUntil?: string,
+): Promise<string> {
+  return issueDtgCredential(issuer, prospectDid, DtgType.INVITATION, schemaDid, {}, validUntil);
+}
+
+/** A DTG endorsement (VEC `endorsement` object): a skill or reputation claim. */
+export interface Endorsement {
+  /** e.g. 'SkillEndorsement'. */
+  type: string;
+  /** e.g. 'Raid Leadership'. */
+  name: string;
+  /** e.g. 'expert'. */
+  competencyLevel?: string;
+  [key: string]: unknown;
+}
+
+/** Issue a DTG Endorsement Credential (VEC): the endorser vouches for a skill/reputation of `subjectDid`. */
+export async function issueVec(
+  endorser: KeymasterHandle,
+  subjectDid: string,
+  schemaDid: string,
+  endorsement: Endorsement,
+  validUntil?: string,
+): Promise<string> {
+  return issueDtgCredential(endorser, subjectDid, DtgType.ENDORSEMENT, schemaDid, { endorsement }, validUntil);
+}
+
+/** Issue a DTG Persona Credential (VPC): link a persona (the issuer's P-DID) to a relationship counterparty. */
+export async function issueVpc(
+  persona: KeymasterHandle,
+  counterpartyDid: string,
+  schemaDid: string,
+  validUntil?: string,
+): Promise<string> {
+  return issueDtgCredential(persona, counterpartyDid, DtgType.PERSONA, schemaDid, {}, validUntil);
+}
+
+/** A jCard (RFC 7095) array — human-readable contact/identity data. */
+export type JCard = unknown[];
+
+/**
+ * Issue a DTG RCard (Relationship Card) — a Verifiable Data Structure (NOT a `DTGCredential` subtype),
+ * carrying human-readable contact data as a jCard in `credentialSubject.card`.
+ */
+export async function issueRCard(
+  publisher: KeymasterHandle,
+  counterpartyDid: string,
+  schemaDid: string,
+  card: JCard,
+  validUntil?: string,
+): Promise<string> {
+  const bound = await publisher.keymaster.bindCredential(counterpartyDid, {
+    schema: schemaDid,
+    validUntil,
+    claims: { card },
+  });
+  // RCard is a VDS: type is ["VerifiableCredential", "RelationshipCard"] — no DTGCredential parent.
+  bound.type = ['VerifiableCredential', RCARD_TYPE];
+  bound['@context'] = withDtgContext(bound['@context']);
+  return publisher.keymaster.issueCredential(bound, { validUntil });
 }

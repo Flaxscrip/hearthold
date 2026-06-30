@@ -203,6 +203,14 @@ present it through the prove flow. **All checks pass.** Findings:
 
 So the relationship layer (VRC) and our Witness's core output (VWC) run on Archon **today**, unchanged.
 
+**Full set implemented (2026-06-30).** `core/dtg.ts` now issues all six DTG credential types plus the
+RCard VDS — `issueVrc` / `issueVmc` / `issueVic` / `issueVpc` / `issueVec` / `issueVwc` / `issueRCard`.
+`npm run e2e:dtg-set` (PASS, live) issues one of each and confirms the node persisted the right type
+hierarchy and credentialSubject shape (e.g. VEC's `endorsement`, RCard's `card` jCard, RCard correctly
+*without* a `DTGCredential` parent). This is the credential layer a Game-of-42 / governance back-end
+would draw on: **VMC** = board/community membership, **VEC** = role/reputation, **VIC** = onboarding,
+**VRC** = the relationship edges, **VWC** = third-party attestation.
+
 ## 9. Questions for Archon (macterra)
 
 Collected so the maintainer can pick what to pull upstream. Q#1/Q#2 are now **answered by the

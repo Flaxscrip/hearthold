@@ -28,6 +28,7 @@
     "e2e:prove-didcomm": "npm run build && node --experimental-strip-types scripts/e2e-prove-didcomm.ts",
     "e2e:projector": "npm run build && node --experimental-strip-types scripts/e2e-projector.ts",
     "proto:vwc": "npm run build && node --experimental-strip-types scripts/proto-vwc.ts",
+    "e2e:dtg-set": "npm run build && node --experimental-strip-types scripts/e2e-dtg-set.ts",
     "e2e:trust-registry": "npm run build && node --experimental-strip-types scripts/e2e-trust-registry.ts",
     "e2e:inward-registry": "npm run build && node --experimental-strip-types scripts/e2e-inward-registry.ts",
     "interop:registry": "npm run build && node --experimental-strip-types scripts/interop-http-registry.ts"
