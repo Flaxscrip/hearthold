@@ -1,0 +1,90 @@
+@startuml hearthold-architecture
+title Hearthold — components & communication lines
+
+' ── style ───────────────────────────────────────────────────────────────
+skinparam shadowing false
+skinparam backgroundColor #FBFAF6
+skinparam defaultTextAlignment center
+skinparam roundCorner 12
+skinparam nodesep 55
+skinparam ranksep 70
+skinparam ArrowColor #5A5A5A
+skinparam ArrowFontColor #333333
+skinparam package {
+  BackgroundColor #F1F4EC
+  BorderColor #9AA77F
+  FontColor #3A4030
+}
+skinparam component {
+  BackgroundColor #FFFFFF
+  BorderColor #6E7C8C
+  FontColor #1A1A1A
+}
+skinparam database {
+  BackgroundColor #FFF7E8
+  BorderColor #C9A24B
+}
+skinparam cloud {
+  BackgroundColor #EEF3FA
+  BorderColor #6E7C8C
+}
+
+' ── HOME (trusted hardware) ──────────────────────────────────────────────
+package "HOME — trusted hardware" as home {
+  component "**Warden**\n//Keeper · Swordsman//\nprotects · custodies · derives" as Warden
+  component "Classifier" as Cls
+  component "Ollama\n//qwen3:8b (local)//" as Ollama
+  database "Sealed vault\n+ index (local)" as Vault
+
+  Warden --> Cls    : classify
+  Cls --> Ollama    : structured output\n(fail-safe SEALED)
+  Warden --> Vault  : store / retrieve
+}
+
+' ── WORLD (the projector) ────────────────────────────────────────────────
+package "WORLD — phone · browser · CLI" as world {
+  component "**Witness**\n//Companion · Mage//\nsees in · projects out\n(holds no secret)" as Witness
+}
+
+' ── Sovereign side ───────────────────────────────────────────────────────
+package "Sovereign side (occasional)" as sov {
+  component "**Sovereign**\n//First Person//\nheld by the **Signet** app\ndecides · approves (PoH) · signs" as Sovereign
+}
+
+' ── relying party + shared services ──────────────────────────────────────
+component "**Verifier**\n//relying party//\nrequests proofs" as Verifier
+component "**Registry**\nToIP **TRQP** v2.0\nover Archon groups" as Registry
+cloud "**Archon Gatekeeper**\nflaxlap.local :4222 / :4224\nDID resolution + DIDComm relay" as GK
+
+' ── trust / delegation ───────────────────────────────────────────────────
+Warden --> Witness   : delegation VC\n//(scoped · revocable)//
+Witness ..> Warden   : challenge / response
+
+' ── submission over DIDComm ──────────────────────────────────────────────
+Witness --> Warden   : DIDComm v2: submission\n//(authcrypt · sealed)//
+Warden ..> Witness   : receipt (thid)
+
+' ── prove / projection ───────────────────────────────────────────────────
+Verifier <--> Witness  : proof request\n⇄ presentation
+Witness  --> Sovereign : relay //(above ceiling)//
+Sovereign ..> Witness  : PoH approval +\npresentation
+
+' ── trust registry ───────────────────────────────────────────────────────
+Verifier --> Registry : TRQP //is issuer trusted?//
+Witness ..> Registry  : TRQP //autonomy ceiling?//
+Registry --> GK       : testGroup //(groups)//
+
+' ── DID resolution (everyone) ────────────────────────────────────────────
+Warden ..> GK    : resolve
+Witness ..> GK
+Sovereign ..> GK
+Verifier ..> GK
+
+note bottom of Registry
+  **DTG credentials** (VRC / VMC / VIC / VPC / VEC / VWC + RCard) are the
+  edges & memberships of the trust graph the Registry authorizes over.
+  **Game-of-42 bridge:** a sealed governance board (VRC → κ → seal) projects
+  to a soulbis **City Key** / constellation node — the registry, rendered visually.
+end note
+
+@enduml
