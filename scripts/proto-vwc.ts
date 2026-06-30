@@ -77,7 +77,7 @@ async function main(): Promise<void> {
   step('Witness issues a VWC about the Sovereign, digesting the witnessed VRC');
   const vwcSchema = await ensureSchema(witness, 'dtg/VWC', dtgSchema(DtgType.WITNESS));
   const witnessContext = {
-    event: 'Drake Island raid form-up',
+    event: 'Example Guild raid form-up',
     sessionId: 'session-drake-7731',
     method: 'virtual-realtime',
   };

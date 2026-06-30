@@ -2,7 +2,7 @@
  * End-to-end test of the `issued` foundation: a third-party issuer issues a credential to the
  * Sovereign, the Sovereign accepts it, and it is recorded as an `issued` evidence leaf in the vault.
  *
- *   Guild (external issuer) ──issues "Raid-Lead, Drake Island"──► Sovereign (subject)
+ *   Guild (external issuer) ──issues "Raid-Lead, Example Guild"──► Sovereign (subject)
  *   Sovereign accepts ──► recordIssuedCredential ──► `issued` leaf in the Warden's vault
  *
  * (The "guild" issuer reuses the Witness identity as a stand-in external party — in production this
@@ -49,7 +49,7 @@ async function main(): Promise<void> {
 
   step('Guild issues a membership credential to the Sovereign');
   const bound = await guild.keymaster.bindCredential(sovereignId.did, {
-    claims: { type: 'GuildMembership', guild: 'Drake Island', role: 'Raid-Lead' },
+    claims: { type: 'GuildMembership', guild: 'Example Guild', role: 'Raid-Lead' },
   });
   const credDid = await guild.keymaster.issueCredential(bound);
   check(`credential issued ${credDid.slice(0, 28)}…`, credDid.startsWith('did:'));

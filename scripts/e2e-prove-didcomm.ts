@@ -66,7 +66,7 @@ async function main(): Promise<void> {
   const schemaDid = await guild.keymaster.createSchema(GUILD_SCHEMA);
   const bound = await guild.keymaster.bindCredential(sovereignId.did, {
     schema: schemaDid,
-    claims: { type: 'GuildMembership', guild: 'Drake Island', role: 'Raid-Lead' },
+    claims: { type: 'GuildMembership', guild: 'Example Guild', role: 'Raid-Lead' },
   });
   const credDid = await guild.keymaster.issueCredential(bound, { schema: schemaDid });
   await acceptCredential(sovereign, credDid);

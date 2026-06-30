@@ -1,7 +1,7 @@
 /**
  * End-to-end test of the prove flow for an `issued` claim.
  *
- *   Guild issues "Raid-Lead, Drake Island" (with a schema) ──► Sovereign accepts
+ *   Guild issues "Raid-Lead, Example Guild" (with a schema) ──► Sovereign accepts
  *   Verifier requests proof (schema + trusted issuer = the Guild)
  *   Sovereign presents ──► Verifier verifies: reads role=Raid-Lead, confirms issuer = the Guild
  *
@@ -61,7 +61,7 @@ async function main(): Promise<void> {
   const schemaDid = await guild.keymaster.createSchema(GUILD_SCHEMA);
   const bound = await guild.keymaster.bindCredential(sovereignId.did, {
     schema: schemaDid,
-    claims: { type: 'GuildMembership', guild: 'Drake Island', role: 'Raid-Lead' },
+    claims: { type: 'GuildMembership', guild: 'Example Guild', role: 'Raid-Lead' },
   });
   const credDid = await guild.keymaster.issueCredential(bound, { schema: schemaDid });
   await acceptCredential(sovereign, credDid);

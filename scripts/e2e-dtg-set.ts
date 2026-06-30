@@ -78,7 +78,7 @@ async function main(): Promise<void> {
   const vwc = await get(
     await issueVwc(issuer, subjectId.did, schema, {
       witnessedVrc: vrc,
-      witnessContext: { event: 'Drake Island raid form-up', sessionId: 'session-drake-7731', method: 'virtual-realtime' },
+      witnessContext: { event: 'Example Guild raid form-up', sessionId: 'session-drake-7731', method: 'virtual-realtime' },
     }),
   );
   const wctx = (vwc?.credentialSubject?.witnessContext ?? {}) as Record<string, unknown>;

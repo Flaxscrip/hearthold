@@ -20,7 +20,7 @@ gives them:
   **verifiable evidence** of the person's history to present to third parties —
   proving a fact *without disclosing the data behind it*.
 
-The design principle (from prior Privacy Value Model work, stated plainly): **separate the
+The design principle (from prior Privacy Is Value Model work, stated plainly): **separate the
 custodian of data from the agent that acts in the world**, so neither alone reconstructs the whole.
 The product goal is to let a person make practical, privacy-preserving use of their own history.
 
