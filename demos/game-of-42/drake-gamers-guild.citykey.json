@@ -1,0 +1,52 @@
+{
+  "name": "Drake Gamers Guild · game of 42 seal",
+  "version": 1,
+  "palette": {
+    "cool": "#141a3d",
+    "warm": "#f0eee8",
+    "sword": "#e8523a",
+    "mage": "#4dd9e8"
+  },
+  "lit": [
+    1,
+    2,
+    4,
+    8,
+    16,
+    32,
+    63
+  ],
+  "packets": {
+    "root": "23c8f1f86f9b0cd2ea603deb064704c9ca65c36b31e46e415a637177be0f2d74",
+    "count": 42
+  },
+  "witness": {
+    "spent": {
+      "63": 42
+    },
+    "complete": true,
+    "at": "2026-06-30T12:00:00Z"
+  },
+  "geometry": {
+    "eps": 0.227,
+    "m": 2,
+    "n": 3,
+    "core": 1.473,
+    "smRatio": 0.661
+  },
+  "prior": "sha256:23c8f1f86f9b0cd2ea603deb064704c9ca65c36b31e46e415a637177be0f2d74",
+  "descriptions": {
+    "1": "value · The Sovereign",
+    "2": "compute · GenitriX",
+    "4": "connection · The Quartermaster",
+    "8": "memory · The Lorekeeper",
+    "16": "delegation · The Witness (Soulbae)",
+    "32": "protection · The Warden (Soulbis)",
+    "63": "Drake Gamers Guild — all six dimensions held"
+  },
+  "identity": {
+    "guild": "Drake Gamers Guild",
+    "community": "did:cid:bagaaieravkejyffsygijy7cpmq3ll24x4hyv2wrpkaoeylci74mhhsxdus3q"
+  },
+  "kappa": "sha256:87c17d3912971fc3cd69c51b777835b61099f228a7c41988a845767b914e351f"
+}

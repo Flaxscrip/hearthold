@@ -1,0 +1,1114 @@
+{
+  "name": "Drake Gamers Guild",
+  "origin": "hearthold",
+  "preset": "mages",
+  "_note": "The Drake Gamers Guild seated on the six PVM axes by guild officers. Each slot is a spec-shaped VRC edge; κ uses the byte-exact game42 canon (verified vs src/hash.js). trustTaskRef points at real Archon guild credentials. Group seal uses a placeholder geometryHash pending the engine fold; κ-labels are exact.",
+  "founder": {
+    "name": "flaxscrip",
+    "role": "Guild Founder (centre / seed)",
+    "did": "did:cid:bagaaiera7vsjlu6oiluzd4enop5j7sfzjbwp2ujudt6uunkz6hhd4lgfe4sa"
+  },
+  "axes": [
+    "compute",
+    "connection",
+    "delegation",
+    "protection",
+    "memory",
+    "value"
+  ],
+  "litVertices": [
+    1,
+    2,
+    4,
+    8,
+    16,
+    32,
+    63
+  ],
+  "flower": {
+    "compute": {
+      "name": "GenitriX",
+      "role": "the learning mage",
+      "detail": "the Scribe — learns the guild",
+      "did": "did:cid:bagaaieraxdxq4fm2kjh6yqjxjor3t2idczkmxd4v7in4u353fa6m6sms2pnq",
+      "seated": true
+    },
+    "connection": {
+      "name": "The Quartermaster",
+      "role": "the network mage",
+      "detail": "the muster & the supply lines",
+      "did": "did:cid:bagaaieratqqdammifahbb2dbls4l5a3b6orcbfqgj5i46sosmszmqcuqjqmq",
+      "seated": true
+    },
+    "delegation": {
+      "name": "The Witness",
+      "role": "the agency mage",
+      "detail": "Soulbae — projects for the guild",
+      "did": "did:cid:bagaaiera2h4ptuuutua4rwx2gyga5msguztdh4v55r6m3d5tu43snyr7x4lq",
+      "seated": true
+    },
+    "protection": {
+      "name": "The Warden",
+      "role": "the privacy mage",
+      "detail": "Soulbis — guards the guild vault",
+      "did": "did:cid:bagaaiera6la7amjmkm6tx7yfzuw43iks5wwadk5yaui33ijolyoyol2e4bmq",
+      "seated": true
+    },
+    "memory": {
+      "name": "The Lorekeeper",
+      "role": "the continuity mage",
+      "detail": "keeps the guild’s lore",
+      "did": "did:cid:bagaaieranza2an2cznopjbpdwektds5wf6yinwcsp6fgjfjfbyizxzuo4w3q",
+      "seated": true
+    },
+    "value": {
+      "name": "The Sovereign",
+      "role": "the trust mage",
+      "detail": "Raid-Lead — holds the guild’s value",
+      "did": "did:cid:bagaaieraeckzoz4g2cb2xices6ier6strr3t7bmpwjtkryn7fxymttpxe46a",
+      "seated": true
+    }
+  },
+  "locked": [
+    "compute.head",
+    "compute.head-heart",
+    "compute.head-hands",
+    "compute.hands",
+    "compute.heart-hands",
+    "compute.heart",
+    "compute.head-heart-hands",
+    "connection.head",
+    "connection.head-heart",
+    "connection.head-hands",
+    "connection.hands",
+    "connection.heart-hands",
+    "connection.heart",
+    "connection.head-heart-hands",
+    "delegation.head",
+    "delegation.head-heart",
+    "delegation.head-hands",
+    "delegation.hands",
+    "delegation.heart-hands",
+    "delegation.heart",
+    "delegation.head-heart-hands",
+    "protection.head",
+    "protection.head-heart",
+    "protection.head-hands",
+    "protection.hands",
+    "protection.heart-hands",
+    "protection.heart",
+    "protection.head-heart-hands",
+    "memory.head",
+    "memory.head-heart",
+    "memory.head-hands",
+    "memory.hands",
+    "memory.heart-hands",
+    "memory.heart",
+    "memory.head-heart-hands",
+    "value.head",
+    "value.head-heart",
+    "value.head-hands",
+    "value.hands",
+    "value.heart-hands",
+    "value.heart",
+    "value.head-heart-hands"
+  ],
+  "slots": [
+    {
+      "slotId": "compute.head",
+      "axisId": "compute",
+      "fillOrder": 1,
+      "personaClass": "vision_fish",
+      "latticeAxisVertex": 2,
+      "vrc": {
+        "slotId": "compute.head",
+        "axisId": "compute",
+        "candidate": {
+          "did": "did:cid:bagaaiera7vsjlu6oiluzd4enop5j7sfzjbwp2ujudt6uunkz6hhd4lgfe4sa"
+        },
+        "root": {
+          "did": "did:cid:bagaaieraxdxq4fm2kjh6yqjxjor3t2idczkmxd4v7in4u353fa6m6sms2pnq"
+        },
+        "polarity": "+",
+        "proverb": "the guild keeps faith at the head",
+        "trustTaskRef": "did:cid:bagaaierakmobuifst4ca22mss7txlyhlcubdpaetl27z6ez3iw2gf2vcdqrq",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "4545761c527fb0f87da06ecd7874ad9f2896d78d304ce6772e9fd2141d73b30d",
+      "anchored": true
+    },
+    {
+      "slotId": "compute.head-heart",
+      "axisId": "compute",
+      "fillOrder": 2,
+      "personaClass": "vision_fish",
+      "latticeAxisVertex": 2,
+      "vrc": {
+        "slotId": "compute.head-heart",
+        "axisId": "compute",
+        "candidate": {
+          "did": "did:cid:bagaaieraxdxq4fm2kjh6yqjxjor3t2idczkmxd4v7in4u353fa6m6sms2pnq"
+        },
+        "root": {
+          "did": "did:cid:bagaaieraxdxq4fm2kjh6yqjxjor3t2idczkmxd4v7in4u353fa6m6sms2pnq"
+        },
+        "polarity": "+",
+        "proverb": "the guild keeps faith at the head-heart",
+        "trustTaskRef": "did:cid:bagaaierase4ikj433nmrh5orsmfuivqruwfqsbdvdxga6k3pn6thxi2fmf3q",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "0fa5c989bf74d09323a1d291bee62f574be943b79d7a97fb4e0c38bf3507c766",
+      "anchored": true
+    },
+    {
+      "slotId": "compute.head-hands",
+      "axisId": "compute",
+      "fillOrder": 3,
+      "personaClass": "vision_fish",
+      "latticeAxisVertex": 2,
+      "vrc": {
+        "slotId": "compute.head-hands",
+        "axisId": "compute",
+        "candidate": {
+          "did": "did:cid:bagaaieraxdxq4fm2kjh6yqjxjor3t2idczkmxd4v7in4u353fa6m6sms2pnq"
+        },
+        "root": {
+          "did": "did:cid:bagaaieraxdxq4fm2kjh6yqjxjor3t2idczkmxd4v7in4u353fa6m6sms2pnq"
+        },
+        "polarity": "+",
+        "proverb": "the guild keeps faith at the head-hands",
+        "trustTaskRef": "did:cid:bagaaieraddquugpotrokoa5nspz6l2vohljg7snhze2wktra6st6joejdzca",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "0d839fde3692c46197365a9f2c97f688625ff2490a8dc26023489bda892dacc8",
+      "anchored": true
+    },
+    {
+      "slotId": "compute.hands",
+      "axisId": "compute",
+      "fillOrder": 4,
+      "personaClass": "mouse",
+      "latticeAxisVertex": 2,
+      "vrc": {
+        "slotId": "compute.hands",
+        "axisId": "compute",
+        "candidate": {
+          "did": "did:cid:bagaaieraxdxq4fm2kjh6yqjxjor3t2idczkmxd4v7in4u353fa6m6sms2pnq"
+        },
+        "root": {
+          "did": "did:cid:bagaaieraxdxq4fm2kjh6yqjxjor3t2idczkmxd4v7in4u353fa6m6sms2pnq"
+        },
+        "polarity": "-",
+        "proverb": "the guild keeps faith at the hands",
+        "trustTaskRef": "did:cid:bagaaiera3untv2ld7jjhlkhn5avfzrgqlajct7msatmka4u6vsxri6hecoaa",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "d2bbdfb7affff571e2e0cf13c77b87514fcac15623cb3ed2b85773bfed20ab5b",
+      "anchored": true
+    },
+    {
+      "slotId": "compute.heart-hands",
+      "axisId": "compute",
+      "fillOrder": 5,
+      "personaClass": "mouse",
+      "latticeAxisVertex": 2,
+      "vrc": {
+        "slotId": "compute.heart-hands",
+        "axisId": "compute",
+        "candidate": {
+          "did": "did:cid:bagaaieratqqdammifahbb2dbls4l5a3b6orcbfqgj5i46sosmszmqcuqjqmq"
+        },
+        "root": {
+          "did": "did:cid:bagaaieraxdxq4fm2kjh6yqjxjor3t2idczkmxd4v7in4u353fa6m6sms2pnq"
+        },
+        "polarity": "-",
+        "proverb": "the guild keeps faith at the heart-hands",
+        "trustTaskRef": "task:pending:compute.heart-hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "8c31f62e6620b1dfbb9d7876b7f34cf0ab686f3efa2bf1ac15ff7d30be3b862b",
+      "anchored": false
+    },
+    {
+      "slotId": "compute.heart",
+      "axisId": "compute",
+      "fillOrder": 6,
+      "personaClass": "mouse",
+      "latticeAxisVertex": 2,
+      "vrc": {
+        "slotId": "compute.heart",
+        "axisId": "compute",
+        "candidate": {
+          "did": "did:cid:bagaaieranza2an2cznopjbpdwektds5wf6yinwcsp6fgjfjfbyizxzuo4w3q"
+        },
+        "root": {
+          "did": "did:cid:bagaaieraxdxq4fm2kjh6yqjxjor3t2idczkmxd4v7in4u353fa6m6sms2pnq"
+        },
+        "polarity": "-",
+        "proverb": "the guild keeps faith at the heart",
+        "trustTaskRef": "task:pending:compute.heart",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "34c222fc761cfe3671e1f162f0a04699948dec4d75d42a49ab1d4ab2fd6ff5dc",
+      "anchored": false
+    },
+    {
+      "slotId": "compute.head-heart-hands",
+      "axisId": "compute",
+      "fillOrder": 7,
+      "personaClass": "privacy_guide",
+      "latticeAxisVertex": 2,
+      "vrc": {
+        "slotId": "compute.head-heart-hands",
+        "axisId": "compute",
+        "candidate": {
+          "did": "did:cid:bagaaiera7vsjlu6oiluzd4enop5j7sfzjbwp2ujudt6uunkz6hhd4lgfe4sa"
+        },
+        "root": {
+          "did": "did:cid:bagaaieraxdxq4fm2kjh6yqjxjor3t2idczkmxd4v7in4u353fa6m6sms2pnq"
+        },
+        "polarity": "+",
+        "proverb": "the guild keeps faith at the head-heart-hands",
+        "trustTaskRef": "task:pending:compute.head-heart-hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "d8ab6cd0ac5fecc4717bb1764ec652ed584d759093a523acceb895722c93ad24",
+      "anchored": false
+    },
+    {
+      "slotId": "connection.head",
+      "axisId": "connection",
+      "fillOrder": 1,
+      "personaClass": "vision_fish",
+      "latticeAxisVertex": 4,
+      "vrc": {
+        "slotId": "connection.head",
+        "axisId": "connection",
+        "candidate": {
+          "did": "did:cid:bagaaiera7vsjlu6oiluzd4enop5j7sfzjbwp2ujudt6uunkz6hhd4lgfe4sa"
+        },
+        "root": {
+          "did": "did:cid:bagaaieratqqdammifahbb2dbls4l5a3b6orcbfqgj5i46sosmszmqcuqjqmq"
+        },
+        "polarity": "+",
+        "proverb": "the guild keeps faith at the head",
+        "trustTaskRef": "task:pending:connection.head",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "5a22f59589290a136681f5ce7a540d0dd4171f6d2a12942566209793058d1c6b",
+      "anchored": false
+    },
+    {
+      "slotId": "connection.head-heart",
+      "axisId": "connection",
+      "fillOrder": 2,
+      "personaClass": "vision_fish",
+      "latticeAxisVertex": 4,
+      "vrc": {
+        "slotId": "connection.head-heart",
+        "axisId": "connection",
+        "candidate": {
+          "did": "did:cid:bagaaieraeckzoz4g2cb2xices6ier6strr3t7bmpwjtkryn7fxymttpxe46a"
+        },
+        "root": {
+          "did": "did:cid:bagaaieratqqdammifahbb2dbls4l5a3b6orcbfqgj5i46sosmszmqcuqjqmq"
+        },
+        "polarity": "+",
+        "proverb": "the guild keeps faith at the head-heart",
+        "trustTaskRef": "task:pending:connection.head-heart",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "ec2860242bc33fe5736f334519a9268178c1708839dfc42ebab1a23aa4bfb2ac",
+      "anchored": false
+    },
+    {
+      "slotId": "connection.head-hands",
+      "axisId": "connection",
+      "fillOrder": 3,
+      "personaClass": "vision_fish",
+      "latticeAxisVertex": 4,
+      "vrc": {
+        "slotId": "connection.head-hands",
+        "axisId": "connection",
+        "candidate": {
+          "did": "did:cid:bagaaiera2h4ptuuutua4rwx2gyga5msguztdh4v55r6m3d5tu43snyr7x4lq"
+        },
+        "root": {
+          "did": "did:cid:bagaaieratqqdammifahbb2dbls4l5a3b6orcbfqgj5i46sosmszmqcuqjqmq"
+        },
+        "polarity": "+",
+        "proverb": "the guild keeps faith at the head-hands",
+        "trustTaskRef": "task:pending:connection.head-hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "c6f799757b9efba6f503997f2012d83cc5e62dc08ff83c0a85cc74f76cb2d950",
+      "anchored": false
+    },
+    {
+      "slotId": "connection.hands",
+      "axisId": "connection",
+      "fillOrder": 4,
+      "personaClass": "mouse",
+      "latticeAxisVertex": 4,
+      "vrc": {
+        "slotId": "connection.hands",
+        "axisId": "connection",
+        "candidate": {
+          "did": "did:cid:bagaaiera6la7amjmkm6tx7yfzuw43iks5wwadk5yaui33ijolyoyol2e4bmq"
+        },
+        "root": {
+          "did": "did:cid:bagaaieratqqdammifahbb2dbls4l5a3b6orcbfqgj5i46sosmszmqcuqjqmq"
+        },
+        "polarity": "-",
+        "proverb": "the guild keeps faith at the hands",
+        "trustTaskRef": "task:pending:connection.hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "07236aa2da3f0591ceaf457de7ba136e5f2b2f183bb3c20290d9cc970c691661",
+      "anchored": false
+    },
+    {
+      "slotId": "connection.heart-hands",
+      "axisId": "connection",
+      "fillOrder": 5,
+      "personaClass": "mouse",
+      "latticeAxisVertex": 4,
+      "vrc": {
+        "slotId": "connection.heart-hands",
+        "axisId": "connection",
+        "candidate": {
+          "did": "did:cid:bagaaieranza2an2cznopjbpdwektds5wf6yinwcsp6fgjfjfbyizxzuo4w3q"
+        },
+        "root": {
+          "did": "did:cid:bagaaieratqqdammifahbb2dbls4l5a3b6orcbfqgj5i46sosmszmqcuqjqmq"
+        },
+        "polarity": "-",
+        "proverb": "the guild keeps faith at the heart-hands",
+        "trustTaskRef": "task:pending:connection.heart-hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "ca9e786ab7d6110f0aa4b6d14fc55195e7e14d0707faebb40f878c221bf7159f",
+      "anchored": false
+    },
+    {
+      "slotId": "connection.heart",
+      "axisId": "connection",
+      "fillOrder": 6,
+      "personaClass": "mouse",
+      "latticeAxisVertex": 4,
+      "vrc": {
+        "slotId": "connection.heart",
+        "axisId": "connection",
+        "candidate": {
+          "did": "did:cid:bagaaieranza2an2cznopjbpdwektds5wf6yinwcsp6fgjfjfbyizxzuo4w3q"
+        },
+        "root": {
+          "did": "did:cid:bagaaieratqqdammifahbb2dbls4l5a3b6orcbfqgj5i46sosmszmqcuqjqmq"
+        },
+        "polarity": "-",
+        "proverb": "the guild keeps faith at the heart",
+        "trustTaskRef": "task:pending:connection.heart",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "ad86cf502ab4af21f31121b05d0aec6b8b665af3ea9467b7de12e0bb256047d7",
+      "anchored": false
+    },
+    {
+      "slotId": "connection.head-heart-hands",
+      "axisId": "connection",
+      "fillOrder": 7,
+      "personaClass": "privacy_guide",
+      "latticeAxisVertex": 4,
+      "vrc": {
+        "slotId": "connection.head-heart-hands",
+        "axisId": "connection",
+        "candidate": {
+          "did": "did:cid:bagaaieraxdxq4fm2kjh6yqjxjor3t2idczkmxd4v7in4u353fa6m6sms2pnq"
+        },
+        "root": {
+          "did": "did:cid:bagaaieratqqdammifahbb2dbls4l5a3b6orcbfqgj5i46sosmszmqcuqjqmq"
+        },
+        "polarity": "+",
+        "proverb": "the guild keeps faith at the head-heart-hands",
+        "trustTaskRef": "task:pending:connection.head-heart-hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "464334410d4ee9d576dfc48978c2339e7c284fda4630846c37b73ebbeaa2b33f",
+      "anchored": false
+    },
+    {
+      "slotId": "delegation.head",
+      "axisId": "delegation",
+      "fillOrder": 1,
+      "personaClass": "vision_fish",
+      "latticeAxisVertex": 16,
+      "vrc": {
+        "slotId": "delegation.head",
+        "axisId": "delegation",
+        "candidate": {
+          "did": "did:cid:bagaaiera7vsjlu6oiluzd4enop5j7sfzjbwp2ujudt6uunkz6hhd4lgfe4sa"
+        },
+        "root": {
+          "did": "did:cid:bagaaiera2h4ptuuutua4rwx2gyga5msguztdh4v55r6m3d5tu43snyr7x4lq"
+        },
+        "polarity": "+",
+        "proverb": "the guild keeps faith at the head",
+        "trustTaskRef": "task:pending:delegation.head",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "a3c971c46c53c3e88dc9ed529a5fbaf4a39395ad40815bcf15972b354513d572",
+      "anchored": false
+    },
+    {
+      "slotId": "delegation.head-heart",
+      "axisId": "delegation",
+      "fillOrder": 2,
+      "personaClass": "vision_fish",
+      "latticeAxisVertex": 16,
+      "vrc": {
+        "slotId": "delegation.head-heart",
+        "axisId": "delegation",
+        "candidate": {
+          "did": "did:cid:bagaaieraeckzoz4g2cb2xices6ier6strr3t7bmpwjtkryn7fxymttpxe46a"
+        },
+        "root": {
+          "did": "did:cid:bagaaiera2h4ptuuutua4rwx2gyga5msguztdh4v55r6m3d5tu43snyr7x4lq"
+        },
+        "polarity": "+",
+        "proverb": "the guild keeps faith at the head-heart",
+        "trustTaskRef": "task:pending:delegation.head-heart",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "2894d856e0794c9697ebad4fdf06d376f3b98ef05dc2b63b249228d07aaa3c2d",
+      "anchored": false
+    },
+    {
+      "slotId": "delegation.head-hands",
+      "axisId": "delegation",
+      "fillOrder": 3,
+      "personaClass": "vision_fish",
+      "latticeAxisVertex": 16,
+      "vrc": {
+        "slotId": "delegation.head-hands",
+        "axisId": "delegation",
+        "candidate": {
+          "did": "did:cid:bagaaiera6la7amjmkm6tx7yfzuw43iks5wwadk5yaui33ijolyoyol2e4bmq"
+        },
+        "root": {
+          "did": "did:cid:bagaaiera2h4ptuuutua4rwx2gyga5msguztdh4v55r6m3d5tu43snyr7x4lq"
+        },
+        "polarity": "+",
+        "proverb": "the guild keeps faith at the head-hands",
+        "trustTaskRef": "task:pending:delegation.head-hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "a6354e72b010beec647b03b8098d44f421bd5a391487120171c3eb40360f0a3e",
+      "anchored": false
+    },
+    {
+      "slotId": "delegation.hands",
+      "axisId": "delegation",
+      "fillOrder": 4,
+      "personaClass": "mouse",
+      "latticeAxisVertex": 16,
+      "vrc": {
+        "slotId": "delegation.hands",
+        "axisId": "delegation",
+        "candidate": {
+          "did": "did:cid:bagaaiera6la7amjmkm6tx7yfzuw43iks5wwadk5yaui33ijolyoyol2e4bmq"
+        },
+        "root": {
+          "did": "did:cid:bagaaiera2h4ptuuutua4rwx2gyga5msguztdh4v55r6m3d5tu43snyr7x4lq"
+        },
+        "polarity": "-",
+        "proverb": "the guild keeps faith at the hands",
+        "trustTaskRef": "task:pending:delegation.hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "533a277e49d8e6060f5cf3895276ab1b11c8ec43c55cc02e6527347e13d08f04",
+      "anchored": false
+    },
+    {
+      "slotId": "delegation.heart-hands",
+      "axisId": "delegation",
+      "fillOrder": 5,
+      "personaClass": "mouse",
+      "latticeAxisVertex": 16,
+      "vrc": {
+        "slotId": "delegation.heart-hands",
+        "axisId": "delegation",
+        "candidate": {
+          "did": "did:cid:bagaaieratqqdammifahbb2dbls4l5a3b6orcbfqgj5i46sosmszmqcuqjqmq"
+        },
+        "root": {
+          "did": "did:cid:bagaaiera2h4ptuuutua4rwx2gyga5msguztdh4v55r6m3d5tu43snyr7x4lq"
+        },
+        "polarity": "-",
+        "proverb": "the guild keeps faith at the heart-hands",
+        "trustTaskRef": "task:pending:delegation.heart-hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "9cd135c58a53657cd53e88f5348134e9c2e30257b391254d2c19bf54b25276dd",
+      "anchored": false
+    },
+    {
+      "slotId": "delegation.heart",
+      "axisId": "delegation",
+      "fillOrder": 6,
+      "personaClass": "mouse",
+      "latticeAxisVertex": 16,
+      "vrc": {
+        "slotId": "delegation.heart",
+        "axisId": "delegation",
+        "candidate": {
+          "did": "did:cid:bagaaieranza2an2cznopjbpdwektds5wf6yinwcsp6fgjfjfbyizxzuo4w3q"
+        },
+        "root": {
+          "did": "did:cid:bagaaiera2h4ptuuutua4rwx2gyga5msguztdh4v55r6m3d5tu43snyr7x4lq"
+        },
+        "polarity": "-",
+        "proverb": "the guild keeps faith at the heart",
+        "trustTaskRef": "task:pending:delegation.heart",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "50aac62b8b6894bb0b117788b1d41ecdf8d016c02d9f710feae6167ce0e60235",
+      "anchored": false
+    },
+    {
+      "slotId": "delegation.head-heart-hands",
+      "axisId": "delegation",
+      "fillOrder": 7,
+      "personaClass": "privacy_guide",
+      "latticeAxisVertex": 16,
+      "vrc": {
+        "slotId": "delegation.head-heart-hands",
+        "axisId": "delegation",
+        "candidate": {
+          "did": "did:cid:bagaaieraxdxq4fm2kjh6yqjxjor3t2idczkmxd4v7in4u353fa6m6sms2pnq"
+        },
+        "root": {
+          "did": "did:cid:bagaaiera2h4ptuuutua4rwx2gyga5msguztdh4v55r6m3d5tu43snyr7x4lq"
+        },
+        "polarity": "+",
+        "proverb": "the guild keeps faith at the head-heart-hands",
+        "trustTaskRef": "task:pending:delegation.head-heart-hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "96473eb1949c65eb4fc47c735f1a44e7834938a42127a13f00f01f38d7811692",
+      "anchored": false
+    },
+    {
+      "slotId": "protection.head",
+      "axisId": "protection",
+      "fillOrder": 1,
+      "personaClass": "vision_fish",
+      "latticeAxisVertex": 32,
+      "vrc": {
+        "slotId": "protection.head",
+        "axisId": "protection",
+        "candidate": {
+          "did": "did:cid:bagaaiera7vsjlu6oiluzd4enop5j7sfzjbwp2ujudt6uunkz6hhd4lgfe4sa"
+        },
+        "root": {
+          "did": "did:cid:bagaaiera6la7amjmkm6tx7yfzuw43iks5wwadk5yaui33ijolyoyol2e4bmq"
+        },
+        "polarity": "+",
+        "proverb": "the guild keeps faith at the head",
+        "trustTaskRef": "task:pending:protection.head",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "58428b391bce91b7d3d8c5e63f6e1a5f85d3c55356eff3ab7217bad419447091",
+      "anchored": false
+    },
+    {
+      "slotId": "protection.head-heart",
+      "axisId": "protection",
+      "fillOrder": 2,
+      "personaClass": "vision_fish",
+      "latticeAxisVertex": 32,
+      "vrc": {
+        "slotId": "protection.head-heart",
+        "axisId": "protection",
+        "candidate": {
+          "did": "did:cid:bagaaieraeckzoz4g2cb2xices6ier6strr3t7bmpwjtkryn7fxymttpxe46a"
+        },
+        "root": {
+          "did": "did:cid:bagaaiera6la7amjmkm6tx7yfzuw43iks5wwadk5yaui33ijolyoyol2e4bmq"
+        },
+        "polarity": "+",
+        "proverb": "the guild keeps faith at the head-heart",
+        "trustTaskRef": "task:pending:protection.head-heart",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "93ee8412deea1796e58e93dfd8332bb3d09ab9d5e65a9664e657b4ee5110bfe1",
+      "anchored": false
+    },
+    {
+      "slotId": "protection.head-hands",
+      "axisId": "protection",
+      "fillOrder": 3,
+      "personaClass": "vision_fish",
+      "latticeAxisVertex": 32,
+      "vrc": {
+        "slotId": "protection.head-hands",
+        "axisId": "protection",
+        "candidate": {
+          "did": "did:cid:bagaaiera2h4ptuuutua4rwx2gyga5msguztdh4v55r6m3d5tu43snyr7x4lq"
+        },
+        "root": {
+          "did": "did:cid:bagaaiera6la7amjmkm6tx7yfzuw43iks5wwadk5yaui33ijolyoyol2e4bmq"
+        },
+        "polarity": "+",
+        "proverb": "the guild keeps faith at the head-hands",
+        "trustTaskRef": "task:pending:protection.head-hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "575eebfdad22257dff526f81b914330e1dafc729616cda61e2aeb218d90c3c10",
+      "anchored": false
+    },
+    {
+      "slotId": "protection.hands",
+      "axisId": "protection",
+      "fillOrder": 4,
+      "personaClass": "mouse",
+      "latticeAxisVertex": 32,
+      "vrc": {
+        "slotId": "protection.hands",
+        "axisId": "protection",
+        "candidate": {
+          "did": "did:cid:bagaaieratqqdammifahbb2dbls4l5a3b6orcbfqgj5i46sosmszmqcuqjqmq"
+        },
+        "root": {
+          "did": "did:cid:bagaaiera6la7amjmkm6tx7yfzuw43iks5wwadk5yaui33ijolyoyol2e4bmq"
+        },
+        "polarity": "-",
+        "proverb": "the guild keeps faith at the hands",
+        "trustTaskRef": "task:pending:protection.hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "7968ebdc7e60b716908112ebee1acdb8dd1056dd4a001112f51a058db6e67a5a",
+      "anchored": false
+    },
+    {
+      "slotId": "protection.heart-hands",
+      "axisId": "protection",
+      "fillOrder": 5,
+      "personaClass": "mouse",
+      "latticeAxisVertex": 32,
+      "vrc": {
+        "slotId": "protection.heart-hands",
+        "axisId": "protection",
+        "candidate": {
+          "did": "did:cid:bagaaieratqqdammifahbb2dbls4l5a3b6orcbfqgj5i46sosmszmqcuqjqmq"
+        },
+        "root": {
+          "did": "did:cid:bagaaiera6la7amjmkm6tx7yfzuw43iks5wwadk5yaui33ijolyoyol2e4bmq"
+        },
+        "polarity": "-",
+        "proverb": "the guild keeps faith at the heart-hands",
+        "trustTaskRef": "task:pending:protection.heart-hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "2252315438119464c6fd9d4b5d25b6d3d54aee5cd99f33192e9299df84c97d5e",
+      "anchored": false
+    },
+    {
+      "slotId": "protection.heart",
+      "axisId": "protection",
+      "fillOrder": 6,
+      "personaClass": "mouse",
+      "latticeAxisVertex": 32,
+      "vrc": {
+        "slotId": "protection.heart",
+        "axisId": "protection",
+        "candidate": {
+          "did": "did:cid:bagaaieranza2an2cznopjbpdwektds5wf6yinwcsp6fgjfjfbyizxzuo4w3q"
+        },
+        "root": {
+          "did": "did:cid:bagaaiera6la7amjmkm6tx7yfzuw43iks5wwadk5yaui33ijolyoyol2e4bmq"
+        },
+        "polarity": "-",
+        "proverb": "the guild keeps faith at the heart",
+        "trustTaskRef": "task:pending:protection.heart",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "43d7b46515584d5224362672ef225ab0e0ce313d2e1aa426ad487112a007ba54",
+      "anchored": false
+    },
+    {
+      "slotId": "protection.head-heart-hands",
+      "axisId": "protection",
+      "fillOrder": 7,
+      "personaClass": "privacy_guide",
+      "latticeAxisVertex": 32,
+      "vrc": {
+        "slotId": "protection.head-heart-hands",
+        "axisId": "protection",
+        "candidate": {
+          "did": "did:cid:bagaaieraxdxq4fm2kjh6yqjxjor3t2idczkmxd4v7in4u353fa6m6sms2pnq"
+        },
+        "root": {
+          "did": "did:cid:bagaaiera6la7amjmkm6tx7yfzuw43iks5wwadk5yaui33ijolyoyol2e4bmq"
+        },
+        "polarity": "+",
+        "proverb": "the guild keeps faith at the head-heart-hands",
+        "trustTaskRef": "task:pending:protection.head-heart-hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "aa5a9f80d35ea13ec7d03e903dfc5bb021992ef2a09267cae0dd20e4203b6349",
+      "anchored": false
+    },
+    {
+      "slotId": "memory.head",
+      "axisId": "memory",
+      "fillOrder": 1,
+      "personaClass": "vision_fish",
+      "latticeAxisVertex": 8,
+      "vrc": {
+        "slotId": "memory.head",
+        "axisId": "memory",
+        "candidate": {
+          "did": "did:cid:bagaaieraxdxq4fm2kjh6yqjxjor3t2idczkmxd4v7in4u353fa6m6sms2pnq"
+        },
+        "root": {
+          "did": "did:cid:bagaaieranza2an2cznopjbpdwektds5wf6yinwcsp6fgjfjfbyizxzuo4w3q"
+        },
+        "polarity": "+",
+        "proverb": "the guild keeps faith at the head",
+        "trustTaskRef": "did:cid:bagaaierahcevrs2ef5wmbbykma35nbieb7nf3lso6tudgqsd24jrjjhwblmq",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "cdf23400c1847534435238eeaae0d84408518588dd860100a3b4b45492b0fb9a",
+      "anchored": true
+    },
+    {
+      "slotId": "memory.head-heart",
+      "axisId": "memory",
+      "fillOrder": 2,
+      "personaClass": "vision_fish",
+      "latticeAxisVertex": 8,
+      "vrc": {
+        "slotId": "memory.head-heart",
+        "axisId": "memory",
+        "candidate": {
+          "did": "did:cid:bagaaieraeckzoz4g2cb2xices6ier6strr3t7bmpwjtkryn7fxymttpxe46a"
+        },
+        "root": {
+          "did": "did:cid:bagaaieranza2an2cznopjbpdwektds5wf6yinwcsp6fgjfjfbyizxzuo4w3q"
+        },
+        "polarity": "+",
+        "proverb": "the guild keeps faith at the head-heart",
+        "trustTaskRef": "task:pending:memory.head-heart",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "67e65c3598ce60e773fca93ce7b8debed0bd124164d291b342f118a05d378db8",
+      "anchored": false
+    },
+    {
+      "slotId": "memory.head-hands",
+      "axisId": "memory",
+      "fillOrder": 3,
+      "personaClass": "vision_fish",
+      "latticeAxisVertex": 8,
+      "vrc": {
+        "slotId": "memory.head-hands",
+        "axisId": "memory",
+        "candidate": {
+          "did": "did:cid:bagaaiera2h4ptuuutua4rwx2gyga5msguztdh4v55r6m3d5tu43snyr7x4lq"
+        },
+        "root": {
+          "did": "did:cid:bagaaieranza2an2cznopjbpdwektds5wf6yinwcsp6fgjfjfbyizxzuo4w3q"
+        },
+        "polarity": "+",
+        "proverb": "the guild keeps faith at the head-hands",
+        "trustTaskRef": "task:pending:memory.head-hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "fd9ab227cf74a2b7ce3313df588bf8d364195fa5013b92079a3452c25385457f",
+      "anchored": false
+    },
+    {
+      "slotId": "memory.hands",
+      "axisId": "memory",
+      "fillOrder": 4,
+      "personaClass": "mouse",
+      "latticeAxisVertex": 8,
+      "vrc": {
+        "slotId": "memory.hands",
+        "axisId": "memory",
+        "candidate": {
+          "did": "did:cid:bagaaiera6la7amjmkm6tx7yfzuw43iks5wwadk5yaui33ijolyoyol2e4bmq"
+        },
+        "root": {
+          "did": "did:cid:bagaaieranza2an2cznopjbpdwektds5wf6yinwcsp6fgjfjfbyizxzuo4w3q"
+        },
+        "polarity": "-",
+        "proverb": "the guild keeps faith at the hands",
+        "trustTaskRef": "task:pending:memory.hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "fdc82dc58631cc9fd55a937b29bfb0193b3ffd0a5b5651bbdf7e44d800361977",
+      "anchored": false
+    },
+    {
+      "slotId": "memory.heart-hands",
+      "axisId": "memory",
+      "fillOrder": 5,
+      "personaClass": "mouse",
+      "latticeAxisVertex": 8,
+      "vrc": {
+        "slotId": "memory.heart-hands",
+        "axisId": "memory",
+        "candidate": {
+          "did": "did:cid:bagaaieratqqdammifahbb2dbls4l5a3b6orcbfqgj5i46sosmszmqcuqjqmq"
+        },
+        "root": {
+          "did": "did:cid:bagaaieranza2an2cznopjbpdwektds5wf6yinwcsp6fgjfjfbyizxzuo4w3q"
+        },
+        "polarity": "-",
+        "proverb": "the guild keeps faith at the heart-hands",
+        "trustTaskRef": "task:pending:memory.heart-hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "d930af0fe9c1cd559113a7be0ce85162dde12a374345d5498cda13f77b125381",
+      "anchored": false
+    },
+    {
+      "slotId": "memory.heart",
+      "axisId": "memory",
+      "fillOrder": 6,
+      "personaClass": "mouse",
+      "latticeAxisVertex": 8,
+      "vrc": {
+        "slotId": "memory.heart",
+        "axisId": "memory",
+        "candidate": {
+          "did": "did:cid:bagaaieraxdxq4fm2kjh6yqjxjor3t2idczkmxd4v7in4u353fa6m6sms2pnq"
+        },
+        "root": {
+          "did": "did:cid:bagaaieranza2an2cznopjbpdwektds5wf6yinwcsp6fgjfjfbyizxzuo4w3q"
+        },
+        "polarity": "-",
+        "proverb": "the guild keeps faith at the heart",
+        "trustTaskRef": "task:pending:memory.heart",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "2c5e6f31d1f324d4342748a2face2fc8dde673e25354464d58359afecfe46c11",
+      "anchored": false
+    },
+    {
+      "slotId": "memory.head-heart-hands",
+      "axisId": "memory",
+      "fillOrder": 7,
+      "personaClass": "privacy_guide",
+      "latticeAxisVertex": 8,
+      "vrc": {
+        "slotId": "memory.head-heart-hands",
+        "axisId": "memory",
+        "candidate": {
+          "did": "did:cid:bagaaieraxdxq4fm2kjh6yqjxjor3t2idczkmxd4v7in4u353fa6m6sms2pnq"
+        },
+        "root": {
+          "did": "did:cid:bagaaieranza2an2cznopjbpdwektds5wf6yinwcsp6fgjfjfbyizxzuo4w3q"
+        },
+        "polarity": "+",
+        "proverb": "the guild keeps faith at the head-heart-hands",
+        "trustTaskRef": "task:pending:memory.head-heart-hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "28af19644f0405b850488dca8375f8d803298e1d6ef20bbf1aed0c66f6fa117d",
+      "anchored": false
+    },
+    {
+      "slotId": "value.head",
+      "axisId": "value",
+      "fillOrder": 1,
+      "personaClass": "vision_fish",
+      "latticeAxisVertex": 1,
+      "vrc": {
+        "slotId": "value.head",
+        "axisId": "value",
+        "candidate": {
+          "did": "did:cid:bagaaieraxdxq4fm2kjh6yqjxjor3t2idczkmxd4v7in4u353fa6m6sms2pnq"
+        },
+        "root": {
+          "did": "did:cid:bagaaieraeckzoz4g2cb2xices6ier6strr3t7bmpwjtkryn7fxymttpxe46a"
+        },
+        "polarity": "+",
+        "proverb": "the guild keeps faith at the head",
+        "trustTaskRef": "did:cid:bagaaierazb2hfmxpw53s4of4lu5gicdt2oopfbwh7cyx4xy3hebyfrw6roea",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "5a7302f89be67ccb097101e0d51294a95de29e647e8d7f958bbe896bb923660d",
+      "anchored": true
+    },
+    {
+      "slotId": "value.head-heart",
+      "axisId": "value",
+      "fillOrder": 2,
+      "personaClass": "vision_fish",
+      "latticeAxisVertex": 1,
+      "vrc": {
+        "slotId": "value.head-heart",
+        "axisId": "value",
+        "candidate": {
+          "did": "did:cid:bagaaiera7vsjlu6oiluzd4enop5j7sfzjbwp2ujudt6uunkz6hhd4lgfe4sa"
+        },
+        "root": {
+          "did": "did:cid:bagaaieraeckzoz4g2cb2xices6ier6strr3t7bmpwjtkryn7fxymttpxe46a"
+        },
+        "polarity": "+",
+        "proverb": "the guild keeps faith at the head-heart",
+        "trustTaskRef": "did:cid:bagaaierazlp73sbzernyoqmspyjymrdhbzmmtxevw6xcnso27imlc3g27h6a",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "0df47fdd4235bd944b2c688dc1c0895842bbf0ebd97f9a22d247e636642134d1",
+      "anchored": true
+    },
+    {
+      "slotId": "value.head-hands",
+      "axisId": "value",
+      "fillOrder": 3,
+      "personaClass": "vision_fish",
+      "latticeAxisVertex": 1,
+      "vrc": {
+        "slotId": "value.head-hands",
+        "axisId": "value",
+        "candidate": {
+          "did": "did:cid:bagaaieraeckzoz4g2cb2xices6ier6strr3t7bmpwjtkryn7fxymttpxe46a"
+        },
+        "root": {
+          "did": "did:cid:bagaaieraeckzoz4g2cb2xices6ier6strr3t7bmpwjtkryn7fxymttpxe46a"
+        },
+        "polarity": "+",
+        "proverb": "the guild keeps faith at the head-hands",
+        "trustTaskRef": "did:cid:bagaaierad7cb62ddwros3eloej2dexjxfsaxp2za7s742grfej6myyi4x2iq",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "a543fd5b807f1971f55530bbdd5ac9b3058aebe0c71168ae5e3a39773619af3c",
+      "anchored": true
+    },
+    {
+      "slotId": "value.hands",
+      "axisId": "value",
+      "fillOrder": 4,
+      "personaClass": "mouse",
+      "latticeAxisVertex": 1,
+      "vrc": {
+        "slotId": "value.hands",
+        "axisId": "value",
+        "candidate": {
+          "did": "did:cid:bagaaieraeckzoz4g2cb2xices6ier6strr3t7bmpwjtkryn7fxymttpxe46a"
+        },
+        "root": {
+          "did": "did:cid:bagaaieraeckzoz4g2cb2xices6ier6strr3t7bmpwjtkryn7fxymttpxe46a"
+        },
+        "polarity": "-",
+        "proverb": "the guild keeps faith at the hands",
+        "trustTaskRef": "did:cid:bagaaieraifashvavq34vaaugit5mfeteqblrnbh5q5chh67lgfocblkjcjaa",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "3e1bdceecf70ff4371967225eeaf7955e2620c7cd5ca462386290b2887a29f64",
+      "anchored": true
+    },
+    {
+      "slotId": "value.heart-hands",
+      "axisId": "value",
+      "fillOrder": 5,
+      "personaClass": "mouse",
+      "latticeAxisVertex": 1,
+      "vrc": {
+        "slotId": "value.heart-hands",
+        "axisId": "value",
+        "candidate": {
+          "did": "did:cid:bagaaieraeckzoz4g2cb2xices6ier6strr3t7bmpwjtkryn7fxymttpxe46a"
+        },
+        "root": {
+          "did": "did:cid:bagaaieraeckzoz4g2cb2xices6ier6strr3t7bmpwjtkryn7fxymttpxe46a"
+        },
+        "polarity": "-",
+        "proverb": "the guild keeps faith at the heart-hands",
+        "trustTaskRef": "did:cid:bagaaierafll3qx56xizirragjcdol2xa3lrczf6jasc3t42u6oylpxmwgsnq",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "0a3e802d10fcb733d0d76d261256e5488dfab31de87888a59597d59a1433492c",
+      "anchored": true
+    },
+    {
+      "slotId": "value.heart",
+      "axisId": "value",
+      "fillOrder": 6,
+      "personaClass": "mouse",
+      "latticeAxisVertex": 1,
+      "vrc": {
+        "slotId": "value.heart",
+        "axisId": "value",
+        "candidate": {
+          "did": "did:cid:bagaaieranza2an2cznopjbpdwektds5wf6yinwcsp6fgjfjfbyizxzuo4w3q"
+        },
+        "root": {
+          "did": "did:cid:bagaaieraeckzoz4g2cb2xices6ier6strr3t7bmpwjtkryn7fxymttpxe46a"
+        },
+        "polarity": "-",
+        "proverb": "the guild keeps faith at the heart",
+        "trustTaskRef": "task:pending:value.heart",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "f7dbdefb1dc38064b6c88a77212484717680581362b364f702b9e81d8070facc",
+      "anchored": false
+    },
+    {
+      "slotId": "value.head-heart-hands",
+      "axisId": "value",
+      "fillOrder": 7,
+      "personaClass": "privacy_guide",
+      "latticeAxisVertex": 1,
+      "vrc": {
+        "slotId": "value.head-heart-hands",
+        "axisId": "value",
+        "candidate": {
+          "did": "did:cid:bagaaieraxdxq4fm2kjh6yqjxjor3t2idczkmxd4v7in4u353fa6m6sms2pnq"
+        },
+        "root": {
+          "did": "did:cid:bagaaieraeckzoz4g2cb2xices6ier6strr3t7bmpwjtkryn7fxymttpxe46a"
+        },
+        "polarity": "+",
+        "proverb": "the guild keeps faith at the head-heart-hands",
+        "trustTaskRef": "task:pending:value.head-heart-hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "6ceab6890682401942b1795e45934f8e46eadf574ac40bafd5933456b8479d55",
+      "anchored": false
+    }
+  ],
+  "geometryHash": "83c3f899d1ee497e9cd3cb2f5852b415a543ce468233577848ffc9bbcc9178df",
+  "groupSeal": "23c8f1f86f9b0cd2ea603deb064704c9ca65c36b31e46e415a637177be0f2d74",
+  "gameId": "23c8f1f86f9b0cd2ea603deb064704c9ca65c36b31e46e415a637177be0f2d74",
+  "binding": {
+    "backend": "hearthold",
+    "guildBoardGroup": "did:cid:bagaaiera3gqizewooxllarg33lg2in34frdjqodcmywiai4mo6u6ogihfnua",
+    "community": "did:cid:bagaaieravkejyffsygijy7cpmq3ll24x4hyv2wrpkaoeylci74mhhsxdus3q",
+    "roots": {
+      "compute": "did:cid:bagaaieraxdxq4fm2kjh6yqjxjor3t2idczkmxd4v7in4u353fa6m6sms2pnq",
+      "connection": "did:cid:bagaaieratqqdammifahbb2dbls4l5a3b6orcbfqgj5i46sosmszmqcuqjqmq",
+      "delegation": "did:cid:bagaaiera2h4ptuuutua4rwx2gyga5msguztdh4v55r6m3d5tu43snyr7x4lq",
+      "protection": "did:cid:bagaaiera6la7amjmkm6tx7yfzuw43iks5wwadk5yaui33ijolyoyol2e4bmq",
+      "memory": "did:cid:bagaaieranza2an2cznopjbpdwektds5wf6yinwcsp6fgjfjfbyizxzuo4w3q",
+      "value": "did:cid:bagaaieraeckzoz4g2cb2xices6ier6strr3t7bmpwjtkryn7fxymttpxe46a"
+    },
+    "anchoredSlots": [
+      "compute.head",
+      "compute.head-heart",
+      "compute.head-hands",
+      "compute.hands",
+      "value.head",
+      "value.head-heart",
+      "value.head-hands",
+      "value.hands",
+      "value.heart-hands",
+      "memory.head"
+    ],
+    "vrcIssuer": "Archon did:cid — the external VRC-issuer service the trust-protocol spec (§7) defers to",
+    "nextStep": "issue all 42 VRCs on-chain so every trustTaskRef resolves to a live credential"
+  }
+}

@@ -1,0 +1,1087 @@
+{
+  "name": "Hearthold",
+  "origin": "hearthold",
+  "preset": "mages",
+  "_note": "The six axes of the Privacy Is Value Model, seated by Hearthold did:cid. Each slot is a spec-shaped VRC edge (κ = SHA-256(canonical(VRC))); trustTaskRef points at the real Archon credential. The group seal uses a placeholder geometryHash pending the engine fold — κ-labels are exact.",
+  "axes": [
+    "compute",
+    "connection",
+    "delegation",
+    "protection",
+    "memory",
+    "value"
+  ],
+  "stations": [
+    {
+      "station": "head",
+      "fillOrder": 1,
+      "personaClass": "vision_fish"
+    },
+    {
+      "station": "head-heart",
+      "fillOrder": 2,
+      "personaClass": "vision_fish"
+    },
+    {
+      "station": "head-hands",
+      "fillOrder": 3,
+      "personaClass": "vision_fish"
+    },
+    {
+      "station": "hands",
+      "fillOrder": 4,
+      "personaClass": "mouse"
+    },
+    {
+      "station": "heart-hands",
+      "fillOrder": 5,
+      "personaClass": "mouse"
+    },
+    {
+      "station": "heart",
+      "fillOrder": 6,
+      "personaClass": "mouse"
+    },
+    {
+      "station": "head-heart-hands",
+      "fillOrder": 7,
+      "personaClass": "privacy_guide"
+    }
+  ],
+  "flower": {
+    "compute": {
+      "name": "The Classifier",
+      "role": "the learning mage",
+      "detail": "Labels your history on-device",
+      "did": "did:cid:bagaaieraxdxq4fm2kjh6yqjxjor3t2idczkmxd4v7in4u353fa6m6sms2pnq",
+      "seated": true
+    },
+    "connection": {
+      "name": "The Herald",
+      "role": "the network mage",
+      "detail": "DIDComm v2 + the trust registry",
+      "did": "did:cid:bagaaieravkejyffsygijy7cpmq3ll24x4hyv2wrpkaoeylci74mhhsxdus3q",
+      "seated": true
+    },
+    "delegation": {
+      "name": "The Witness",
+      "role": "the agency mage",
+      "detail": "Soulbae — projects proofs for you",
+      "did": "did:cid:bagaaiera2h4ptuuutua4rwx2gyga5msguztdh4v55r6m3d5tu43snyr7x4lq",
+      "seated": true
+    },
+    "protection": {
+      "name": "The Warden",
+      "role": "the privacy mage",
+      "detail": "Soulbis — guards the sealed vault",
+      "did": "did:cid:bagaaiera6la7amjmkm6tx7yfzuw43iks5wwadk5yaui33ijolyoyol2e4bmq",
+      "seated": true
+    },
+    "memory": {
+      "name": "The Chronicle",
+      "role": "the continuity mage",
+      "detail": "Your 7th Capital, kept over time",
+      "did": "did:cid:bagaaiera7vsjlu6oiluzd4enop5j7sfzjbwp2ujudt6uunkz6hhd4lgfe4sa",
+      "seated": true
+    },
+    "value": {
+      "name": "The Sovereign",
+      "role": "the trust mage",
+      "detail": "Holds and signs at the Signet",
+      "did": "did:cid:bagaaieraeckzoz4g2cb2xices6ier6strr3t7bmpwjtkryn7fxymttpxe46a",
+      "seated": true
+    }
+  },
+  "locked": [
+    "compute.head",
+    "compute.head-heart",
+    "compute.head-hands",
+    "compute.hands",
+    "compute.heart-hands",
+    "compute.heart",
+    "compute.head-heart-hands",
+    "connection.head",
+    "connection.head-heart",
+    "connection.head-hands",
+    "connection.hands",
+    "connection.heart-hands",
+    "connection.heart",
+    "connection.head-heart-hands",
+    "delegation.head",
+    "delegation.head-heart",
+    "delegation.head-hands",
+    "delegation.hands",
+    "delegation.heart-hands",
+    "delegation.heart",
+    "delegation.head-heart-hands",
+    "protection.head",
+    "protection.head-heart",
+    "protection.head-hands",
+    "protection.hands",
+    "protection.heart-hands",
+    "protection.heart",
+    "protection.head-heart-hands",
+    "memory.head",
+    "memory.head-heart",
+    "memory.head-hands",
+    "memory.hands",
+    "memory.heart-hands",
+    "memory.heart",
+    "memory.head-heart-hands",
+    "value.head",
+    "value.head-heart",
+    "value.head-hands",
+    "value.hands",
+    "value.heart-hands",
+    "value.heart",
+    "value.head-heart-hands"
+  ],
+  "slots": [
+    {
+      "slotId": "compute.head",
+      "axisId": "compute",
+      "fillOrder": 1,
+      "personaClass": "vision_fish",
+      "vrc": {
+        "slotId": "compute.head",
+        "axisId": "compute",
+        "candidate": {
+          "did": "did:cid:bagaaiera7vsjlu6oiluzd4enop5j7sfzjbwp2ujudt6uunkz6hhd4lgfe4sa"
+        },
+        "root": {
+          "did": "did:cid:bagaaieraxdxq4fm2kjh6yqjxjor3t2idczkmxd4v7in4u353fa6m6sms2pnq"
+        },
+        "polarity": "+",
+        "proverb": "we are bound at the head",
+        "trustTaskRef": "did:cid:bagaaierakmobuifst4ca22mss7txlyhlcubdpaetl27z6ez3iw2gf2vcdqrq",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "b3674b783882432c1232d8a56f580f4ed15ef03c84eeea6dfe8c0c18ac88a269",
+      "anchored": true
+    },
+    {
+      "slotId": "compute.head-heart",
+      "axisId": "compute",
+      "fillOrder": 2,
+      "personaClass": "vision_fish",
+      "vrc": {
+        "slotId": "compute.head-heart",
+        "axisId": "compute",
+        "candidate": {
+          "did": "did:cid:bagaaieraeckzoz4g2cb2xices6ier6strr3t7bmpwjtkryn7fxymttpxe46a"
+        },
+        "root": {
+          "did": "did:cid:bagaaieraxdxq4fm2kjh6yqjxjor3t2idczkmxd4v7in4u353fa6m6sms2pnq"
+        },
+        "polarity": "+",
+        "proverb": "we are bound at the head-heart",
+        "trustTaskRef": "task:pending:compute.head-heart",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "6845ea97c47a724c1f02698abdd368cda221de6c26549b310279ca86d7f91cfd",
+      "anchored": false
+    },
+    {
+      "slotId": "compute.head-hands",
+      "axisId": "compute",
+      "fillOrder": 3,
+      "personaClass": "vision_fish",
+      "vrc": {
+        "slotId": "compute.head-hands",
+        "axisId": "compute",
+        "candidate": {
+          "did": "did:cid:bagaaiera2h4ptuuutua4rwx2gyga5msguztdh4v55r6m3d5tu43snyr7x4lq"
+        },
+        "root": {
+          "did": "did:cid:bagaaieraxdxq4fm2kjh6yqjxjor3t2idczkmxd4v7in4u353fa6m6sms2pnq"
+        },
+        "polarity": "+",
+        "proverb": "we are bound at the head-hands",
+        "trustTaskRef": "task:pending:compute.head-hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "a9207e99a2ddd07528e913291ca101bbd072ac4b75a8c12fdceebad6a29befc1",
+      "anchored": false
+    },
+    {
+      "slotId": "compute.hands",
+      "axisId": "compute",
+      "fillOrder": 4,
+      "personaClass": "mouse",
+      "vrc": {
+        "slotId": "compute.hands",
+        "axisId": "compute",
+        "candidate": {
+          "did": "did:cid:bagaaiera6la7amjmkm6tx7yfzuw43iks5wwadk5yaui33ijolyoyol2e4bmq"
+        },
+        "root": {
+          "did": "did:cid:bagaaieraxdxq4fm2kjh6yqjxjor3t2idczkmxd4v7in4u353fa6m6sms2pnq"
+        },
+        "polarity": "-",
+        "proverb": "we are bound at the hands",
+        "trustTaskRef": "task:pending:compute.hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "666da081d6d4349ec962b5f8ce24c92638af45e6f4ae92a6ddeac37e0db0ee58",
+      "anchored": false
+    },
+    {
+      "slotId": "compute.heart-hands",
+      "axisId": "compute",
+      "fillOrder": 5,
+      "personaClass": "mouse",
+      "vrc": {
+        "slotId": "compute.heart-hands",
+        "axisId": "compute",
+        "candidate": {
+          "did": "did:cid:bagaaieravkejyffsygijy7cpmq3ll24x4hyv2wrpkaoeylci74mhhsxdus3q"
+        },
+        "root": {
+          "did": "did:cid:bagaaieraxdxq4fm2kjh6yqjxjor3t2idczkmxd4v7in4u353fa6m6sms2pnq"
+        },
+        "polarity": "-",
+        "proverb": "we are bound at the heart-hands",
+        "trustTaskRef": "task:pending:compute.heart-hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "67fdfd57501c10e1e169ff8faf4c9c266460765f9c19683ebfe9f7e2c13d9c2e",
+      "anchored": false
+    },
+    {
+      "slotId": "compute.heart",
+      "axisId": "compute",
+      "fillOrder": 6,
+      "personaClass": "mouse",
+      "vrc": {
+        "slotId": "compute.heart",
+        "axisId": "compute",
+        "candidate": {
+          "did": "did:cid:bagaaiera7vsjlu6oiluzd4enop5j7sfzjbwp2ujudt6uunkz6hhd4lgfe4sa"
+        },
+        "root": {
+          "did": "did:cid:bagaaieraxdxq4fm2kjh6yqjxjor3t2idczkmxd4v7in4u353fa6m6sms2pnq"
+        },
+        "polarity": "-",
+        "proverb": "we are bound at the heart",
+        "trustTaskRef": "task:pending:compute.heart",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "f66f1efd496031af019fc05106572a977cb0bc854c40d1743aefa5abf03e9482",
+      "anchored": false
+    },
+    {
+      "slotId": "compute.head-heart-hands",
+      "axisId": "compute",
+      "fillOrder": 7,
+      "personaClass": "privacy_guide",
+      "vrc": {
+        "slotId": "compute.head-heart-hands",
+        "axisId": "compute",
+        "candidate": {
+          "did": "did:cid:bagaaiera7vsjlu6oiluzd4enop5j7sfzjbwp2ujudt6uunkz6hhd4lgfe4sa"
+        },
+        "root": {
+          "did": "did:cid:bagaaieraxdxq4fm2kjh6yqjxjor3t2idczkmxd4v7in4u353fa6m6sms2pnq"
+        },
+        "polarity": "+",
+        "proverb": "we are bound at the head-heart-hands",
+        "trustTaskRef": "task:pending:compute.head-heart-hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "666683e8964036cd10737c9b23f3cd8b5766ed9b60ac76c4e036a1a74420d74b",
+      "anchored": false
+    },
+    {
+      "slotId": "connection.head",
+      "axisId": "connection",
+      "fillOrder": 1,
+      "personaClass": "vision_fish",
+      "vrc": {
+        "slotId": "connection.head",
+        "axisId": "connection",
+        "candidate": {
+          "did": "did:cid:bagaaieraeckzoz4g2cb2xices6ier6strr3t7bmpwjtkryn7fxymttpxe46a"
+        },
+        "root": {
+          "did": "did:cid:bagaaieravkejyffsygijy7cpmq3ll24x4hyv2wrpkaoeylci74mhhsxdus3q"
+        },
+        "polarity": "+",
+        "proverb": "we are bound at the head",
+        "trustTaskRef": "task:pending:connection.head",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "c3611e48697ec082e03d4b3cd42fcbdf7813e4ae212a39cf142ccc20678ae73f",
+      "anchored": false
+    },
+    {
+      "slotId": "connection.head-heart",
+      "axisId": "connection",
+      "fillOrder": 2,
+      "personaClass": "vision_fish",
+      "vrc": {
+        "slotId": "connection.head-heart",
+        "axisId": "connection",
+        "candidate": {
+          "did": "did:cid:bagaaiera2h4ptuuutua4rwx2gyga5msguztdh4v55r6m3d5tu43snyr7x4lq"
+        },
+        "root": {
+          "did": "did:cid:bagaaieravkejyffsygijy7cpmq3ll24x4hyv2wrpkaoeylci74mhhsxdus3q"
+        },
+        "polarity": "+",
+        "proverb": "we are bound at the head-heart",
+        "trustTaskRef": "task:pending:connection.head-heart",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "0ed48c48bd104eff23a1df17ba3e0a680b1d598dd5cb05fb402f854724250baa",
+      "anchored": false
+    },
+    {
+      "slotId": "connection.head-hands",
+      "axisId": "connection",
+      "fillOrder": 3,
+      "personaClass": "vision_fish",
+      "vrc": {
+        "slotId": "connection.head-hands",
+        "axisId": "connection",
+        "candidate": {
+          "did": "did:cid:bagaaiera6la7amjmkm6tx7yfzuw43iks5wwadk5yaui33ijolyoyol2e4bmq"
+        },
+        "root": {
+          "did": "did:cid:bagaaieravkejyffsygijy7cpmq3ll24x4hyv2wrpkaoeylci74mhhsxdus3q"
+        },
+        "polarity": "+",
+        "proverb": "we are bound at the head-hands",
+        "trustTaskRef": "task:pending:connection.head-hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "45a3ed46ed6966c5a0fa548f9c9e54376af40715e7d7aedc67d6566b54d52c98",
+      "anchored": false
+    },
+    {
+      "slotId": "connection.hands",
+      "axisId": "connection",
+      "fillOrder": 4,
+      "personaClass": "mouse",
+      "vrc": {
+        "slotId": "connection.hands",
+        "axisId": "connection",
+        "candidate": {
+          "did": "did:cid:bagaaieraxdxq4fm2kjh6yqjxjor3t2idczkmxd4v7in4u353fa6m6sms2pnq"
+        },
+        "root": {
+          "did": "did:cid:bagaaieravkejyffsygijy7cpmq3ll24x4hyv2wrpkaoeylci74mhhsxdus3q"
+        },
+        "polarity": "-",
+        "proverb": "we are bound at the hands",
+        "trustTaskRef": "task:pending:connection.hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "dd87308bed8279b9ac1649c9af91ece6a02f2f6c40ad7b8dfff22dfb5dd9353b",
+      "anchored": false
+    },
+    {
+      "slotId": "connection.heart-hands",
+      "axisId": "connection",
+      "fillOrder": 5,
+      "personaClass": "mouse",
+      "vrc": {
+        "slotId": "connection.heart-hands",
+        "axisId": "connection",
+        "candidate": {
+          "did": "did:cid:bagaaieraxdxq4fm2kjh6yqjxjor3t2idczkmxd4v7in4u353fa6m6sms2pnq"
+        },
+        "root": {
+          "did": "did:cid:bagaaieravkejyffsygijy7cpmq3ll24x4hyv2wrpkaoeylci74mhhsxdus3q"
+        },
+        "polarity": "-",
+        "proverb": "we are bound at the heart-hands",
+        "trustTaskRef": "task:pending:connection.heart-hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "9a487aa12228305f970ce0ba7220b8ae8649dc29997c6a5c8925bef7a8a43a79",
+      "anchored": false
+    },
+    {
+      "slotId": "connection.heart",
+      "axisId": "connection",
+      "fillOrder": 6,
+      "personaClass": "mouse",
+      "vrc": {
+        "slotId": "connection.heart",
+        "axisId": "connection",
+        "candidate": {
+          "did": "did:cid:bagaaiera7vsjlu6oiluzd4enop5j7sfzjbwp2ujudt6uunkz6hhd4lgfe4sa"
+        },
+        "root": {
+          "did": "did:cid:bagaaieravkejyffsygijy7cpmq3ll24x4hyv2wrpkaoeylci74mhhsxdus3q"
+        },
+        "polarity": "-",
+        "proverb": "we are bound at the heart",
+        "trustTaskRef": "task:pending:connection.heart",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "552ef58f08f2e5914bf7cfb36e3952cc3aaa60147db065f3691ad605216dd578",
+      "anchored": false
+    },
+    {
+      "slotId": "connection.head-heart-hands",
+      "axisId": "connection",
+      "fillOrder": 7,
+      "personaClass": "privacy_guide",
+      "vrc": {
+        "slotId": "connection.head-heart-hands",
+        "axisId": "connection",
+        "candidate": {
+          "did": "did:cid:bagaaieraeckzoz4g2cb2xices6ier6strr3t7bmpwjtkryn7fxymttpxe46a"
+        },
+        "root": {
+          "did": "did:cid:bagaaieravkejyffsygijy7cpmq3ll24x4hyv2wrpkaoeylci74mhhsxdus3q"
+        },
+        "polarity": "+",
+        "proverb": "we are bound at the head-heart-hands",
+        "trustTaskRef": "task:pending:connection.head-heart-hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "8a6ed111bd70f1e819e52068b3e152e8dfb22beecdea1b34153ff8fb70b46c8d",
+      "anchored": false
+    },
+    {
+      "slotId": "delegation.head",
+      "axisId": "delegation",
+      "fillOrder": 1,
+      "personaClass": "vision_fish",
+      "vrc": {
+        "slotId": "delegation.head",
+        "axisId": "delegation",
+        "candidate": {
+          "did": "did:cid:bagaaiera6la7amjmkm6tx7yfzuw43iks5wwadk5yaui33ijolyoyol2e4bmq"
+        },
+        "root": {
+          "did": "did:cid:bagaaiera2h4ptuuutua4rwx2gyga5msguztdh4v55r6m3d5tu43snyr7x4lq"
+        },
+        "polarity": "+",
+        "proverb": "we are bound at the head",
+        "trustTaskRef": "task:pending:delegation.head",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "fdf2bdfcc156be13683f13119efd29b4bf065c8e02ecf8ef7fd81997cbd266b8",
+      "anchored": false
+    },
+    {
+      "slotId": "delegation.head-heart",
+      "axisId": "delegation",
+      "fillOrder": 2,
+      "personaClass": "vision_fish",
+      "vrc": {
+        "slotId": "delegation.head-heart",
+        "axisId": "delegation",
+        "candidate": {
+          "did": "did:cid:bagaaiera6la7amjmkm6tx7yfzuw43iks5wwadk5yaui33ijolyoyol2e4bmq"
+        },
+        "root": {
+          "did": "did:cid:bagaaiera2h4ptuuutua4rwx2gyga5msguztdh4v55r6m3d5tu43snyr7x4lq"
+        },
+        "polarity": "+",
+        "proverb": "we are bound at the head-heart",
+        "trustTaskRef": "task:pending:delegation.head-heart",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "25d4c8c5cbc8ddbcc6bd618bd972abaa06a0cd77b0e84b2debe58a2a0c3696ef",
+      "anchored": false
+    },
+    {
+      "slotId": "delegation.head-hands",
+      "axisId": "delegation",
+      "fillOrder": 3,
+      "personaClass": "vision_fish",
+      "vrc": {
+        "slotId": "delegation.head-hands",
+        "axisId": "delegation",
+        "candidate": {
+          "did": "did:cid:bagaaieravkejyffsygijy7cpmq3ll24x4hyv2wrpkaoeylci74mhhsxdus3q"
+        },
+        "root": {
+          "did": "did:cid:bagaaiera2h4ptuuutua4rwx2gyga5msguztdh4v55r6m3d5tu43snyr7x4lq"
+        },
+        "polarity": "+",
+        "proverb": "we are bound at the head-hands",
+        "trustTaskRef": "task:pending:delegation.head-hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "6634895bef8a98f68395d7848b388757f1a2c13a90336229cb693afa804324c6",
+      "anchored": false
+    },
+    {
+      "slotId": "delegation.hands",
+      "axisId": "delegation",
+      "fillOrder": 4,
+      "personaClass": "mouse",
+      "vrc": {
+        "slotId": "delegation.hands",
+        "axisId": "delegation",
+        "candidate": {
+          "did": "did:cid:bagaaieraxdxq4fm2kjh6yqjxjor3t2idczkmxd4v7in4u353fa6m6sms2pnq"
+        },
+        "root": {
+          "did": "did:cid:bagaaiera2h4ptuuutua4rwx2gyga5msguztdh4v55r6m3d5tu43snyr7x4lq"
+        },
+        "polarity": "-",
+        "proverb": "we are bound at the hands",
+        "trustTaskRef": "task:pending:delegation.hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "01df04d964bcecfff4c97ed4559912704db85cdd1338d02ad97fa8c0b7cd670f",
+      "anchored": false
+    },
+    {
+      "slotId": "delegation.heart-hands",
+      "axisId": "delegation",
+      "fillOrder": 5,
+      "personaClass": "mouse",
+      "vrc": {
+        "slotId": "delegation.heart-hands",
+        "axisId": "delegation",
+        "candidate": {
+          "did": "did:cid:bagaaiera7vsjlu6oiluzd4enop5j7sfzjbwp2ujudt6uunkz6hhd4lgfe4sa"
+        },
+        "root": {
+          "did": "did:cid:bagaaiera2h4ptuuutua4rwx2gyga5msguztdh4v55r6m3d5tu43snyr7x4lq"
+        },
+        "polarity": "-",
+        "proverb": "we are bound at the heart-hands",
+        "trustTaskRef": "task:pending:delegation.heart-hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "7b0a9c5abea6b1a58e86c104b31f996cf161013a03d08d80bcbfb7143e70b7e6",
+      "anchored": false
+    },
+    {
+      "slotId": "delegation.heart",
+      "axisId": "delegation",
+      "fillOrder": 6,
+      "personaClass": "mouse",
+      "vrc": {
+        "slotId": "delegation.heart",
+        "axisId": "delegation",
+        "candidate": {
+          "did": "did:cid:bagaaieraeckzoz4g2cb2xices6ier6strr3t7bmpwjtkryn7fxymttpxe46a"
+        },
+        "root": {
+          "did": "did:cid:bagaaiera2h4ptuuutua4rwx2gyga5msguztdh4v55r6m3d5tu43snyr7x4lq"
+        },
+        "polarity": "-",
+        "proverb": "we are bound at the heart",
+        "trustTaskRef": "task:pending:delegation.heart",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "0a6d8e4a08e0e52a9b193f5fd2e36994c27bc80ef2e128b30dd74472600b5b59",
+      "anchored": false
+    },
+    {
+      "slotId": "delegation.head-heart-hands",
+      "axisId": "delegation",
+      "fillOrder": 7,
+      "personaClass": "privacy_guide",
+      "vrc": {
+        "slotId": "delegation.head-heart-hands",
+        "axisId": "delegation",
+        "candidate": {
+          "did": "did:cid:bagaaiera6la7amjmkm6tx7yfzuw43iks5wwadk5yaui33ijolyoyol2e4bmq"
+        },
+        "root": {
+          "did": "did:cid:bagaaiera2h4ptuuutua4rwx2gyga5msguztdh4v55r6m3d5tu43snyr7x4lq"
+        },
+        "polarity": "+",
+        "proverb": "we are bound at the head-heart-hands",
+        "trustTaskRef": "task:pending:delegation.head-heart-hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "08afbf48bbc82acc4c2fc00e25cd7d18837734d36c2c47875f088e1a0858ecd3",
+      "anchored": false
+    },
+    {
+      "slotId": "protection.head",
+      "axisId": "protection",
+      "fillOrder": 1,
+      "personaClass": "vision_fish",
+      "vrc": {
+        "slotId": "protection.head",
+        "axisId": "protection",
+        "candidate": {
+          "did": "did:cid:bagaaieravkejyffsygijy7cpmq3ll24x4hyv2wrpkaoeylci74mhhsxdus3q"
+        },
+        "root": {
+          "did": "did:cid:bagaaiera6la7amjmkm6tx7yfzuw43iks5wwadk5yaui33ijolyoyol2e4bmq"
+        },
+        "polarity": "+",
+        "proverb": "we are bound at the head",
+        "trustTaskRef": "task:pending:protection.head",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "fb03aaef3f19b0cf7720af506049a3540fd5c4984efe61b0f87800c883f33741",
+      "anchored": false
+    },
+    {
+      "slotId": "protection.head-heart",
+      "axisId": "protection",
+      "fillOrder": 2,
+      "personaClass": "vision_fish",
+      "vrc": {
+        "slotId": "protection.head-heart",
+        "axisId": "protection",
+        "candidate": {
+          "did": "did:cid:bagaaieravkejyffsygijy7cpmq3ll24x4hyv2wrpkaoeylci74mhhsxdus3q"
+        },
+        "root": {
+          "did": "did:cid:bagaaiera6la7amjmkm6tx7yfzuw43iks5wwadk5yaui33ijolyoyol2e4bmq"
+        },
+        "polarity": "+",
+        "proverb": "we are bound at the head-heart",
+        "trustTaskRef": "task:pending:protection.head-heart",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "f30b5043a6fc4be775d64f5b7bd50f78e5931b5ce7682d606d563280616b8f6f",
+      "anchored": false
+    },
+    {
+      "slotId": "protection.head-hands",
+      "axisId": "protection",
+      "fillOrder": 3,
+      "personaClass": "vision_fish",
+      "vrc": {
+        "slotId": "protection.head-hands",
+        "axisId": "protection",
+        "candidate": {
+          "did": "did:cid:bagaaieraxdxq4fm2kjh6yqjxjor3t2idczkmxd4v7in4u353fa6m6sms2pnq"
+        },
+        "root": {
+          "did": "did:cid:bagaaiera6la7amjmkm6tx7yfzuw43iks5wwadk5yaui33ijolyoyol2e4bmq"
+        },
+        "polarity": "+",
+        "proverb": "we are bound at the head-hands",
+        "trustTaskRef": "task:pending:protection.head-hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "d5c8bb6329d7153aab56c22c557433a7b4e95feace0151cf761d6fe98de88237",
+      "anchored": false
+    },
+    {
+      "slotId": "protection.hands",
+      "axisId": "protection",
+      "fillOrder": 4,
+      "personaClass": "mouse",
+      "vrc": {
+        "slotId": "protection.hands",
+        "axisId": "protection",
+        "candidate": {
+          "did": "did:cid:bagaaiera7vsjlu6oiluzd4enop5j7sfzjbwp2ujudt6uunkz6hhd4lgfe4sa"
+        },
+        "root": {
+          "did": "did:cid:bagaaiera6la7amjmkm6tx7yfzuw43iks5wwadk5yaui33ijolyoyol2e4bmq"
+        },
+        "polarity": "-",
+        "proverb": "we are bound at the hands",
+        "trustTaskRef": "task:pending:protection.hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "b4c3f1e898fdf82234ad9a8e978ef829d16f1f56373fc18861e06d0f7d24336c",
+      "anchored": false
+    },
+    {
+      "slotId": "protection.heart-hands",
+      "axisId": "protection",
+      "fillOrder": 5,
+      "personaClass": "mouse",
+      "vrc": {
+        "slotId": "protection.heart-hands",
+        "axisId": "protection",
+        "candidate": {
+          "did": "did:cid:bagaaieraeckzoz4g2cb2xices6ier6strr3t7bmpwjtkryn7fxymttpxe46a"
+        },
+        "root": {
+          "did": "did:cid:bagaaiera6la7amjmkm6tx7yfzuw43iks5wwadk5yaui33ijolyoyol2e4bmq"
+        },
+        "polarity": "-",
+        "proverb": "we are bound at the heart-hands",
+        "trustTaskRef": "task:pending:protection.heart-hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "f05a108c51e0e7f44a1a0c3962eeb6971258116eb70356ab32b7c60519a8cfae",
+      "anchored": false
+    },
+    {
+      "slotId": "protection.heart",
+      "axisId": "protection",
+      "fillOrder": 6,
+      "personaClass": "mouse",
+      "vrc": {
+        "slotId": "protection.heart",
+        "axisId": "protection",
+        "candidate": {
+          "did": "did:cid:bagaaiera2h4ptuuutua4rwx2gyga5msguztdh4v55r6m3d5tu43snyr7x4lq"
+        },
+        "root": {
+          "did": "did:cid:bagaaiera6la7amjmkm6tx7yfzuw43iks5wwadk5yaui33ijolyoyol2e4bmq"
+        },
+        "polarity": "-",
+        "proverb": "we are bound at the heart",
+        "trustTaskRef": "task:pending:protection.heart",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "d7150bd94b88847232d47d74866593638a0ab260e0794d0b55e2f89ef91040e3",
+      "anchored": false
+    },
+    {
+      "slotId": "protection.head-heart-hands",
+      "axisId": "protection",
+      "fillOrder": 7,
+      "personaClass": "privacy_guide",
+      "vrc": {
+        "slotId": "protection.head-heart-hands",
+        "axisId": "protection",
+        "candidate": {
+          "did": "did:cid:bagaaieravkejyffsygijy7cpmq3ll24x4hyv2wrpkaoeylci74mhhsxdus3q"
+        },
+        "root": {
+          "did": "did:cid:bagaaiera6la7amjmkm6tx7yfzuw43iks5wwadk5yaui33ijolyoyol2e4bmq"
+        },
+        "polarity": "+",
+        "proverb": "we are bound at the head-heart-hands",
+        "trustTaskRef": "task:pending:protection.head-heart-hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "b12ce0f5690f27c6e6d7f3b2a6aedbc83ca06f6b522a68576cd6f77f3e548417",
+      "anchored": false
+    },
+    {
+      "slotId": "memory.head",
+      "axisId": "memory",
+      "fillOrder": 1,
+      "personaClass": "vision_fish",
+      "vrc": {
+        "slotId": "memory.head",
+        "axisId": "memory",
+        "candidate": {
+          "did": "did:cid:bagaaieraxdxq4fm2kjh6yqjxjor3t2idczkmxd4v7in4u353fa6m6sms2pnq"
+        },
+        "root": {
+          "did": "did:cid:bagaaiera7vsjlu6oiluzd4enop5j7sfzjbwp2ujudt6uunkz6hhd4lgfe4sa"
+        },
+        "polarity": "+",
+        "proverb": "we are bound at the head",
+        "trustTaskRef": "did:cid:bagaaierahcevrs2ef5wmbbykma35nbieb7nf3lso6tudgqsd24jrjjhwblmq",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "b41ff762e8042fd9cc7fef552129f97d6c770001bf162b4735d9509822b304ae",
+      "anchored": true
+    },
+    {
+      "slotId": "memory.head-heart",
+      "axisId": "memory",
+      "fillOrder": 2,
+      "personaClass": "vision_fish",
+      "vrc": {
+        "slotId": "memory.head-heart",
+        "axisId": "memory",
+        "candidate": {
+          "did": "did:cid:bagaaieraxdxq4fm2kjh6yqjxjor3t2idczkmxd4v7in4u353fa6m6sms2pnq"
+        },
+        "root": {
+          "did": "did:cid:bagaaiera7vsjlu6oiluzd4enop5j7sfzjbwp2ujudt6uunkz6hhd4lgfe4sa"
+        },
+        "polarity": "+",
+        "proverb": "we are bound at the head-heart",
+        "trustTaskRef": "task:pending:memory.head-heart",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "83e6b08851f31a37974af6dc0db940f6fa3a18d5041a7f7ca005071f4898240c",
+      "anchored": false
+    },
+    {
+      "slotId": "memory.head-hands",
+      "axisId": "memory",
+      "fillOrder": 3,
+      "personaClass": "vision_fish",
+      "vrc": {
+        "slotId": "memory.head-hands",
+        "axisId": "memory",
+        "candidate": {
+          "did": "did:cid:bagaaieraeckzoz4g2cb2xices6ier6strr3t7bmpwjtkryn7fxymttpxe46a"
+        },
+        "root": {
+          "did": "did:cid:bagaaiera7vsjlu6oiluzd4enop5j7sfzjbwp2ujudt6uunkz6hhd4lgfe4sa"
+        },
+        "polarity": "+",
+        "proverb": "we are bound at the head-hands",
+        "trustTaskRef": "task:pending:memory.head-hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "b07fbaa08612a4822447237705f842b53723d552591b29bf7ac1fb9d205592ff",
+      "anchored": false
+    },
+    {
+      "slotId": "memory.hands",
+      "axisId": "memory",
+      "fillOrder": 4,
+      "personaClass": "mouse",
+      "vrc": {
+        "slotId": "memory.hands",
+        "axisId": "memory",
+        "candidate": {
+          "did": "did:cid:bagaaieraeckzoz4g2cb2xices6ier6strr3t7bmpwjtkryn7fxymttpxe46a"
+        },
+        "root": {
+          "did": "did:cid:bagaaiera7vsjlu6oiluzd4enop5j7sfzjbwp2ujudt6uunkz6hhd4lgfe4sa"
+        },
+        "polarity": "-",
+        "proverb": "we are bound at the hands",
+        "trustTaskRef": "task:pending:memory.hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "24d18ed6bc38998fb8dce47fc05ca6586da76d635c6d2f5c7b51509ca1ea7137",
+      "anchored": false
+    },
+    {
+      "slotId": "memory.heart-hands",
+      "axisId": "memory",
+      "fillOrder": 5,
+      "personaClass": "mouse",
+      "vrc": {
+        "slotId": "memory.heart-hands",
+        "axisId": "memory",
+        "candidate": {
+          "did": "did:cid:bagaaiera2h4ptuuutua4rwx2gyga5msguztdh4v55r6m3d5tu43snyr7x4lq"
+        },
+        "root": {
+          "did": "did:cid:bagaaiera7vsjlu6oiluzd4enop5j7sfzjbwp2ujudt6uunkz6hhd4lgfe4sa"
+        },
+        "polarity": "-",
+        "proverb": "we are bound at the heart-hands",
+        "trustTaskRef": "task:pending:memory.heart-hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "e16ae4f45904b413827581fe0f3c3f10918fc9c29403c4f2b958713223b8a42e",
+      "anchored": false
+    },
+    {
+      "slotId": "memory.heart",
+      "axisId": "memory",
+      "fillOrder": 6,
+      "personaClass": "mouse",
+      "vrc": {
+        "slotId": "memory.heart",
+        "axisId": "memory",
+        "candidate": {
+          "did": "did:cid:bagaaiera6la7amjmkm6tx7yfzuw43iks5wwadk5yaui33ijolyoyol2e4bmq"
+        },
+        "root": {
+          "did": "did:cid:bagaaiera7vsjlu6oiluzd4enop5j7sfzjbwp2ujudt6uunkz6hhd4lgfe4sa"
+        },
+        "polarity": "-",
+        "proverb": "we are bound at the heart",
+        "trustTaskRef": "task:pending:memory.heart",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "cb891681fc52cfe72b4a561ea5b85cb93fb5f562a7a616fef6dc89398ced3e52",
+      "anchored": false
+    },
+    {
+      "slotId": "memory.head-heart-hands",
+      "axisId": "memory",
+      "fillOrder": 7,
+      "personaClass": "privacy_guide",
+      "vrc": {
+        "slotId": "memory.head-heart-hands",
+        "axisId": "memory",
+        "candidate": {
+          "did": "did:cid:bagaaieravkejyffsygijy7cpmq3ll24x4hyv2wrpkaoeylci74mhhsxdus3q"
+        },
+        "root": {
+          "did": "did:cid:bagaaiera7vsjlu6oiluzd4enop5j7sfzjbwp2ujudt6uunkz6hhd4lgfe4sa"
+        },
+        "polarity": "+",
+        "proverb": "we are bound at the head-heart-hands",
+        "trustTaskRef": "task:pending:memory.head-heart-hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "cdb1600fae4eb96a12b0cbfe668aaf0c3b5c6bd1f3a176c9e49bd4723fb18083",
+      "anchored": false
+    },
+    {
+      "slotId": "value.head",
+      "axisId": "value",
+      "fillOrder": 1,
+      "personaClass": "vision_fish",
+      "vrc": {
+        "slotId": "value.head",
+        "axisId": "value",
+        "candidate": {
+          "did": "did:cid:bagaaieraxdxq4fm2kjh6yqjxjor3t2idczkmxd4v7in4u353fa6m6sms2pnq"
+        },
+        "root": {
+          "did": "did:cid:bagaaieraeckzoz4g2cb2xices6ier6strr3t7bmpwjtkryn7fxymttpxe46a"
+        },
+        "polarity": "+",
+        "proverb": "we are bound at the head",
+        "trustTaskRef": "did:cid:bagaaierazb2hfmxpw53s4of4lu5gicdt2oopfbwh7cyx4xy3hebyfrw6roea",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "a2d0eecd4ef4cbbbb23b8457e06c424318a8e727bb4a1f6907ecb746b0312850",
+      "anchored": true
+    },
+    {
+      "slotId": "value.head-heart",
+      "axisId": "value",
+      "fillOrder": 2,
+      "personaClass": "vision_fish",
+      "vrc": {
+        "slotId": "value.head-heart",
+        "axisId": "value",
+        "candidate": {
+          "did": "did:cid:bagaaiera7vsjlu6oiluzd4enop5j7sfzjbwp2ujudt6uunkz6hhd4lgfe4sa"
+        },
+        "root": {
+          "did": "did:cid:bagaaieraeckzoz4g2cb2xices6ier6strr3t7bmpwjtkryn7fxymttpxe46a"
+        },
+        "polarity": "+",
+        "proverb": "we are bound at the head-heart",
+        "trustTaskRef": "did:cid:bagaaierazlp73sbzernyoqmspyjymrdhbzmmtxevw6xcnso27imlc3g27h6a",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "b8d6bcc4acf419b47be69a5fe9a156fca49dab94e625106d41abb567e2b81fd9",
+      "anchored": true
+    },
+    {
+      "slotId": "value.head-hands",
+      "axisId": "value",
+      "fillOrder": 3,
+      "personaClass": "vision_fish",
+      "vrc": {
+        "slotId": "value.head-hands",
+        "axisId": "value",
+        "candidate": {
+          "did": "did:cid:bagaaiera2h4ptuuutua4rwx2gyga5msguztdh4v55r6m3d5tu43snyr7x4lq"
+        },
+        "root": {
+          "did": "did:cid:bagaaieraeckzoz4g2cb2xices6ier6strr3t7bmpwjtkryn7fxymttpxe46a"
+        },
+        "polarity": "+",
+        "proverb": "we are bound at the head-hands",
+        "trustTaskRef": "task:pending:value.head-hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "da94440c2b19f3bbda20bfbc1fecdb262290a50e86d2ce84c6000a64ab59533f",
+      "anchored": false
+    },
+    {
+      "slotId": "value.hands",
+      "axisId": "value",
+      "fillOrder": 4,
+      "personaClass": "mouse",
+      "vrc": {
+        "slotId": "value.hands",
+        "axisId": "value",
+        "candidate": {
+          "did": "did:cid:bagaaiera2h4ptuuutua4rwx2gyga5msguztdh4v55r6m3d5tu43snyr7x4lq"
+        },
+        "root": {
+          "did": "did:cid:bagaaieraeckzoz4g2cb2xices6ier6strr3t7bmpwjtkryn7fxymttpxe46a"
+        },
+        "polarity": "-",
+        "proverb": "we are bound at the hands",
+        "trustTaskRef": "task:pending:value.hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "644e783f32bbd28a2b89ee832c83664d128e507b511432cd5a951fbea2326009",
+      "anchored": false
+    },
+    {
+      "slotId": "value.heart-hands",
+      "axisId": "value",
+      "fillOrder": 5,
+      "personaClass": "mouse",
+      "vrc": {
+        "slotId": "value.heart-hands",
+        "axisId": "value",
+        "candidate": {
+          "did": "did:cid:bagaaiera6la7amjmkm6tx7yfzuw43iks5wwadk5yaui33ijolyoyol2e4bmq"
+        },
+        "root": {
+          "did": "did:cid:bagaaieraeckzoz4g2cb2xices6ier6strr3t7bmpwjtkryn7fxymttpxe46a"
+        },
+        "polarity": "-",
+        "proverb": "we are bound at the heart-hands",
+        "trustTaskRef": "task:pending:value.heart-hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "5f9ee30db33723ba9687cc94ea95a0177e936aea075f165b8fc87d4a384405db",
+      "anchored": false
+    },
+    {
+      "slotId": "value.heart",
+      "axisId": "value",
+      "fillOrder": 6,
+      "personaClass": "mouse",
+      "vrc": {
+        "slotId": "value.heart",
+        "axisId": "value",
+        "candidate": {
+          "did": "did:cid:bagaaieravkejyffsygijy7cpmq3ll24x4hyv2wrpkaoeylci74mhhsxdus3q"
+        },
+        "root": {
+          "did": "did:cid:bagaaieraeckzoz4g2cb2xices6ier6strr3t7bmpwjtkryn7fxymttpxe46a"
+        },
+        "polarity": "-",
+        "proverb": "we are bound at the heart",
+        "trustTaskRef": "task:pending:value.heart",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "24c06b71b97ad00ca06411ecf1864fc0c038fd4cae84c90d1701043cf426b723",
+      "anchored": false
+    },
+    {
+      "slotId": "value.head-heart-hands",
+      "axisId": "value",
+      "fillOrder": 7,
+      "personaClass": "privacy_guide",
+      "vrc": {
+        "slotId": "value.head-heart-hands",
+        "axisId": "value",
+        "candidate": {
+          "did": "did:cid:bagaaieraxdxq4fm2kjh6yqjxjor3t2idczkmxd4v7in4u353fa6m6sms2pnq"
+        },
+        "root": {
+          "did": "did:cid:bagaaieraeckzoz4g2cb2xices6ier6strr3t7bmpwjtkryn7fxymttpxe46a"
+        },
+        "polarity": "+",
+        "proverb": "we are bound at the head-heart-hands",
+        "trustTaskRef": "task:pending:value.head-heart-hands",
+        "issuedAt": "2026-06-30T12:00:00Z"
+      },
+      "kappa": "4c1220d1ce8d99bad61ab312f0d62804acf63bea52d76d3b1bd01ef8cfa23778",
+      "anchored": false
+    }
+  ],
+  "geometryHash": "83c3f899d1ee497e9cd3cb2f5852b415a543ce468233577848ffc9bbcc9178df",
+  "groupSeal": "747fcf4691818831b0fa8f0b5d1e0eec5b9847bef30d31826c197f7503be726e",
+  "gameId": "747fcf4691818831b0fa8f0b5d1e0eec5b9847bef30d31826c197f7503be726e",
+  "binding": {
+    "backend": "hearthold",
+    "roots": {
+      "compute": "did:cid:bagaaieraxdxq4fm2kjh6yqjxjor3t2idczkmxd4v7in4u353fa6m6sms2pnq",
+      "connection": "did:cid:bagaaieravkejyffsygijy7cpmq3ll24x4hyv2wrpkaoeylci74mhhsxdus3q",
+      "delegation": "did:cid:bagaaiera2h4ptuuutua4rwx2gyga5msguztdh4v55r6m3d5tu43snyr7x4lq",
+      "protection": "did:cid:bagaaiera6la7amjmkm6tx7yfzuw43iks5wwadk5yaui33ijolyoyol2e4bmq",
+      "memory": "did:cid:bagaaiera7vsjlu6oiluzd4enop5j7sfzjbwp2ujudt6uunkz6hhd4lgfe4sa",
+      "value": "did:cid:bagaaieraeckzoz4g2cb2xices6ier6strr3t7bmpwjtkryn7fxymttpxe46a"
+    },
+    "anchoredSlots": [
+      "memory.head",
+      "value.head",
+      "value.head-heart",
+      "compute.head"
+    ],
+    "vrcIssuer": "Archon did:cid (the external VRC-issuer service the trust-protocol spec defers to)",
+    "nextStep": "issue all 42 VRCs on-chain so every trustTaskRef resolves to a live credential"
+  }
+}
