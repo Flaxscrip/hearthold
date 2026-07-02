@@ -16,6 +16,7 @@ import { createClassifier } from './classifier.js';
 import { VaultStore } from './store.js';
 import { WardenService } from './service.js';
 import { DelegationStore } from './delegations.js';
+import { EvidenceService } from './evidence.js';
 import { makeWardenHandler } from './handler.js';
 import { runWardenControl } from './control.js';
 
@@ -152,6 +153,7 @@ async function main(): Promise<void> {
       const handler = makeWardenHandler(
         new WardenService(handle, createClassifier(config)),
         new DelegationStore(handle),
+        new EvidenceService(handle, config),
       );
       const stop = await transport.serve(handler);
       process.stdout.write(

@@ -33,6 +33,7 @@ import { createClassifier } from './classifier.js';
 import { WardenService } from './service.js';
 import { VaultStore, type Artefact } from './store.js';
 import { DelegationStore } from './delegations.js';
+import { EvidenceService } from './evidence.js';
 import { makeWardenHandler } from './handler.js';
 
 const sensitivityName = (s: number): SensitivityName => SENSITIVITY_NAMES[s] ?? 'SEALED';
@@ -118,7 +119,7 @@ export async function runWardenControl(
   });
 
   // Wrap the real handler so a stored submission is pushed to connected consoles.
-  const inner = makeWardenHandler(service, delegations);
+  const inner = makeWardenHandler(service, delegations, new EvidenceService(handle, config));
   const handler: RequestHandler = async (message, fromDid) => {
     const result = await inner(message, fromDid);
     if (

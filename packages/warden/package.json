@@ -13,6 +13,7 @@
     "./handler": { "types": "./dist/handler.d.ts", "import": "./dist/handler.js" },
     "./delegations": { "types": "./dist/delegations.d.ts", "import": "./dist/delegations.js" },
     "./store": { "types": "./dist/store.d.ts", "import": "./dist/store.js" },
+    "./evidence": { "types": "./dist/evidence.d.ts", "import": "./dist/evidence.js" },
     "./classifier": { "types": "./dist/classifier.d.ts", "import": "./dist/classifier.js" }
   },
   "scripts": {

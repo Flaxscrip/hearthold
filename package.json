@@ -36,7 +36,8 @@
     "e2e:trust-registry": "npm run build && node --experimental-strip-types scripts/e2e-trust-registry.ts",
     "e2e:inward-registry": "npm run build && node --experimental-strip-types scripts/e2e-inward-registry.ts",
     "interop:registry": "npm run build && node --experimental-strip-types scripts/interop-http-registry.ts",
-    "demo:vp-setup": "npm run build && node --experimental-strip-types scripts/demo-vp-setup.ts"
+    "demo:vp-setup": "npm run build && node --experimental-strip-types scripts/demo-vp-setup.ts",
+    "e2e:evidence": "npm run build && node --experimental-strip-types scripts/e2e-evidence.ts"
   },
   "engines": {
     "node": ">=22"

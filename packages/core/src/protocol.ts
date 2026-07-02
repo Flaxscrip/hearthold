@@ -40,6 +40,18 @@ export interface SubmissionReceipt {
 
 // ── Witness → Warden: evidence (with per-request step-up) ──────────────────────
 
+/** Which vault artefacts back a claim — the Warden selects and summarizes them into provenance. */
+export interface EvidenceClaimSpec {
+  /** Artefact kind that supports the claim (e.g. `location` for a residence claim). */
+  kind: WitnessKind;
+  /** Inclusive lower bound on `observedAt` (ISO), if the claim is time-scoped. */
+  from?: string;
+  /** Inclusive upper bound on `observedAt` (ISO). */
+  to?: string;
+  /** Structured form of the claim, carried verbatim into the evidence graph. */
+  structured?: Record<string, unknown>;
+}
+
 export interface EvidenceRequest {
   type: 'hearthold/evidence-request';
   version: typeof PROTOCOL_VERSION;
@@ -47,6 +59,10 @@ export interface EvidenceRequest {
   claim: string;
   /** How the requester wants the answer disclosed. */
   disclosureMode: DisclosureMode;
+  /** Which artefacts back the claim (kind + optional window). Required to assemble evidence. */
+  spec?: EvidenceClaimSpec;
+  /** The DID the claim is about (the Sovereign). Defaults to the Warden's configured Sovereign. */
+  subjectDid?: string;
   /** A step-up proof satisfying a higher tier, when the Warden demanded one. */
   stepUp?: StepUpProof;
 }
@@ -57,7 +73,10 @@ export type EvidenceResponse =
       type: 'hearthold/evidence-response';
       version: typeof PROTOCOL_VERSION;
       status: 'granted';
+      /** The minted evidence-graph credential (subject = Sovereign, issuer = Warden). */
       credentialDid: string;
+      /** The schema a verifier challenges by to have this presented. */
+      schemaDid: string;
     }
   | {
       type: 'hearthold/evidence-response';
