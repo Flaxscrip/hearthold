@@ -17,6 +17,7 @@ import { VaultStore } from './store.js';
 import { WardenService } from './service.js';
 import { DelegationStore } from './delegations.js';
 import { makeWardenHandler } from './handler.js';
+import { runWardenControl } from './control.js';
 
 const HELP = `Hearthold Warden — home Keeper
 
@@ -26,6 +27,7 @@ Usage:
   warden publish           (Re)publish the Warden's DIDComm endpoint
   warden delegate <did>    Issue a delegation credential to a Witness DID
   warden serve             Serve over DIDComm (poll mailbox, store submissions, reply)
+  warden control [port]    Serve DIDComm + a localhost control API for the Warden Console (default 4310)
   warden classify <kind> <text>   Classify text with the local model (test the classifier)
   warden vault             List stored artefacts (metadata only; payloads stay encrypted)
   warden help              Show this message
@@ -162,6 +164,11 @@ async function main(): Promise<void> {
       };
       process.on('SIGINT', shutdown);
       process.on('SIGTERM', shutdown);
+      break;
+    }
+    case 'control': {
+      const port = Number(process.argv[3] ?? process.env.HEARTHOLD_CONTROL_PORT ?? 4310);
+      await runWardenControl(handle, config, port);
       break;
     }
     case 'vault': {

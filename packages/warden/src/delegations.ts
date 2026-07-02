@@ -31,6 +31,14 @@ export class DelegationStore {
     }
   }
 
+  /** List the delegations the Warden has issued (subject + credential). */
+  async list(): Promise<{ subjectDid: string; credentialDid: string }[]> {
+    return (await this.readAll()).map((r) => ({
+      subjectDid: r.subjectDid,
+      credentialDid: r.credentialDid,
+    }));
+  }
+
   /** Record a freshly issued delegation. */
   async record(subjectDid: string, credentialDid: string): Promise<void> {
     await mkdir(this.warden.dataFolder, { recursive: true });

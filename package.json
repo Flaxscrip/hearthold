@@ -6,12 +6,14 @@
   "type": "module",
   "license": "MIT",
   "workspaces": [
+    "packages/control-types",
     "packages/core",
     "packages/warden",
     "packages/witness",
     "packages/sovereign",
     "packages/verifier",
-    "packages/registry"
+    "packages/registry",
+    "apps/*"
   ],
   "scripts": {
     "build": "tsc --build",
@@ -33,7 +35,8 @@
     "e2e:dtg-set": "npm run build && node --experimental-strip-types scripts/e2e-dtg-set.ts",
     "e2e:trust-registry": "npm run build && node --experimental-strip-types scripts/e2e-trust-registry.ts",
     "e2e:inward-registry": "npm run build && node --experimental-strip-types scripts/e2e-inward-registry.ts",
-    "interop:registry": "npm run build && node --experimental-strip-types scripts/interop-http-registry.ts"
+    "interop:registry": "npm run build && node --experimental-strip-types scripts/interop-http-registry.ts",
+    "demo:vp-setup": "npm run build && node --experimental-strip-types scripts/demo-vp-setup.ts"
   },
   "engines": {
     "node": ">=22"

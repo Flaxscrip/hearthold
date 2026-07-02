@@ -16,6 +16,7 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
+    "@hearthold/control-types": "0.1.0",
     "@hearthold/core": "0.1.0"
   }
 }

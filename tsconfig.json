@@ -1,6 +1,7 @@
 {
   "files": [],
   "references": [
+    { "path": "packages/control-types" },
     { "path": "packages/core" },
     { "path": "packages/warden" },
     { "path": "packages/witness" },

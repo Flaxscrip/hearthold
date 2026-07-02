@@ -12,6 +12,7 @@ import {
 } from '@hearthold/core';
 
 import { makeWitnessProjectorHandler } from './handler.js';
+import { runWitnessControl } from './control.js';
 
 const HELP = `Hearthold Witness — Companion
 
@@ -21,6 +22,7 @@ Usage:
   witness accept <credDid>     Accept a delegation credential from the Warden
   witness submit <kind> <text> Seal an observation and submit it to the Warden over DIDComm
   witness serve                Project to the world: relay proof-requests to the Sovereign (Signet)
+  witness control [port]       Submit + project over DIDComm, with a control API for the Witness app (default 4312)
   witness help                 Show this message
 
   <kind> ∈ event | location | activity | browsing | document
@@ -109,6 +111,11 @@ async function main(): Promise<void> {
         process.stderr.write(`Unexpected reply: ${reply.type}\n`);
         process.exitCode = 1;
       }
+      break;
+    }
+    case 'control': {
+      const port = Number(process.argv[3] ?? process.env.HEARTHOLD_CONTROL_PORT ?? 4312);
+      await runWitnessControl(handle, config, port);
       break;
     }
     case 'serve': {

@@ -16,8 +16,9 @@ import type { ApprovalGate } from './signet.js';
 export function makeSovereignHandler(sovereign: KeymasterHandle, gate: ApprovalGate): RequestHandler {
   return async (message, fromDid) => {
     if (message.type === 'hearthold/proof-request') {
-      const challengeDid = (message as ProofRequestMessage).challengeDid;
-      const humanProof = await gate.approve({ requester: fromDid, challengeDid });
+      const req = message as ProofRequestMessage;
+      const challengeDid = req.challengeDid;
+      const humanProof = await gate.approve({ requester: fromDid, challengeDid, schema: req.schema });
       if (!humanProof) {
         return { type: 'hearthold/error', version: PROTOCOL_VERSION, reason: 'disclosure declined by the Sovereign' };
       }

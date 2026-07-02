@@ -15,3 +15,4 @@ export * from './prove.js';
 export * from './dtg.js';
 export * from './trust-registry.js';
 export * from './game42.js';
+export * from './control-server.js';

@@ -17,6 +17,8 @@ export interface ApprovalContext {
   requester: string;
   /** The challenge being answered (what is disclosed). */
   challengeDid: string;
+  /** The requested schema, if the verifier named one — shown as disclosure context. */
+  schema?: string;
 }
 
 export interface ApprovalGate {

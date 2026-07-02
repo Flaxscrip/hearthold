@@ -1,0 +1,24 @@
+{
+  "name": "@hearthold/signet-approver",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Hearthold Signet Approver — the Sovereign's proof-of-human approval screen: approve or deny a disclosure.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@hearthold/control-types": "0.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.9.3",
+    "vite": "^5.4.11"
+  }
+}

@@ -16,6 +16,7 @@ import {
 
 import { makeSovereignHandler } from './handler.js';
 import { PromptGate } from './signet.js';
+import { runSovereignControl } from './control.js';
 
 const HELP = `Hearthold Sovereign — the principal (Signet precursor)
 
@@ -26,7 +27,8 @@ Usage:
   sovereign issued           List the issued (third-party) credentials in the vault
   sovereign issue <subjectDid> <type> [key=value ...]
                              Issue a credential to a subject (act as an issuer, e.g. a guild manager)
-  sovereign serve            Serve over DIDComm: present proofs on request
+  sovereign serve            Serve over DIDComm: present proofs on request (terminal PIN)
+  sovereign control [port]   Serve DIDComm + a control API for the Signet Approver app (default 4311)
   sovereign help             Show this message
 
 Env:
@@ -85,6 +87,11 @@ async function main(): Promise<void> {
       };
       process.on('SIGINT', shutdown);
       process.on('SIGTERM', shutdown);
+      break;
+    }
+    case 'control': {
+      const port = Number(process.argv[3] ?? process.env.HEARTHOLD_CONTROL_PORT ?? 4311);
+      await runSovereignControl(handle, config, port);
       break;
     }
     case 'status': {
