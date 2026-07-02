@@ -13,6 +13,7 @@ import {
   DidCommTransport,
   IDENTITY_NAME,
   startControlServer,
+  PROTOCOL_VERSION,
   type HearthholdConfig,
   type KeymasterHandle,
   type RequestHandler,
@@ -33,7 +34,7 @@ import { createClassifier } from './classifier.js';
 import { WardenService } from './service.js';
 import { VaultStore, type Artefact } from './store.js';
 import { DelegationStore } from './delegations.js';
-import { EvidenceService } from './evidence.js';
+import { EvidenceService, type SovereignApprover } from './evidence.js';
 import { makeWardenHandler } from './handler.js';
 
 const sensitivityName = (s: number): SensitivityName => SENSITIVITY_NAMES[s] ?? 'SEALED';
@@ -118,8 +119,25 @@ export async function runWardenControl(
       ),
   });
 
+  // Direct Warden↔Sovereign approval channel: for a sensitive evidence disclosure the Warden asks the
+  // Sovereign itself (the Witness is never in the authorization path). Runs inside the serve loop's
+  // await, so it is the sole mailbox drainer while the approval is in flight (no contention).
+  const approver: SovereignApprover | undefined = config.sovereignDid
+    ? {
+        async requestApproval(req) {
+          try {
+            const reply = await transport.request(config.sovereignDid as string, req, { timeoutMs: 180_000 });
+            if (reply.type === 'hearthold/approval-response') return reply;
+            return { type: 'hearthold/approval-response', version: PROTOCOL_VERSION, approved: false, reason: `unexpected reply ${reply.type}` };
+          } catch (err) {
+            return { type: 'hearthold/approval-response', version: PROTOCOL_VERSION, approved: false, reason: `Sovereign unreachable: ${err instanceof Error ? err.message : String(err)}` };
+          }
+        },
+      }
+    : undefined;
+
   // Wrap the real handler so a stored submission is pushed to connected consoles.
-  const inner = makeWardenHandler(service, delegations, new EvidenceService(handle, config));
+  const inner = makeWardenHandler(service, delegations, new EvidenceService(handle, config, approver));
   const handler: RequestHandler = async (message, fromDid) => {
     const result = await inner(message, fromDid);
     if (

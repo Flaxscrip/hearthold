@@ -37,7 +37,9 @@
     "e2e:inward-registry": "npm run build && node --experimental-strip-types scripts/e2e-inward-registry.ts",
     "interop:registry": "npm run build && node --experimental-strip-types scripts/interop-http-registry.ts",
     "demo:vp-setup": "npm run build && node --experimental-strip-types scripts/demo-vp-setup.ts",
-    "e2e:evidence": "npm run build && node --experimental-strip-types scripts/e2e-evidence.ts"
+    "e2e:evidence": "npm run build && node --experimental-strip-types scripts/e2e-evidence.ts",
+    "e2e:evidence-stepup": "npm run build && node --experimental-strip-types scripts/e2e-evidence-stepup.ts",
+    "e2e:evidence-direct": "npm run build && node --experimental-strip-types scripts/e2e-evidence-direct.ts"
   },
   "engines": {
     "node": ">=22"

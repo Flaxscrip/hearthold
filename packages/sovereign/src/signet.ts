@@ -13,12 +13,19 @@
 import type { HumanPresenceAssertion } from '@hearthold/core';
 
 export interface ApprovalContext {
-  /** The verifier the disclosure would go to. */
+  /** The party the disclosure would go to (a verifier, or the Warden for an evidence approval). */
   requester: string;
-  /** The challenge being answered (what is disclosed). */
-  challengeDid: string;
+  /** The challenge being answered (what is disclosed) — for a proof-request. */
+  challengeDid?: string;
   /** The requested schema, if the verifier named one — shown as disclosure context. */
   schema?: string;
+  /** For an evidence approval: the Warden-authored disclosure the Sovereign is asked to co-sign. */
+  disclosure?: {
+    claim: string;
+    evidenceRoot: string;
+    requiredLevel: number;
+    reason: string;
+  };
 }
 
 export interface ApprovalGate {
@@ -60,10 +67,13 @@ export class PromptGate implements ApprovalGate {
   constructor(private readonly expected: string) {}
 
   async approve(ctx: ApprovalContext): Promise<HumanPresenceAssertion | null> {
+    const detail = ctx.disclosure
+      ? `   claim:     ${ctx.disclosure.claim}\n   reason:    ${ctx.disclosure.reason}\n`
+      : `   challenge: ${(ctx.challengeDid ?? '').slice(0, 40)}…\n`;
     process.stdout.write(
       `\n🔑 Signet — a disclosure needs your approval\n` +
-        `   verifier:  ${ctx.requester.slice(0, 40)}…\n` +
-        `   challenge: ${ctx.challengeDid.slice(0, 40)}…\n` +
+        `   from:      ${ctx.requester.slice(0, 40)}…\n` +
+        detail +
         `   Enter Signet PIN to approve (blank to deny): `,
     );
     const pin = await readLine();

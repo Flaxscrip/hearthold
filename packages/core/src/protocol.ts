@@ -94,7 +94,21 @@ export type EvidenceResponse =
       accepts: StepUpMethod[];
       /** A fresh challenge DID, when the demanded method is challenge/response. */
       challengeDid?: string;
+      /** What the Sovereign must approve — the requester relays this to the Signet. */
+      context?: StepUpContext;
     };
+
+/** The disclosure the Sovereign is asked to approve (bound to its claim + evidence commitment). */
+export interface StepUpContext {
+  /** Single-use transaction id for this disclosure. */
+  txn: string;
+  /** The claim being disclosed. */
+  claim: string;
+  /** The Merkle root of the supporting evidence — the Sovereign approves *this* set. */
+  evidenceRoot: string;
+  /** Proof-of-human assurance level the approval must carry. */
+  requiredLevel: number;
+}
 
 /** Ways a Witness can elevate authorization for sensitive content. */
 export type StepUpMethod = 'challenge' | 'pin' | 'passphrase';
@@ -138,6 +152,46 @@ export interface ProofPresentationMessage {
   humanProof?: HumanPresenceAssertion;
 }
 
+// ── Warden ↔ Sovereign: the direct approval channel (control plane) ───────────
+//
+// A sensitive disclosure is approved on a channel the WARDEN owns — the Witness (the world-facing
+// agent) is never in the authorization path (§7.7 / control-vs-data-plane separation). The Warden
+// authors the description; the Sovereign approves it through the Signet.
+
+/** Warden → Sovereign: approve disclosing this evidence graph (Warden-authored description). */
+export interface ApprovalRequestMessage {
+  type: 'hearthold/approval-request';
+  version: typeof PROTOCOL_VERSION;
+  /** Single-use transaction id for this disclosure. */
+  txn: string;
+  /** The claim about to be disclosed. */
+  claim: string;
+  /** Merkle root of the supporting evidence — the Sovereign approves *this* set. */
+  evidenceRoot: string;
+  /** Proof-of-human assurance level required for the claim's sensitivity. */
+  requiredLevel: number;
+  /** The Warden-authored, human-readable reason shown to the Sovereign (never the agent's words). */
+  reason: string;
+  /** The Sovereign the claim is about (issues the approval to the Warden). */
+  subjectDid: string;
+}
+
+/** Sovereign → Warden: the signed approval (or a decline). */
+export type ApprovalResponseMessage =
+  | {
+      type: 'hearthold/approval-response';
+      version: typeof PROTOCOL_VERSION;
+      approved: true;
+      /** The HearthholdApproval VC the Sovereign issued to the Warden. */
+      approvalCredDid: string;
+    }
+  | {
+      type: 'hearthold/approval-response';
+      version: typeof PROTOCOL_VERSION;
+      approved: false;
+      reason: string;
+    };
+
 /** Warden → Witness: a request was refused (e.g. not authorized). */
 export interface ErrorMessage {
   type: 'hearthold/error';
@@ -152,4 +206,6 @@ export type HearthholdMessage =
   | EvidenceResponse
   | ProofRequestMessage
   | ProofPresentationMessage
+  | ApprovalRequestMessage
+  | ApprovalResponseMessage
   | ErrorMessage;

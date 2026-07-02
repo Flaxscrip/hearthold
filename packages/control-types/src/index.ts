@@ -106,9 +106,19 @@ export interface SubmissionStoredEvent {
 export interface PendingApproval {
   id: string;
   requester: string;
-  challengeDid: string;
+  /**
+   * `proof-request` — present a held credential to a verifier.
+   * `evidence-approval` — co-sign the Warden's disclosure of derived, witnessed data.
+   */
+  kind: 'proof-request' | 'evidence-approval';
+  /** Proof-request: the challenge being answered. */
+  challengeDid?: string;
   schema?: string;
   sensitivityName?: SensitivityName;
+  /** Evidence approval: the Warden-authored claim being disclosed. */
+  claim?: string;
+  /** Evidence approval: the Warden-authored reason shown to the Sovereign (never the agent's words). */
+  reason?: string;
   receivedAt: string;
 }
 

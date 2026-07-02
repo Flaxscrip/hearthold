@@ -3,9 +3,10 @@
  * presentable evidence graph.
  *
  * Selects the artefacts that back the claim, runs the release decision over their sensitivity, and
- * either mints the graph (trust class `witnessed`) or demands a step-up. A1 grants up to the
- * requester's standing clearance; HIGH/SEALED returns `step-up-required` (the Sovereign co-sign via
- * the Signet is A2).
+ * either mints the graph (trust class `witnessed`) or steps up. STANDING clears ≤LOW directly; for
+ * MEDIUM/HIGH/SEALED the Warden obtains the Sovereign's signed proof-of-human approval on a **direct
+ * Warden↔Sovereign channel** (the Witness is never in the authorization path — §7.7). If no direct
+ * approver is wired, it falls back to a requester-driven `step-up-required`.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -13,6 +14,8 @@ import { randomUUID } from 'node:crypto';
 import {
   assembleEvidence,
   mintEvidenceGraph,
+  verifyEvidenceApproval,
+  requiredLevelFor,
   decideRelease,
   requiredTier,
   AuthzTier,
@@ -20,12 +23,23 @@ import {
   type ArtefactMeta,
   type EvidenceRequest,
   type EvidenceResponse,
+  type ApprovalRequestMessage,
+  type ApprovalResponseMessage,
   type HearthholdConfig,
   type KeymasterHandle,
   type Sensitivity,
 } from '@hearthold/core';
 
 import { VaultStore, type Artefact } from './store.js';
+
+/**
+ * The Warden's direct channel to the Sovereign for a step-up. Implemented over DIDComm in the control
+ * daemon (`transport.request(sovereignDid, …)`); an in-process function in tests. The Witness is not
+ * involved — this is the control plane, owned by the Warden.
+ */
+export interface SovereignApprover {
+  requestApproval(req: ApprovalRequestMessage): Promise<ApprovalResponseMessage>;
+}
 
 const toMeta = (a: Artefact): ArtefactMeta => ({
   id: a.id,
@@ -41,6 +55,8 @@ export class EvidenceService {
   constructor(
     private readonly warden: KeymasterHandle,
     private readonly config: HearthholdConfig,
+    /** Direct channel to the Sovereign for a step-up. When absent, sensitive claims step-up-required. */
+    private readonly approver?: SovereignApprover,
   ) {
     this.store = new VaultStore(warden.dataFolder);
   }
@@ -65,40 +81,89 @@ export class EvidenceService {
     if (!assembled) return deny(`no supporting ${req.spec.kind} artefacts back that claim`);
 
     const sensitivity = assembled.sensitivity as Sensitivity;
-    // A1: a delegated Witness acts at STANDING. Step-up to a higher tier is A2.
-    const decision = decideRelease({
+    const subjectDid = req.subjectDid ?? this.config.sovereignDid ?? fromDid;
+    const evidenceRoot = assembled.group.commitment.merkleRoot;
+    const validUntil = new Date(Date.now() + 1000 * 60 * 10).toISOString();
+    const mint = (approval?: Parameters<typeof mintEvidenceGraph>[1]['approval']) =>
+      mintEvidenceGraph(this.warden, {
+        subjectDid,
+        claim: req.claim,
+        structured: req.spec?.structured,
+        evidence: [assembled.group],
+        txn: approval?.txn ?? randomUUID(),
+        validUntil,
+        approval,
+      });
+    const granted = async (
+      approval?: Parameters<typeof mintEvidenceGraph>[1]['approval'],
+    ): Promise<EvidenceResponse> => {
+      const { credentialDid, schemaDid } = await mint(approval);
+      return { type: 'hearthold/evidence-response', version: PROTOCOL_VERSION, status: 'granted', credentialDid, schemaDid };
+    };
+
+    // STANDING clears up to LOW → mint directly (A1).
+    const standingClears = decideRelease({
       sensitivity,
       tier: AuthzTier.STANDING,
       delegationValid,
       mode: req.disclosureMode,
       disclosureSatisfiable: true,
-    });
+    }).allow;
+    if (standingClears) return granted();
 
-    if (!decision.allow) {
+    // Sensitive (MEDIUM/HIGH/SEALED): the disclosure needs the Sovereign's proof-of-human approval.
+    const requiredLevel = requiredLevelFor(sensitivity);
+
+    // Primary path: the WARDEN obtains the approval directly from the Sovereign (Witness not involved).
+    if (this.approver) {
+      const txn = randomUUID();
+      const ares = await this.approver.requestApproval({
+        type: 'hearthold/approval-request',
+        version: PROTOCOL_VERSION,
+        txn,
+        claim: req.claim,
+        evidenceRoot,
+        requiredLevel,
+        reason: `Disclose “${req.claim}” — backed by ${assembled.group.count} witnessed ${req.spec.kind} observation(s)`,
+        subjectDid,
+      });
+      if (!ares.approved) return deny(`disclosure declined by the Sovereign: ${ares.reason}`);
+      const check = await verifyEvidenceApproval(this.warden, ares.approvalCredDid, {
+        approver: subjectDid,
+        claim: req.claim,
+        evidenceRoot,
+        requiredLevel,
+      });
+      if (!check.ok) return deny(`approval verification failed: ${check.reason}`);
+      return granted({
+        approver: check.approver as string,
+        txn: check.txn ?? txn,
+        humanProof: check.humanProof as { method: string; level: number; timestamp: string },
+      });
+    }
+
+    // Fallback: no direct channel wired → requester-driven step-up.
+    if (!req.stepUp) {
       return {
         type: 'hearthold/evidence-response',
         version: PROTOCOL_VERSION,
         status: 'step-up-required',
         requiredTier: requiredTier(sensitivity),
-        accepts: ['challenge', 'pin'],
+        accepts: ['challenge'],
+        context: { txn: randomUUID(), claim: req.claim, evidenceRoot, requiredLevel },
       };
     }
-
-    const subjectDid = req.subjectDid ?? this.config.sovereignDid ?? fromDid;
-    const { credentialDid, schemaDid } = await mintEvidenceGraph(this.warden, {
-      subjectDid,
+    const check = await verifyEvidenceApproval(this.warden, req.stepUp.value, {
+      approver: subjectDid,
       claim: req.claim,
-      structured: req.spec.structured,
-      evidence: [assembled.group],
-      txn: randomUUID(),
-      validUntil: new Date(Date.now() + 1000 * 60 * 10).toISOString(),
+      evidenceRoot,
+      requiredLevel,
     });
-    return {
-      type: 'hearthold/evidence-response',
-      version: PROTOCOL_VERSION,
-      status: 'granted',
-      credentialDid,
-      schemaDid,
-    };
+    if (!check.ok) return deny(`step-up rejected: ${check.reason}`);
+    return granted({
+      approver: check.approver as string,
+      txn: check.txn ?? randomUUID(),
+      humanProof: check.humanProof as { method: string; level: number; timestamp: string },
+    });
   }
 }

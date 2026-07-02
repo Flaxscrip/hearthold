@@ -175,3 +175,89 @@ export async function mintEvidenceGraph(
   });
   return { credentialDid, schemaDid };
 }
+
+// ── Step-up: the Sovereign co-signs a sensitive disclosure (A2) ───────────────
+
+export const HEARTHOLD_APPROVAL_TYPE = 'HearthholdApproval';
+
+/** Proof-of-human assurance level required to externally disclose data at a given sensitivity. */
+export function requiredLevelFor(sensitivity: number): number {
+  if (sensitivity >= Sensitivity.SEALED) return 2; // multifactor
+  if (sensitivity >= Sensitivity.MEDIUM) return 1; // a fresh proof-of-human (PIN+)
+  return 0; // standing delegation suffices (A1)
+}
+
+export interface ApprovalHumanProof {
+  method: string;
+  level: number;
+  timestamp: string;
+}
+
+/**
+ * The Sovereign issues a HearthholdApproval VC to the Warden — the signed, DID-attributable approval
+ * of one specific evidence disclosure, bound to its claim + evidence root and carrying the Signet's
+ * proof-of-human assertion. Upstream, the Signet gates whether this is issued at all.
+ */
+export async function issueEvidenceApproval(
+  sovereign: KeymasterHandle,
+  args: {
+    wardenDid: string;
+    txn: string;
+    claim: string;
+    evidenceRoot: string;
+    humanProof: ApprovalHumanProof;
+    validUntil?: string;
+  },
+): Promise<string> {
+  const schemaDid = await ensureSchema(sovereign, HEARTHOLD_APPROVAL_TYPE, openSchema(HEARTHOLD_APPROVAL_TYPE));
+  const bound = await sovereign.keymaster.bindCredential(args.wardenDid, {
+    schema: schemaDid,
+    validUntil: args.validUntil,
+    claims: {
+      type: HEARTHOLD_APPROVAL_TYPE,
+      txn: args.txn,
+      claim: args.claim,
+      evidenceRoot: args.evidenceRoot,
+      humanProof: args.humanProof,
+    },
+  });
+  bound.type = ['VerifiableCredential', HEARTHOLD_APPROVAL_TYPE];
+  return sovereign.keymaster.issueCredential(bound, { schema: schemaDid, validUntil: args.validUntil });
+}
+
+export interface ApprovalCheck {
+  ok: boolean;
+  reason: string;
+  approver?: string;
+  txn?: string;
+  humanProof?: ApprovalHumanProof;
+}
+
+/**
+ * The Warden verifies a Sovereign approval binds to *this* disclosure (issuer = the Sovereign, same
+ * claim + evidence root) and meets the proof-of-human bar for the sensitivity.
+ */
+export async function verifyEvidenceApproval(
+  warden: KeymasterHandle,
+  approvalCredDid: string,
+  expect: { approver: string; claim: string; evidenceRoot: string; requiredLevel: number },
+): Promise<ApprovalCheck> {
+  const vc = (await warden.keymaster.getCredential(approvalCredDid).catch(() => null)) as
+    | { issuer?: unknown; credentialSubject?: Record<string, unknown> }
+    | null;
+  if (!vc) return { ok: false, reason: 'approval credential not found' };
+
+  const issuer = typeof vc.issuer === 'string' ? vc.issuer : (vc.issuer as { id?: string } | undefined)?.id;
+  if (issuer !== expect.approver) return { ok: false, reason: 'approval not issued by the Sovereign' };
+
+  const c = vc.credentialSubject ?? {};
+  if (c.claim !== expect.claim) return { ok: false, reason: 'approval does not match the claim' };
+  if (c.evidenceRoot !== expect.evidenceRoot) {
+    return { ok: false, reason: 'approval does not match the evidence root' };
+  }
+  const hp = c.humanProof as ApprovalHumanProof | undefined;
+  if (!hp || hp.level < expect.requiredLevel) {
+    return { ok: false, reason: `proof-of-human level ${hp?.level ?? 0} below required ${expect.requiredLevel}` };
+  }
+  return { ok: true, reason: 'approved', approver: issuer, txn: c.txn as string, humanProof: hp };
+}

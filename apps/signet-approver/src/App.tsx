@@ -121,30 +121,50 @@ function ApprovalCard({ approval, onResolved }: { approval: PendingApproval; onR
     }
   };
 
+  const isEvidence = approval.kind === 'evidence-approval';
   return (
-    <div className="approval">
+    <div className={`approval${isEvidence ? ' evidence' : ''}`}>
       <div className="approval-head">
-        <span className="req-label">disclosure request</span>
+        <span className="req-label">{isEvidence ? 'evidence disclosure' : 'disclosure request'}</span>
         <span className="ago">{new Date(approval.receivedAt).toLocaleTimeString()}</span>
       </div>
-      <dl className="ctx">
-        <dt>from</dt>
-        <dd><DidTag did={approval.requester} /></dd>
-        {approval.schema && (
-          <>
-            <dt>schema</dt>
-            <dd><DidTag did={approval.schema} /></dd>
-          </>
-        )}
-        <dt>challenge</dt>
-        <dd><DidTag did={approval.challengeDid} /></dd>
-        {approval.sensitivityName && (
-          <>
-            <dt>sensitivity</dt>
-            <dd><span className="chip">{approval.sensitivityName}</span></dd>
-          </>
-        )}
-      </dl>
+      {isEvidence ? (
+        <dl className="ctx">
+          <dt>claim</dt>
+          <dd className="claim">{approval.claim}</dd>
+          {approval.reason && (
+            <>
+              <dt>reason</dt>
+              <dd className="reason">{approval.reason}</dd>
+            </>
+          )}
+          <dt>from Warden</dt>
+          <dd><DidTag did={approval.requester} /></dd>
+        </dl>
+      ) : (
+        <dl className="ctx">
+          <dt>from</dt>
+          <dd><DidTag did={approval.requester} /></dd>
+          {approval.schema && (
+            <>
+              <dt>schema</dt>
+              <dd><DidTag did={approval.schema} /></dd>
+            </>
+          )}
+          {approval.challengeDid && (
+            <>
+              <dt>challenge</dt>
+              <dd><DidTag did={approval.challengeDid} /></dd>
+            </>
+          )}
+          {approval.sensitivityName && (
+            <>
+              <dt>sensitivity</dt>
+              <dd><span className="chip">{approval.sensitivityName}</span></dd>
+            </>
+          )}
+        </dl>
+      )}
       <div className="approval-act">
         <input
           type="password"

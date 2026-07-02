@@ -105,3 +105,9 @@ button:disabled { opacity: 0.45; cursor: default; }
 .chip { font-size: 11px; font-weight: 700; letter-spacing: 0.3px; padding: 2px 8px; border-radius: 6px; background: var(--bg); border: 1px solid var(--line); color: var(--ink-dim); }
 .chip.ok { color: var(--ok); border-color: #2c5a45; }
 .chip.no { color: var(--no); border-color: #5a2f2f; }
+
+/* ── evidence-approval variant (co-signing witnessed data, not a held credential) ── */
+.approval.evidence { border-color: #4dd9e8; box-shadow: 0 8px 26px -18px #4dd9e8; background: linear-gradient(180deg, #0f2429, var(--bg-2)); }
+.approval.evidence .req-label { color: #8fe9f2; }
+.ctx .claim { font-weight: 600; color: var(--ink); font-size: 15px; }
+.ctx .reason { color: var(--ink-dim); font-size: 13px; line-height: 1.5; }
