@@ -27,6 +27,9 @@ export function App() {
 
   useEffect(() => {
     void refresh();
+    // Poll as a safety net so the panels always reflect the daemon even if a live event is missed.
+    const t = window.setInterval(() => void refresh(), 4000);
+    return () => window.clearInterval(t);
   }, [refresh]);
 
   const mergeReceipt = useCallback((r: ReceiptRecord) => {
@@ -171,15 +174,33 @@ function ProvePanel({ onProof, sovereignSet }: { onProof: (p: ProofRecord) => vo
   const [kind, setKind] = useState<string>('location');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [structured, setStructured] = useState('{"type":"residence","country":"FR","period":"2026-H1"}');
+  const [ttl, setTtl] = useState('10');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
   const request = async () => {
     if (!claim.trim()) return;
+    let structuredObj: Record<string, unknown> | undefined;
+    if (structured.trim()) {
+      try {
+        structuredObj = JSON.parse(structured) as Record<string, unknown>;
+      } catch {
+        setMsg('✗ structured must be valid JSON (or leave it blank)');
+        return;
+      }
+    }
     setBusy(true);
     setMsg(null);
     try {
-      const { proof } = await api.prove(claim.trim(), kind, from || undefined, to || undefined);
+      const { proof } = await api.prove({
+        claim: claim.trim(),
+        kind,
+        from: from || undefined,
+        to: to || undefined,
+        structured: structuredObj,
+        validForMinutes: ttl ? Number(ttl) : undefined,
+      });
       onProof(proof);
       setMsg('✦ requested — the Warden is assembling the evidence graph');
       window.setTimeout(() => setMsg(null), 3200);
@@ -211,6 +232,18 @@ function ProvePanel({ onProof, sovereignSet }: { onProof: (p: ProofRecord) => vo
           <span className="dash">→</span>
           <input type="date" value={to} onChange={(e) => setTo(e.target.value)} title="to (optional)" />
         </div>
+        <input
+          className="claimin"
+          placeholder="structured predicate (JSON, optional)"
+          value={structured}
+          onChange={(e) => setStructured(e.target.value)}
+          spellCheck={false}
+        />
+        <label className="ttlrow">
+          valid for
+          <input className="ttlin" type="number" min={1} value={ttl} onChange={(e) => setTtl(e.target.value)} />
+          minutes
+        </label>
         <button onClick={request} disabled={busy || !claim.trim()}>
           {busy ? 'requesting…' : `Prove from ${kind} data`}
         </button>
@@ -226,34 +259,114 @@ function ProvePanel({ onProof, sovereignSet }: { onProof: (p: ProofRecord) => vo
   );
 }
 
+const PROOF_LABEL: Record<ProofRecord['status'], string> = {
+  requesting: 'requesting…',
+  granted: '✓ granted',
+  denied: '✗ denied',
+};
+
 function ProofsPanel({ proofs }: { proofs: ProofRecord[] }) {
-  const label: Record<ProofRecord['status'], string> = {
-    requesting: 'requesting…',
-    granted: '✓ granted',
-    denied: '✗ denied',
-    'step-up-required': 'awaiting approval',
-  };
+  const [open, setOpen] = useState<string | null>(null);
   return (
     <Card title="Proofs" right={<span className="count">{proofs.length}</span>}>
       {proofs.length === 0 ? (
         <Empty>No claims proven yet. Ask the Warden to prove a claim above — a sensitive one lights up the Signet.</Empty>
       ) : (
         <ul className="rows">
-          {proofs.map((p) => (
-            <li key={p.id} className="row proof">
-              <span className={`chip proof-${p.status}`}>{label[p.status]}</span>
-              <span className="claimtext" title={p.claim}>{p.claim}</span>
-              {p.credentialDid ? (
-                <DidTag did={p.credentialDid} />
-              ) : (
-                p.reason && <span className="reason" title={p.reason}>{p.reason}</span>
-              )}
-              <span className="when">{new Date(p.at).toLocaleTimeString()}</span>
-            </li>
-          ))}
+          {proofs.map((p) => {
+            const expandable = p.status === 'granted';
+            const isOpen = open === p.id;
+            return (
+              <li key={p.id} className="proofitem">
+                <div
+                  className={`row proof${expandable ? ' clickable' : ''}`}
+                  onClick={() => expandable && setOpen(isOpen ? null : p.id)}
+                >
+                  <span className={`chip proof-${p.status}`}>{PROOF_LABEL[p.status]}</span>
+                  <span className="claimtext" title={p.claim}>{p.claim}</span>
+                  {p.status !== 'granted' && p.reason && (
+                    <span className="reason" title={p.reason}>{p.reason}</span>
+                  )}
+                  {expandable && <span className="caret">{isOpen ? '▾' : '▸'}</span>}
+                  <span className="when">{new Date(p.at).toLocaleTimeString()}</span>
+                </div>
+                {isOpen && <ProofDetail proof={p} />}
+              </li>
+            );
+          })}
         </ul>
       )}
     </Card>
+  );
+}
+
+function ProofDetail({ proof }: { proof: ProofRecord }) {
+  return (
+    <div className="proofdetail">
+      <dl className="ctx">
+        <dt>claim</dt>
+        <dd className="claim">{proof.claim}</dd>
+        {proof.structured && Object.keys(proof.structured).length > 0 && (
+          <>
+            <dt>structured</dt>
+            <dd><code className="mono">{JSON.stringify(proof.structured)}</code></dd>
+          </>
+        )}
+        {(proof.evidence ?? []).map((g, i) => (
+          <ProofGroup key={i} g={g} />
+        ))}
+        <dt>approval</dt>
+        <dd>
+          {proof.approved ? (
+            <span className="chip proof-granted">Sovereign co-signed (proof-of-human)</span>
+          ) : (
+            <span className="chip standing">standing — no co-sign needed</span>
+          )}
+        </dd>
+        <dt>issuer</dt>
+        <dd>the Warden · trust class <em>witnessed</em></dd>
+        {proof.validUntil && (
+          <>
+            <dt>expires</dt>
+            <dd>
+              {new Date(proof.validUntil).toLocaleString()}{' '}
+              {new Date(proof.validUntil).getTime() < Date.now() ? (
+                <span className="chip proof-denied">expired</span>
+              ) : (
+                <span className="chip proof-granted">valid</span>
+              )}
+            </dd>
+          </>
+        )}
+        {proof.credentialDid && (
+          <>
+            <dt>credential</dt>
+            <dd><DidTag did={proof.credentialDid} /></dd>
+          </>
+        )}
+      </dl>
+      <p className="note dim">The evidence graph is sealed to the Sovereign; this is the Warden's summary of what it attested.</p>
+    </div>
+  );
+}
+
+function ProofGroup({ g }: { g: NonNullable<ProofRecord['evidence']>[number] }) {
+  return (
+    <>
+      <dt>evidence</dt>
+      <dd>
+        <span className="evline">
+          <strong>{g.count}</strong> witnessed {g.kind} observation(s)
+          {g.observedFrom && (
+            <> · {new Date(g.observedFrom).toLocaleDateString()} → {new Date(g.observedTo).toLocaleDateString()}</>
+          )}
+        </span>
+        <span className="evline dim">root <code className="mono">{g.merkleRoot.slice(0, 20)}…</code></span>
+        {g.witnessedBy.length > 0 && (
+          <span className="evline">by {g.witnessedBy.map((w) => <DidTag key={w} did={w} />)}</span>
+        )}
+      </dd>
+    </>
   );
 }
 

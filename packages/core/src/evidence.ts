@@ -17,7 +17,12 @@ import { createHash } from 'node:crypto';
 import type { KeymasterHandle } from './keymaster.js';
 import { ensureSchema, openSchema } from './schema.js';
 import { Sensitivity } from './security.js';
-import type { WitnessKind, EvidenceClaimSpec } from './protocol.js';
+import type {
+  WitnessKind,
+  EvidenceClaimSpec,
+  EvidenceApprovalStatement,
+  SignedEvidenceApproval,
+} from './protocol.js';
 
 export const HEARTHOLD_EVIDENCE_CONTEXT = 'https://hearthold.dev/2026/evidence/v1';
 export const HEARTHOLD_ATTESTATION_TYPE = 'HearthholdAttestation';
@@ -110,13 +115,6 @@ export function assembleEvidence(
   return { group, sensitivity, artefactIds: ids };
 }
 
-/** The Sovereign co-signature block, attached for HIGH/SEALED disclosures (A2). */
-export interface EvidenceApproval {
-  approver: string;
-  txn: string;
-  humanProof: { method: string; level: number; timestamp: string };
-}
-
 export interface MintEvidenceArgs {
   /** The Sovereign — the claim is about them. */
   subjectDid: string;
@@ -125,8 +123,10 @@ export interface MintEvidenceArgs {
   evidence: EvidenceGroup[];
   /** Single-use transaction id (R1). */
   txn: string;
+  /** When the ephemeral proof expires. */
   validUntil?: string;
-  approval?: EvidenceApproval;
+  /** The Sovereign-signed approval, embedded verbatim (carries its own `proof`). */
+  approval?: SignedEvidenceApproval;
 }
 
 /**
@@ -178,8 +178,6 @@ export async function mintEvidenceGraph(
 
 // ── Step-up: the Sovereign co-signs a sensitive disclosure (A2) ───────────────
 
-export const HEARTHOLD_APPROVAL_TYPE = 'HearthholdApproval';
-
 /** Proof-of-human assurance level required to externally disclose data at a given sensitivity. */
 export function requiredLevelFor(sensitivity: number): number {
   if (sensitivity >= Sensitivity.SEALED) return 2; // multifactor
@@ -194,35 +192,17 @@ export interface ApprovalHumanProof {
 }
 
 /**
- * The Sovereign issues a HearthholdApproval VC to the Warden — the signed, DID-attributable approval
- * of one specific evidence disclosure, bound to its claim + evidence root and carrying the Signet's
- * proof-of-human assertion. Upstream, the Signet gates whether this is issued at all.
+ * The Sovereign co-signs one specific disclosure: it signs the approval statement (bound to the
+ * claim + evidence root, carrying the Signet's proof-of-human assertion) with its own key via
+ * `keymaster.addProof` — a **detached secp256k1 signature** anyone can verify against the Sovereign's
+ * DID, no decryption needed. The signed statement is embedded verbatim in the evidence graph. The
+ * Signet gates whether this is produced at all.
  */
-export async function issueEvidenceApproval(
+export async function signEvidenceApproval(
   sovereign: KeymasterHandle,
-  args: {
-    wardenDid: string;
-    txn: string;
-    claim: string;
-    evidenceRoot: string;
-    humanProof: ApprovalHumanProof;
-    validUntil?: string;
-  },
-): Promise<string> {
-  const schemaDid = await ensureSchema(sovereign, HEARTHOLD_APPROVAL_TYPE, openSchema(HEARTHOLD_APPROVAL_TYPE));
-  const bound = await sovereign.keymaster.bindCredential(args.wardenDid, {
-    schema: schemaDid,
-    validUntil: args.validUntil,
-    claims: {
-      type: HEARTHOLD_APPROVAL_TYPE,
-      txn: args.txn,
-      claim: args.claim,
-      evidenceRoot: args.evidenceRoot,
-      humanProof: args.humanProof,
-    },
-  });
-  bound.type = ['VerifiableCredential', HEARTHOLD_APPROVAL_TYPE];
-  return sovereign.keymaster.issueCredential(bound, { schema: schemaDid, validUntil: args.validUntil });
+  statement: EvidenceApprovalStatement,
+): Promise<SignedEvidenceApproval> {
+  return (await sovereign.keymaster.addProof(statement)) as SignedEvidenceApproval;
 }
 
 export interface ApprovalCheck {
@@ -234,30 +214,32 @@ export interface ApprovalCheck {
 }
 
 /**
- * The Warden verifies a Sovereign approval binds to *this* disclosure (issuer = the Sovereign, same
- * claim + evidence root) and meets the proof-of-human bar for the sensitivity.
+ * The Warden verifies a Sovereign approval: the detached signature is valid AND made by the expected
+ * Sovereign, and the statement binds to *this* disclosure (same claim + evidence root) with a
+ * sufficient proof-of-human level. No decryption — `verifyProof` resolves the signer's DID key.
  */
 export async function verifyEvidenceApproval(
   warden: KeymasterHandle,
-  approvalCredDid: string,
+  signed: SignedEvidenceApproval | undefined,
   expect: { approver: string; claim: string; evidenceRoot: string; requiredLevel: number },
 ): Promise<ApprovalCheck> {
-  const vc = (await warden.keymaster.getCredential(approvalCredDid).catch(() => null)) as
-    | { issuer?: unknown; credentialSubject?: Record<string, unknown> }
-    | null;
-  if (!vc) return { ok: false, reason: 'approval credential not found' };
+  if (!signed || !signed.proof) return { ok: false, reason: 'approval is not signed' };
 
-  const issuer = typeof vc.issuer === 'string' ? vc.issuer : (vc.issuer as { id?: string } | undefined)?.id;
-  if (issuer !== expect.approver) return { ok: false, reason: 'approval not issued by the Sovereign' };
-
-  const c = vc.credentialSubject ?? {};
-  if (c.claim !== expect.claim) return { ok: false, reason: 'approval does not match the claim' };
-  if (c.evidenceRoot !== expect.evidenceRoot) {
+  const proof = signed.proof as { verificationMethod?: string };
+  const signerDid = String(proof.verificationMethod ?? '').split('#')[0] ?? '';
+  if (signerDid !== expect.approver) return { ok: false, reason: 'approval not signed by the Sovereign' };
+  const verifyProof = warden.keymaster.verifyProof.bind(warden.keymaster) as (o: unknown) => Promise<boolean>;
+  if (!(await verifyProof(signed).catch(() => false))) {
+    return { ok: false, reason: "the Sovereign's signature does not verify" };
+  }
+  if (signed.approver !== expect.approver) return { ok: false, reason: 'approver mismatch' };
+  if (signed.claim !== expect.claim) return { ok: false, reason: 'approval does not match the claim' };
+  if (signed.evidenceRoot !== expect.evidenceRoot) {
     return { ok: false, reason: 'approval does not match the evidence root' };
   }
-  const hp = c.humanProof as ApprovalHumanProof | undefined;
+  const hp = signed.humanProof;
   if (!hp || hp.level < expect.requiredLevel) {
     return { ok: false, reason: `proof-of-human level ${hp?.level ?? 0} below required ${expect.requiredLevel}` };
   }
-  return { ok: true, reason: 'approved', approver: issuer, txn: c.txn as string, humanProof: hp };
+  return { ok: true, reason: 'approved', approver: signerDid, txn: signed.txn, humanProof: hp };
 }

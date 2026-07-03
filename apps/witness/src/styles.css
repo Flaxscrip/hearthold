@@ -124,6 +124,8 @@ input {
 }
 input:focus { border-color: var(--mage); }
 .claimin { width: 100%; }
+.ttlrow { display: flex; align-items: center; gap: 8px; color: var(--ink-dim); font-size: 13px; }
+.ttlin { width: 72px; }
 .daterow { display: flex; align-items: center; gap: 8px; }
 .daterow input { flex: 1; color-scheme: dark; }
 .dash { color: var(--ink-faint); }
@@ -133,4 +135,19 @@ input:focus { border-color: var(--mage); }
 .proof-requesting { background: var(--bg); border: 1px solid var(--line); color: var(--mage-soft); }
 .proof-granted { background: var(--live); color: #06181b; }
 .proof-denied { background: var(--off); color: #fff; }
-.proof-step-up-required { background: var(--sens-medium); color: #06181b; }
+.chip.standing { background: var(--bg-2); border: 1px solid var(--line); color: var(--ink-dim); }
+
+/* ── proof inspector ── */
+.proofitem { list-style: none; }
+.row.proof.clickable { cursor: pointer; }
+.row.proof.clickable:hover { border-color: var(--mage); }
+.caret { color: var(--ink-faint); margin-left: auto; }
+.row.proof .caret + .when { margin-left: 10px; }
+.proofdetail { margin: -4px 0 2px; padding: 12px 14px; background: var(--bg); border: 1px solid var(--line); border-top: none; border-radius: 0 0 9px 9px; }
+.proofdetail .ctx { display: grid; grid-template-columns: auto 1fr; gap: 7px 12px; margin: 0 0 8px; }
+.proofdetail dt { color: var(--ink-faint); font-size: 12px; text-transform: uppercase; letter-spacing: 0.3px; padding-top: 2px; }
+.proofdetail dd { margin: 0; }
+.proofdetail .claim { font-weight: 600; color: var(--ink); }
+.evline { display: block; }
+.evline.dim { color: var(--ink-faint); font-size: 12px; }
+.mono { font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--ink-dim); }

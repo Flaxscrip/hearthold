@@ -106,7 +106,7 @@ export async function runWitnessControl(
         return { receipt };
       },
       'POST /api/prove': async ({ body }) => {
-        const { claim, kind, from, to } = (body ?? {}) as ProveRequest;
+        const { claim, kind, from, to, structured, validForMinutes } = (body ?? {}) as ProveRequest;
         if (!claim || !kind) throw new Error('claim and kind are required');
         const wardenDid = config.wardenDid;
         if (!wardenDid) throw new Error('HEARTHOLD_WARDEN_DID is not set on the Witness daemon');
@@ -117,8 +117,9 @@ export async function runWitnessControl(
           version: PROTOCOL_VERSION,
           claim,
           disclosureMode: 'ATTESTATION',
-          spec: { kind: kind as never, from, to },
+          spec: { kind: kind as never, from, to, structured },
           ...(sovereignDid ? { subjectDid: sovereignDid } : {}),
+          ...(validForMinutes ? { validForMinutes } : {}),
         };
         pending.set(thid, { type: 'prove', claim, kind, at });
         await handle.keymaster.sendDidComm({ type: request.type, thid, body: request }, wardenDid, { name });
@@ -204,10 +205,19 @@ export async function runWitnessControl(
               const r = body as EvidenceResponse;
               rec =
                 r.status === 'granted'
-                  ? { id: thid, claim: p.claim, kind: p.kind, status: 'granted', credentialDid: r.credentialDid, at: now }
-                  : r.status === 'step-up-required'
-                    ? { id: thid, claim: p.claim, kind: p.kind, status: 'step-up-required', reason: 'awaiting Sovereign approval', at: now }
-                    : { id: thid, claim: p.claim, kind: p.kind, status: 'denied', reason: r.reason, at: now };
+                  ? {
+                      id: thid,
+                      claim: p.claim,
+                      kind: p.kind,
+                      status: 'granted',
+                      credentialDid: r.credentialDid,
+                      structured: r.graph?.structured,
+                      evidence: r.graph?.evidence,
+                      approved: r.graph?.approved,
+                      validUntil: r.graph?.validUntil,
+                      at: now,
+                    }
+                  : { id: thid, claim: p.claim, kind: p.kind, status: 'denied', reason: r.reason, at: now };
             } else {
               rec = { id: thid, claim: p.claim, kind: p.kind, status: 'denied', reason: `unexpected reply ${body.type}`, at: now };
             }

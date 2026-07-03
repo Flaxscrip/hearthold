@@ -5,8 +5,8 @@
  * Selects the artefacts that back the claim, runs the release decision over their sensitivity, and
  * either mints the graph (trust class `witnessed`) or steps up. STANDING clears ≤LOW directly; for
  * MEDIUM/HIGH/SEALED the Warden obtains the Sovereign's signed proof-of-human approval on a **direct
- * Warden↔Sovereign channel** (the Witness is never in the authorization path — §7.7). If no direct
- * approver is wired, it falls back to a requester-driven `step-up-required`.
+ * Warden↔Sovereign channel** (the Witness is never in the authorization path — §7.7). Without a
+ * Sovereign channel wired, a sensitive claim is denied.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -17,7 +17,6 @@ import {
   verifyEvidenceApproval,
   requiredLevelFor,
   decideRelease,
-  requiredTier,
   AuthzTier,
   PROTOCOL_VERSION,
   type ArtefactMeta,
@@ -55,7 +54,7 @@ export class EvidenceService {
   constructor(
     private readonly warden: KeymasterHandle,
     private readonly config: HearthholdConfig,
-    /** Direct channel to the Sovereign for a step-up. When absent, sensitive claims step-up-required. */
+    /** Direct channel to the Sovereign for a step-up. When absent, sensitive claims are denied. */
     private readonly approver?: SovereignApprover,
   ) {
     this.store = new VaultStore(warden.dataFolder);
@@ -83,7 +82,9 @@ export class EvidenceService {
     const sensitivity = assembled.sensitivity as Sensitivity;
     const subjectDid = req.subjectDid ?? this.config.sovereignDid ?? fromDid;
     const evidenceRoot = assembled.group.commitment.merkleRoot;
-    const validUntil = new Date(Date.now() + 1000 * 60 * 10).toISOString();
+    // Ephemeral proof: expires after the requested window (Archon's validUntil), default 10 min.
+    const ttlMin = req.validForMinutes && req.validForMinutes > 0 ? req.validForMinutes : 10;
+    const validUntil = new Date(Date.now() + ttlMin * 60_000).toISOString();
     const mint = (approval?: Parameters<typeof mintEvidenceGraph>[1]['approval']) =>
       mintEvidenceGraph(this.warden, {
         subjectDid,
@@ -98,7 +99,30 @@ export class EvidenceService {
       approval?: Parameters<typeof mintEvidenceGraph>[1]['approval'],
     ): Promise<EvidenceResponse> => {
       const { credentialDid, schemaDid } = await mint(approval);
-      return { type: 'hearthold/evidence-response', version: PROTOCOL_VERSION, status: 'granted', credentialDid, schemaDid };
+      const g = assembled.group;
+      return {
+        type: 'hearthold/evidence-response',
+        version: PROTOCOL_VERSION,
+        status: 'granted',
+        credentialDid,
+        schemaDid,
+        graph: {
+          claim: req.claim,
+          structured: req.spec?.structured,
+          evidence: [
+            {
+              kind: g.kind,
+              observedFrom: g.observedFrom,
+              observedTo: g.observedTo,
+              count: g.count,
+              witnessedBy: g.witnessedBy,
+              merkleRoot: g.commitment.merkleRoot,
+            },
+          ],
+          approved: Boolean(approval),
+          validUntil,
+        },
+      };
     };
 
     // STANDING clears up to LOW → mint directly (A1).
@@ -128,42 +152,17 @@ export class EvidenceService {
         subjectDid,
       });
       if (!ares.approved) return deny(`disclosure declined by the Sovereign: ${ares.reason}`);
-      const check = await verifyEvidenceApproval(this.warden, ares.approvalCredDid, {
+      const check = await verifyEvidenceApproval(this.warden, ares.approval, {
         approver: subjectDid,
         claim: req.claim,
         evidenceRoot,
         requiredLevel,
       });
       if (!check.ok) return deny(`approval verification failed: ${check.reason}`);
-      return granted({
-        approver: check.approver as string,
-        txn: check.txn ?? txn,
-        humanProof: check.humanProof as { method: string; level: number; timestamp: string },
-      });
+      return granted(ares.approval);
     }
 
-    // Fallback: no direct channel wired → requester-driven step-up.
-    if (!req.stepUp) {
-      return {
-        type: 'hearthold/evidence-response',
-        version: PROTOCOL_VERSION,
-        status: 'step-up-required',
-        requiredTier: requiredTier(sensitivity),
-        accepts: ['challenge'],
-        context: { txn: randomUUID(), claim: req.claim, evidenceRoot, requiredLevel },
-      };
-    }
-    const check = await verifyEvidenceApproval(this.warden, req.stepUp.value, {
-      approver: subjectDid,
-      claim: req.claim,
-      evidenceRoot,
-      requiredLevel,
-    });
-    if (!check.ok) return deny(`step-up rejected: ${check.reason}`);
-    return granted({
-      approver: check.approver as string,
-      txn: check.txn ?? randomUUID(),
-      humanProof: check.humanProof as { method: string; level: number; timestamp: string },
-    });
+    // No direct channel to the Sovereign wired → this sensitive disclosure can't be co-signed here.
+    return deny('sensitive claim needs a Sovereign approval channel — set HEARTHOLD_SOVEREIGN_DID on the Warden');
   }
 }

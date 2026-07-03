@@ -33,8 +33,14 @@ export const api = {
   base: BASE,
   snapshot: () => get<WitnessSnapshot>('/api/snapshot'),
   submit: (kind: string, text: string) => post<SubmitResponse>('/api/submit', { kind, text }),
-  prove: (claim: string, kind: string, from?: string, to?: string) =>
-    post<ProveResponse>('/api/prove', { claim, kind, from, to }),
+  prove: (req: {
+    claim: string;
+    kind: string;
+    from?: string;
+    to?: string;
+    structured?: Record<string, unknown>;
+    validForMinutes?: number;
+  }) => post<ProveResponse>('/api/prove', req),
 };
 
 /** Subscribe to the daemon's SSE event stream; `onEvent` fires per pushed event. */

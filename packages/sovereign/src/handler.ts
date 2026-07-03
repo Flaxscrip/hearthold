@@ -1,10 +1,11 @@
 import {
   PROTOCOL_VERSION,
   presentProof,
-  issueEvidenceApproval,
+  signEvidenceApproval,
   type RequestHandler,
   type ProofRequestMessage,
   type ApprovalRequestMessage,
+  type EvidenceApprovalStatement,
   type KeymasterHandle,
 } from '@hearthold/core';
 
@@ -55,15 +56,15 @@ export function makeSovereignHandler(sovereign: KeymasterHandle, gate: ApprovalG
           reason: `proof-of-human level ${humanProof.level} below required ${m.requiredLevel}`,
         };
       }
-      const approvalCredDid = await issueEvidenceApproval(sovereign, {
-        wardenDid: fromDid,
+      const statement: EvidenceApprovalStatement = {
+        approver: m.subjectDid,
         txn: m.txn,
         claim: m.claim,
         evidenceRoot: m.evidenceRoot,
         humanProof: { method: humanProof.method, level: humanProof.level, timestamp: humanProof.timestamp },
-        validUntil: new Date(Date.now() + 1000 * 60 * 10).toISOString(),
-      });
-      return { type: 'hearthold/approval-response', version: PROTOCOL_VERSION, approved: true, approvalCredDid };
+      };
+      const approval = await signEvidenceApproval(sovereign, statement);
+      return { type: 'hearthold/approval-response', version: PROTOCOL_VERSION, approved: true, approval };
     }
 
     return null;

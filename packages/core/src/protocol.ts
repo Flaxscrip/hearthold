@@ -5,9 +5,9 @@
  * The messages are transport-agnostic: the same shapes would ride any request/reply transport.
  */
 
-import type { Sensitivity, AuthzTier, DisclosureMode } from './security.js';
+import type { Sensitivity, DisclosureMode } from './security.js';
 
-export const PROTOCOL_VERSION = '0.3.0' as const;
+export const PROTOCOL_VERSION = '0.4.0' as const;
 
 /** Kinds of observation the Witness can submit. Extended over time. */
 export type WitnessKind = 'event' | 'location' | 'activity' | 'browsing' | 'document';
@@ -63,11 +63,32 @@ export interface EvidenceRequest {
   spec?: EvidenceClaimSpec;
   /** The DID the claim is about (the Sovereign). Defaults to the Warden's configured Sovereign. */
   subjectDid?: string;
-  /** A step-up proof satisfying a higher tier, when the Warden demanded one. */
-  stepUp?: StepUpProof;
+  /** How long the minted proof should stay valid (`validUntil`). Defaults to the Warden's setting. */
+  validForMinutes?: number;
 }
 
-/** Warden → Witness: either a granted credential, or a demand to step up authorization. */
+/**
+ * A readable summary of a minted evidence graph — the graph itself is encrypted to the Sovereign, so
+ * the Warden hands the requester this so it can *see* what was proven without decrypting.
+ */
+export interface EvidenceGraphSummary {
+  claim: string;
+  structured?: Record<string, unknown>;
+  evidence: {
+    kind: WitnessKind;
+    observedFrom: string;
+    observedTo: string;
+    count: number;
+    witnessedBy: string[];
+    merkleRoot: string;
+  }[];
+  /** Whether the Sovereign co-signed a proof-of-human approval (A2). */
+  approved: boolean;
+  /** When this ephemeral proof expires (`validUntil`). */
+  validUntil: string;
+}
+
+/** Warden → Witness: either the granted evidence graph, or a denial. */
 export type EvidenceResponse =
   | {
       type: 'hearthold/evidence-response';
@@ -77,48 +98,15 @@ export type EvidenceResponse =
       credentialDid: string;
       /** The schema a verifier challenges by to have this presented. */
       schemaDid: string;
+      /** A readable summary of what was proven (the credential itself is sealed to the Sovereign). */
+      graph?: EvidenceGraphSummary;
     }
   | {
       type: 'hearthold/evidence-response';
       version: typeof PROTOCOL_VERSION;
       status: 'denied';
       reason: string;
-    }
-  | {
-      type: 'hearthold/evidence-response';
-      version: typeof PROTOCOL_VERSION;
-      status: 'step-up-required';
-      /** The tier the requester must reach to clear the artefact's sensitivity. */
-      requiredTier: AuthzTier;
-      /** Methods the Warden will accept to step up. */
-      accepts: StepUpMethod[];
-      /** A fresh challenge DID, when the demanded method is challenge/response. */
-      challengeDid?: string;
-      /** What the Sovereign must approve — the requester relays this to the Signet. */
-      context?: StepUpContext;
     };
-
-/** The disclosure the Sovereign is asked to approve (bound to its claim + evidence commitment). */
-export interface StepUpContext {
-  /** Single-use transaction id for this disclosure. */
-  txn: string;
-  /** The claim being disclosed. */
-  claim: string;
-  /** The Merkle root of the supporting evidence — the Sovereign approves *this* set. */
-  evidenceRoot: string;
-  /** Proof-of-human assurance level the approval must carry. */
-  requiredLevel: number;
-}
-
-/** Ways a Witness can elevate authorization for sensitive content. */
-export type StepUpMethod = 'challenge' | 'pin' | 'passphrase';
-
-/** A proof supplied to satisfy a step-up demand. */
-export interface StepUpProof {
-  method: StepUpMethod;
-  /** Response DID (for `challenge`) or the secret (for `pin`/`passphrase`). */
-  value: string;
-}
 
 // ── Prove (verifier ↔ holder) ─────────────────────────────────────────────────
 
@@ -158,6 +146,18 @@ export interface ProofPresentationMessage {
 // agent) is never in the authorization path (§7.7 / control-vs-data-plane separation). The Warden
 // authors the description; the Sovereign approves it through the Signet.
 
+/** What the Sovereign signs when it co-signs a disclosure — bound to the claim + evidence commitment. */
+export interface EvidenceApprovalStatement {
+  approver: string;
+  txn: string;
+  claim: string;
+  evidenceRoot: string;
+  humanProof: { method: string; level: number; timestamp: string };
+}
+
+/** The approval statement plus the Sovereign's own detached signature (`keymaster.addProof`). */
+export type SignedEvidenceApproval = EvidenceApprovalStatement & { proof?: unknown };
+
 /** Warden → Sovereign: approve disclosing this evidence graph (Warden-authored description). */
 export interface ApprovalRequestMessage {
   type: 'hearthold/approval-request';
@@ -182,8 +182,8 @@ export type ApprovalResponseMessage =
       type: 'hearthold/approval-response';
       version: typeof PROTOCOL_VERSION;
       approved: true;
-      /** The HearthholdApproval VC the Sovereign issued to the Warden. */
-      approvalCredDid: string;
+      /** The approval statement signed by the Sovereign — embedded verbatim in the graph. */
+      approval: SignedEvidenceApproval;
     }
   | {
       type: 'hearthold/approval-response';

@@ -181,16 +181,33 @@ export interface WitnessStatus {
   serving: boolean;
 }
 
+/** A summarized provenance group inside a proof (the graph itself is sealed to the Sovereign). */
+export interface ProofEvidenceGroup {
+  kind: string;
+  observedFrom: string;
+  observedTo: string;
+  count: number;
+  witnessedBy: string[];
+  merkleRoot: string;
+}
+
 /** A "prove a claim" request the Witness sent to the Warden, and how it resolved. */
 export interface ProofRecord {
   id: string;
   claim: string;
   kind: string;
-  status: 'requesting' | 'granted' | 'denied' | 'step-up-required';
+  status: 'requesting' | 'granted' | 'denied';
   /** The minted evidence-graph credential, when granted. */
   credentialDid?: string;
-  /** The reason, when denied or step-up-required. */
+  /** The reason, when denied. */
   reason?: string;
+  /** Readable summary of what was proven (from the Warden — the credential is sealed). */
+  structured?: Record<string, unknown>;
+  evidence?: ProofEvidenceGroup[];
+  /** Whether the Sovereign co-signed a proof-of-human approval (A2). */
+  approved?: boolean;
+  /** When this ephemeral proof expires (Archon `validUntil`). */
+  validUntil?: string;
   at: string;
 }
 
@@ -216,6 +233,10 @@ export interface ProveRequest {
   kind: string;
   from?: string;
   to?: string;
+  /** Optional structured predicate carried into the graph (e.g. {type:'residence',country:'FR'}). */
+  structured?: Record<string, unknown>;
+  /** How long the minted proof should stay valid, in minutes (default 10). */
+  validForMinutes?: number;
 }
 export interface ProveResponse {
   proof: ProofRecord;
