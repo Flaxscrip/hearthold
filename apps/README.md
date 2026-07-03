@@ -67,6 +67,12 @@ cd apps/witness && npm run dev              # → http://localhost:5175
 3. In the **Witness** app, witness an observation → it seals to the Warden and submits. Watch it appear
    **live** in the Warden Console vault with its sensitivity chip, and the Witness receipt flip
    `submitted → stored`.
-4. Run the prove flow (a verifier requests a disclosure via the Witness projector). The **Signet
-   Approver** shows the pending request → approve with your PIN → the Witness *Projections* panel
-   records the carried proof. Deny, and the verifier is refused.
+4. In the **Witness** app, *Prove a claim* — enter a claim + kind (e.g. a `location` residence claim) →
+   *Prove*. The Warden assembles the matching artefacts into a signed evidence graph (A1). For a
+   sensitive claim it obtains the Sovereign's approval on its **own** channel — the **Signet Approver**
+   shows an *evidence-approval* card with the Warden-authored claim (never the Witness's words); approve
+   with your PIN → the Witness *Proofs* panel flips `requesting → granted` with the credential DID (A2).
+   *(The Warden daemon needs `HEARTHOLD_SOVEREIGN_DID` set for the direct approval channel.)*
+5. Run the projected prove flow (a verifier requests a disclosure via the Witness projector). The
+   **Signet Approver** shows the pending request → approve with your PIN → the Witness *Projections*
+   panel records the carried proof. Deny, and the verifier is refused.

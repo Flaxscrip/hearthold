@@ -25,6 +25,8 @@ import {
   type HearthholdMessage,
   type WitnessSubmission,
   type SubmissionReceipt,
+  type EvidenceRequest,
+  type EvidenceResponse,
 } from '@hearthold/core';
 import {
   SENSITIVITY_NAMES,
@@ -33,7 +35,9 @@ import {
   type WitnessSnapshot,
   type ReceiptRecord,
   type ProjectionRecord,
+  type ProofRecord,
   type SubmitRequest,
+  type ProveRequest,
 } from '@hearthold/control-types';
 
 const bareDid = (s: string | undefined): string => String(s ?? '').split('#')[0] ?? '';
@@ -51,7 +55,11 @@ export async function runWitnessControl(
 
   const receipts: ReceiptRecord[] = [];
   const projections: ProjectionRecord[] = [];
-  const pending = new Map<string, { kind: string; submittedAt: string }>();
+  const proofs: ProofRecord[] = [];
+  type PendingReq =
+    | { type: 'submit'; kind: string; at: string }
+    | { type: 'prove'; claim: string; kind: string; at: string };
+  const pending = new Map<string, PendingReq>();
   const sovereignDid = config.sovereignDid;
 
   const status = (): WitnessStatus => ({
@@ -66,6 +74,7 @@ export async function runWitnessControl(
     status: status(),
     receipts: [...receipts].reverse().slice(0, 50),
     projections: [...projections].reverse().slice(0, 50),
+    proofs: [...proofs].reverse().slice(0, 50),
   });
 
   const server = startControlServer({
@@ -88,13 +97,36 @@ export async function runWitnessControl(
           observedAt: submittedAt,
           ciphertext,
         };
-        pending.set(thid, { kind, submittedAt });
+        pending.set(thid, { type: 'submit', kind, at: submittedAt });
         await handle.keymaster.sendDidComm({ type: submission.type, thid, body: submission }, wardenDid, {
           name,
         });
         // Provisional receipt; the loop emits the final 'stored' record (same id) when the Warden replies.
         const receipt: ReceiptRecord = { id: thid, kind, status: 'submitted', at: submittedAt };
         return { receipt };
+      },
+      'POST /api/prove': async ({ body }) => {
+        const { claim, kind, from, to } = (body ?? {}) as ProveRequest;
+        if (!claim || !kind) throw new Error('claim and kind are required');
+        const wardenDid = config.wardenDid;
+        if (!wardenDid) throw new Error('HEARTHOLD_WARDEN_DID is not set on the Witness daemon');
+        const thid = randomUUID();
+        const at = new Date().toISOString();
+        const request: EvidenceRequest = {
+          type: 'hearthold/evidence-request',
+          version: PROTOCOL_VERSION,
+          claim,
+          disclosureMode: 'ATTESTATION',
+          spec: { kind: kind as never, from, to },
+          ...(sovereignDid ? { subjectDid: sovereignDid } : {}),
+        };
+        pending.set(thid, { type: 'prove', claim, kind, at });
+        await handle.keymaster.sendDidComm({ type: request.type, thid, body: request }, wardenDid, { name });
+        // Provisional; the loop emits the resolved record (same id) when the Warden replies. A sensitive
+        // claim will not resolve until the Sovereign approves it in the Signet — this is intentional.
+        const proof: ProofRecord = { id: thid, claim, kind, status: 'requesting', at };
+        proofs.push(proof);
+        return { proof };
       },
     },
     onListening: (p) =>
@@ -160,10 +192,32 @@ export async function runWitnessControl(
           continue;
         }
 
-        // Warden's reply to one of our submissions.
+        // Warden's reply to one of our requests (a submission receipt, or a prove result).
         if (thid && pending.has(thid)) {
           const p = pending.get(thid);
           pending.delete(thid);
+
+          if (p?.type === 'prove') {
+            const now = new Date().toISOString();
+            let rec: ProofRecord;
+            if (body.type === 'hearthold/evidence-response') {
+              const r = body as EvidenceResponse;
+              rec =
+                r.status === 'granted'
+                  ? { id: thid, claim: p.claim, kind: p.kind, status: 'granted', credentialDid: r.credentialDid, at: now }
+                  : r.status === 'step-up-required'
+                    ? { id: thid, claim: p.claim, kind: p.kind, status: 'step-up-required', reason: 'awaiting Sovereign approval', at: now }
+                    : { id: thid, claim: p.claim, kind: p.kind, status: 'denied', reason: r.reason, at: now };
+            } else {
+              rec = { id: thid, claim: p.claim, kind: p.kind, status: 'denied', reason: `unexpected reply ${body.type}`, at: now };
+            }
+            const idx = proofs.findIndex((x) => x.id === thid);
+            if (idx >= 0) proofs[idx] = rec;
+            else proofs.push(rec);
+            server.emit('proof', { proof: rec });
+            continue;
+          }
+
           const kind = p?.kind ?? 'unknown';
           let rec: ReceiptRecord;
           if (body.type === 'hearthold/submission-receipt') {

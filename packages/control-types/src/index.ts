@@ -181,10 +181,24 @@ export interface WitnessStatus {
   serving: boolean;
 }
 
+/** A "prove a claim" request the Witness sent to the Warden, and how it resolved. */
+export interface ProofRecord {
+  id: string;
+  claim: string;
+  kind: string;
+  status: 'requesting' | 'granted' | 'denied' | 'step-up-required';
+  /** The minted evidence-graph credential, when granted. */
+  credentialDid?: string;
+  /** The reason, when denied or step-up-required. */
+  reason?: string;
+  at: string;
+}
+
 export interface WitnessSnapshot {
   status: WitnessStatus;
   receipts: ReceiptRecord[];
   projections: ProjectionRecord[];
+  proofs: ProofRecord[];
 }
 
 /** Submit a captured observation to the Warden. */
@@ -194,4 +208,15 @@ export interface SubmitRequest {
 }
 export interface SubmitResponse {
   receipt: ReceiptRecord;
+}
+
+/** Ask the Warden to prove a claim from witnessed vault data (the A1/A2 evidence flow). */
+export interface ProveRequest {
+  claim: string;
+  kind: string;
+  from?: string;
+  to?: string;
+}
+export interface ProveResponse {
+  proof: ProofRecord;
 }

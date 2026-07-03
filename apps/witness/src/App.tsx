@@ -4,6 +4,7 @@ import type {
   WitnessSnapshot,
   ReceiptRecord,
   ProjectionRecord,
+  ProofRecord,
 } from '@hearthold/control-types';
 
 import { api, useEvents } from './api';
@@ -36,15 +37,24 @@ export function App() {
     });
   }, []);
 
+  const mergeProof = useCallback((p: ProofRecord) => {
+    setSnap((s) => {
+      if (!s) return s;
+      const rest = s.proofs.filter((x) => x.id !== p.id);
+      return { ...s, proofs: [p, ...rest] };
+    });
+  }, []);
+
   const onEvent = useCallback(
     (e: ControlEvent) => {
       if (e.type === 'receipt') mergeReceipt((e.data as { receipt: ReceiptRecord }).receipt);
+      else if (e.type === 'proof') mergeProof((e.data as { proof: ProofRecord }).proof);
       else if (e.type === 'projection')
         setSnap((s) =>
           s ? { ...s, projections: [(e.data as { projection: ProjectionRecord }).projection, ...s.projections] } : s,
         );
     },
-    [mergeReceipt],
+    [mergeReceipt, mergeProof],
   );
   useEvents(onEvent);
 
@@ -54,9 +64,13 @@ export function App() {
       <main className="grid">
         <div className="col">
           <SubmitPanel onReceipt={mergeReceipt} />
-          <ReceiptsPanel receipts={snap?.receipts ?? []} />
+          <ProvePanel onProof={mergeProof} sovereignSet={Boolean(snap?.status.sovereignDid)} />
         </div>
-        <ProjectionsPanel projections={snap?.projections ?? []} active={Boolean(snap?.status.sovereignDid)} />
+        <div className="col">
+          <ProofsPanel proofs={snap?.proofs ?? []} />
+          <ReceiptsPanel receipts={snap?.receipts ?? []} />
+          <ProjectionsPanel projections={snap?.projections ?? []} active={Boolean(snap?.status.sovereignDid)} />
+        </div>
       </main>
     </div>
   );
@@ -148,6 +162,97 @@ function SubmitPanel({ onReceipt }: { onReceipt: (r: ReceiptRecord) => void }) {
         </button>
       </div>
       {msg && <p className="note">{msg}</p>}
+    </Card>
+  );
+}
+
+function ProvePanel({ onProof, sovereignSet }: { onProof: (p: ProofRecord) => void; sovereignSet: boolean }) {
+  const [claim, setClaim] = useState('Resided in FR during 2026-H1');
+  const [kind, setKind] = useState<string>('location');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const request = async () => {
+    if (!claim.trim()) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const { proof } = await api.prove(claim.trim(), kind, from || undefined, to || undefined);
+      onProof(proof);
+      setMsg('✦ requested — the Warden is assembling the evidence graph');
+      window.setTimeout(() => setMsg(null), 3200);
+    } catch (e) {
+      setMsg(`✗ ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card title="Prove a claim">
+      <div className="form col2">
+        <input
+          className="claimin"
+          placeholder="Claim to prove, e.g. “Resided in FR during 2026-H1”"
+          value={claim}
+          onChange={(e) => setClaim(e.target.value)}
+        />
+        <div className="kinds">
+          {KINDS.map((k) => (
+            <button key={k} className={`kindpick${kind === k ? ' on' : ''}`} onClick={() => setKind(k)} type="button">
+              {k}
+            </button>
+          ))}
+        </div>
+        <div className="daterow">
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} title="from (optional)" />
+          <span className="dash">→</span>
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} title="to (optional)" />
+        </div>
+        <button onClick={request} disabled={busy || !claim.trim()}>
+          {busy ? 'requesting…' : `Prove from ${kind} data`}
+        </button>
+      </div>
+      <p className="note dim">
+        The Warden assembles the matching {kind} observations into a signed evidence graph.
+        {sovereignSet
+          ? ' A sensitive claim waits for your approval in the Signet.'
+          : ' Set HEARTHOLD_SOVEREIGN_DID on the Warden for sensitive claims.'}
+      </p>
+      {msg && <p className="note">{msg}</p>}
+    </Card>
+  );
+}
+
+function ProofsPanel({ proofs }: { proofs: ProofRecord[] }) {
+  const label: Record<ProofRecord['status'], string> = {
+    requesting: 'requesting…',
+    granted: '✓ granted',
+    denied: '✗ denied',
+    'step-up-required': 'awaiting approval',
+  };
+  return (
+    <Card title="Proofs" right={<span className="count">{proofs.length}</span>}>
+      {proofs.length === 0 ? (
+        <Empty>No claims proven yet. Ask the Warden to prove a claim above — a sensitive one lights up the Signet.</Empty>
+      ) : (
+        <ul className="rows">
+          {proofs.map((p) => (
+            <li key={p.id} className="row proof">
+              <span className={`chip proof-${p.status}`}>{label[p.status]}</span>
+              <span className="claimtext" title={p.claim}>{p.claim}</span>
+              {p.credentialDid ? (
+                <DidTag did={p.credentialDid} />
+              ) : (
+                p.reason && <span className="reason" title={p.reason}>{p.reason}</span>
+              )}
+              <span className="when">{new Date(p.at).toLocaleTimeString()}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </Card>
   );
 }

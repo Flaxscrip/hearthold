@@ -116,3 +116,21 @@ button:not(:disabled):hover { filter: brightness(1.07); }
 .out-presented { background: var(--mage); }
 .out-declined { background: var(--sens-medium); }
 .out-error { background: var(--off); color: #fff; }
+
+/* ── prove a claim ── */
+input {
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: 9px;
+  color: var(--ink); padding: 9px 11px; font: inherit; outline: none;
+}
+input:focus { border-color: var(--mage); }
+.claimin { width: 100%; }
+.daterow { display: flex; align-items: center; gap: 8px; }
+.daterow input { flex: 1; color-scheme: dark; }
+.dash { color: var(--ink-faint); }
+.row.proof { flex-wrap: wrap; }
+.claimtext { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 52%; }
+.reason { color: var(--ink-faint); font-size: 12px; }
+.proof-requesting { background: var(--bg); border: 1px solid var(--line); color: var(--mage-soft); }
+.proof-granted { background: var(--live); color: #06181b; }
+.proof-denied { background: var(--off); color: #fff; }
+.proof-step-up-required { background: var(--sens-medium); color: #06181b; }

@@ -4,6 +4,7 @@ import type {
   ControlEvent,
   WitnessSnapshot,
   SubmitResponse,
+  ProveResponse,
 } from '@hearthold/control-types';
 
 const BASE = (import.meta.env.VITE_CONTROL_URL as string | undefined) ?? 'http://127.0.0.1:4312';
@@ -32,6 +33,8 @@ export const api = {
   base: BASE,
   snapshot: () => get<WitnessSnapshot>('/api/snapshot'),
   submit: (kind: string, text: string) => post<SubmitResponse>('/api/submit', { kind, text }),
+  prove: (claim: string, kind: string, from?: string, to?: string) =>
+    post<ProveResponse>('/api/prove', { claim, kind, from, to }),
 };
 
 /** Subscribe to the daemon's SSE event stream; `onEvent` fires per pushed event. */
