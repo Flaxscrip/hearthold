@@ -67,6 +67,8 @@ export interface EvidenceRequest {
   validForMinutes?: number;
   /** Third-party `issued` credentials (by DID) the Sovereign holds, to compose into the proof. */
   with?: string[];
+  /** Selective disclosure: indices of supporting observations to reveal against the signed root (A3). */
+  reveal?: number[];
 }
 
 /**

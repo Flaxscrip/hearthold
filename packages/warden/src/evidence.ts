@@ -13,6 +13,7 @@ import { randomUUID } from 'node:crypto';
 
 import {
   assembleEvidence,
+  revealLeaves,
   mintEvidenceGraph,
   verifyEvidenceApproval,
   requiredLevelFor,
@@ -80,6 +81,12 @@ export class EvidenceService {
     const metas = (await this.store.list()).map(toMeta);
     const assembled = assembleEvidence(metas, req.spec);
     if (!assembled) return deny(`no supporting ${req.spec.kind} artefacts back that claim`);
+
+    // A3 selective disclosure: reveal the requested observations against the signed Merkle root.
+    if (req.reveal && req.reveal.length > 0) {
+      assembled.group.revealed = revealLeaves(assembled, req.reveal);
+      assembled.group.disclosure = 'selective';
+    }
 
     const sensitivity = assembled.sensitivity as Sensitivity;
     const subjectDid = req.subjectDid ?? this.config.sovereignDid ?? fromDid;

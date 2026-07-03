@@ -12,7 +12,7 @@
  * See docs/evidence-graph.md.
  */
 
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 
 import type { KeymasterHandle } from './keymaster.js';
 import { ensureSchema, openSchema } from './schema.js';
@@ -38,6 +38,21 @@ export interface ArtefactMeta {
   witnessedBy?: string;
 }
 
+/** A revealed per-observation leaf — its salted digest is a Merkle leaf under the group's signed root. */
+export interface MerkleStep {
+  hash: string;
+  position: 'left' | 'right';
+}
+export interface RevealedLeaf {
+  index: number;
+  kind: string;
+  observedAt: string;
+  /** Random per-leaf salt so unrevealed low-entropy leaves can't be brute-forced. */
+  salt: string;
+  /** Sibling hashes from leaf to root. */
+  path: MerkleStep[];
+}
+
 /** A summarized, hash-committed group of supporting artefacts (W3C `evidence` entry). */
 export interface EvidenceGroup {
   id: string;
@@ -48,7 +63,18 @@ export interface EvidenceGroup {
   count: number;
   witnessedBy: string[];
   commitment: { alg: 'sha256'; merkleRoot: string; artefactIds: string };
-  disclosure: 'summary';
+  disclosure: 'summary' | 'selective';
+  /** Selectively-revealed leaves, verifiable against `commitment.merkleRoot` (A3). */
+  revealed?: RevealedLeaf[];
+}
+
+/** Per-artefact leaf data the Warden retains to build the tree and reveal on request. */
+export interface LeafData {
+  index: number;
+  kind: string;
+  observedAt: string;
+  salt: string;
+  hash: string;
 }
 
 export interface AssembledEvidence {
@@ -56,22 +82,70 @@ export interface AssembledEvidence {
   /** Max sensitivity across the selected artefacts — governs the release decision. */
   sensitivity: number;
   artefactIds: string[];
+  /** Salted per-observation leaves (index-stable) for selective disclosure. */
+  leaves: LeafData[];
 }
 
-/** Binary Merkle root over hex leaves (sorted for determinism; last duplicated if odd). */
-export function merkleRoot(leaves: string[]): string {
-  if (leaves.length === 0) return '';
-  let level = [...leaves].sort();
-  while (level.length > 1) {
+/** Salted per-observation leaf digest — random salt hides low-entropy leaves that stay unrevealed. */
+const leafDigest = (salt: string, kind: string, observedAt: string): string =>
+  sha256hex(`${salt}|${JSON.stringify({ kind, observedAt })}`);
+
+/** Build a binary Merkle tree (order-preserving; last duplicated if odd). Returns the root + layers. */
+function buildMerkle(leaves: string[]): { root: string; layers: string[][] } {
+  if (leaves.length === 0) return { root: '', layers: [[]] };
+  const layers: string[][] = [leaves];
+  let cur = leaves;
+  while (cur.length > 1) {
     const next: string[] = [];
-    for (let i = 0; i < level.length; i += 2) {
-      const a = level[i] as string;
-      const b = level[i + 1] ?? a;
+    for (let i = 0; i < cur.length; i += 2) {
+      const a = cur[i] as string;
+      const b = cur[i + 1] ?? (cur[i] as string);
       next.push(sha256hex(a + b));
     }
-    level = next;
+    layers.push(next);
+    cur = next;
   }
-  return level[0] as string;
+  return { root: cur[0] as string, layers };
+}
+
+function merklePath(layers: string[][], index: number): MerkleStep[] {
+  const path: MerkleStep[] = [];
+  let idx = index;
+  for (let l = 0; l < layers.length - 1; l++) {
+    const layer = layers[l] as string[];
+    const right = idx % 2 === 1;
+    const sib = layer[right ? idx - 1 : idx + 1] ?? (layer[idx] as string);
+    path.push({ hash: sib, position: right ? 'left' : 'right' });
+    idx = Math.floor(idx / 2);
+  }
+  return path;
+}
+
+/** Verify a leaf digest reaches `root` along `path`. */
+export function verifyMerklePath(leaf: string, path: MerkleStep[], root: string): boolean {
+  if (root.length === 0) return false;
+  let h = leaf;
+  for (const s of path) h = s.position === 'left' ? sha256hex(s.hash + h) : sha256hex(h + s.hash);
+  return h === root;
+}
+
+/** Reveal chosen leaves (by index) from an assembled group — `{kind, observedAt, salt, path}` each. */
+export function revealLeaves(assembled: AssembledEvidence, indices: number[]): RevealedLeaf[] {
+  const { layers } = buildMerkle(assembled.leaves.map((l) => l.hash));
+  const seen = new Set<number>();
+  const out: RevealedLeaf[] = [];
+  for (const i of indices) {
+    if (i < 0 || i >= assembled.leaves.length || seen.has(i)) continue;
+    seen.add(i);
+    const l = assembled.leaves[i] as LeafData;
+    out.push({ index: i, kind: l.kind, observedAt: l.observedAt, salt: l.salt, path: merklePath(layers, i) });
+  }
+  return out;
+}
+
+/** Verify a revealed leaf against a signed Merkle root — recompute the salted digest, check the path. */
+export function verifyRevealedLeaf(r: RevealedLeaf, root: string): boolean {
+  return verifyMerklePath(leafDigest(r.salt, r.kind, r.observedAt), r.path, root);
 }
 
 /** Select artefacts matching a claim spec (kind + observed-time window). */
@@ -95,7 +169,11 @@ export function assembleEvidence(
   if (selected.length === 0) return null;
 
   const ids = selected.map((m) => m.id);
-  const root = merkleRoot(ids.map((id) => sha256hex(id)));
+  const leaves: LeafData[] = selected.map((m, i) => {
+    const salt = randomBytes(16).toString('hex');
+    return { index: i, kind: m.kind, observedAt: m.observedAt, salt, hash: leafDigest(salt, m.kind, m.observedAt) };
+  });
+  const { root } = buildMerkle(leaves.map((l) => l.hash));
   const witnesses = [...new Set(selected.map((m) => m.witnessedBy).filter((w): w is string => !!w))];
   const sensitivity = selected.reduce((mx, m) => Math.max(mx, m.sensitivity), Sensitivity.PUBLIC as number);
   const first = selected[0] as ArtefactMeta;
@@ -112,7 +190,7 @@ export function assembleEvidence(
     commitment: { alg: 'sha256', merkleRoot: root, artefactIds: `merkle:sha256:${root}` },
     disclosure: 'summary',
   };
-  return { group, sensitivity, artefactIds: ids };
+  return { group, sensitivity, artefactIds: ids, leaves };
 }
 
 /**

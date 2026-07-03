@@ -76,8 +76,38 @@ itself**: graphical front-ends that make the system demonstrable.
    issuers = audience binding), the Sovereign presents (which *is* the disclosure approval), and the
    verifier reads the disclosed claims + confirms the original issuer's signature. **Built & tested**
    (`core/prove.ts`, `e2e:prove`). Foundation done: Sovereign DID + `accept-credential` → `issued`
-   leaf. **Next:** derived/`witnessed` claims via a Warden-minted evidence graph + Sovereign
-   co-sign (see [evidence-graph.md](evidence-graph.md)).
+   leaf. Derived/`witnessed` claims + the full evidence graph are the **E** milestone below (built).
+
+### E — Evidence graph: the prove side  ✅ (A3 selective disclosure = last piece)
+The Warden turns witnessed vault data into a signed, presentable, disclosure-controlled proof
+(design in [evidence-graph.md](evidence-graph.md)).
+- **A1 — witnessed graph** ✅ (`core/evidence.ts`): assemble matching artefacts → a Merkle-committed
+  provenance group → a Warden-issued VC (trust class `witnessed`); presented + verified via the prove
+  flow, verifier trusting the Warden. `e2e:evidence`.
+- **A2 — Sovereign co-sign** ✅: sensitive claims route through a **direct Warden↔Sovereign channel**
+  (the Witness is never in the authorization path, §7.7); the Sovereign **signs** the approval
+  statement (`keymaster.addProof`) — a detached signature embedded in the graph and **independently
+  verifiable by any third party** (`verifyProof`), tamper-evident. `e2e:evidence-stepup` / `-direct`.
+- **Composite — `issued` leaves** ✅ (closes F6): third-party credentials composed alongside the
+  witnessed provenance; a verifier checks **each issuer** in one presentation (`requestCompositeProof`),
+  so a skeptical relying party trusts an external party's signature, not just the Warden.
+  `e2e:evidence-composite`.
+- **Ephemerality + structured** ✅: configurable `validUntil`, single-use `txn`, structured predicate.
+- **A3 — selective disclosure** ◀ last piece: reveal chosen per-observation leaves against the signed
+  Merkle root (SD-JWT-VC-style), so a verifier can spot-check one supporting fact without seeing the rest.
+
+The whole prove side is clickable in the Witness app (*Prove a claim* → Signet approval → inspector).
+
+### R — Recall / Index: the private archive (RAG)  ◀ planned
+Hearthold's *other* mode: not proving to a third party, but **answering the Sovereign's own questions
+from the vault** — a sovereign, local-AI personal knowledge base ("when is America's anniversary?" →
+recalled from a witnessed document). Needs the deferred **Index** (embed artefacts via
+`nomic-embed-text` → a vector store) + **structured extraction** (extend the classifier seam to pull
+facts / entities / dates, not just sensitivity) + a **`recall` flow** (query → retrieve top-k → the
+local model answers). Local-only AI = **private RAG** — query + answer never leave the device.
+Composes with the prove side: recall an answer for yourself, then optionally wrap it in an evidence
+graph to prove it (with the honest `machine-derived` flag / `sovereign-confirmed` override). This is
+what turns Hearthold from a proof system into a general **archive + retrieval + disclosure** data layer.
 
 ### T — Trust graph & registry  ✅
 The **DTG credential set** (VRC / VMC / VIC / VPC / VEC / VWC + RCard) issued and verified natively on
