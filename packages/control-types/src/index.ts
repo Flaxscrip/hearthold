@@ -208,6 +208,10 @@ export interface ProofRecord {
   approved?: boolean;
   /** When this ephemeral proof expires (Archon `validUntil`). */
   validUntil?: string;
+  /** Third-party `issued` leaves composed in (external issuer + type) — the strong evidence. */
+  issued?: { issuer: string; credentialType: string; schema?: string }[];
+  /** Overall trust class: `witnessed`, or `composite` when issued leaves are present. */
+  trustClass?: 'witnessed' | 'composite';
   at: string;
 }
 

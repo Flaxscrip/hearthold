@@ -65,6 +65,8 @@ export interface EvidenceRequest {
   subjectDid?: string;
   /** How long the minted proof should stay valid (`validUntil`). Defaults to the Warden's setting. */
   validForMinutes?: number;
+  /** Third-party `issued` credentials (by DID) the Sovereign holds, to compose into the proof. */
+  with?: string[];
 }
 
 /**
@@ -86,6 +88,10 @@ export interface EvidenceGraphSummary {
   approved: boolean;
   /** When this ephemeral proof expires (`validUntil`). */
   validUntil: string;
+  /** Third-party `issued` leaves composed in (external issuer + type) — the strong evidence. */
+  issued?: { issuer: string; credentialType: string; schema?: string }[];
+  /** Overall trust class: `witnessed`, or `composite` when issued leaves are present. */
+  trustClass: 'witnessed' | 'composite';
 }
 
 /** Warden → Witness: either the granted evidence graph, or a denial. */

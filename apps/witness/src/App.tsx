@@ -323,8 +323,26 @@ function ProofDetail({ proof }: { proof: ProofRecord }) {
             <span className="chip standing">standing — no co-sign needed</span>
           )}
         </dd>
-        <dt>issuer</dt>
-        <dd>the Warden · trust class <em>witnessed</em></dd>
+        <dt>trust</dt>
+        <dd>
+          {proof.trustClass === 'composite' ? (
+            <span className="chip proof-granted">composite — witnessed + issued</span>
+          ) : (
+            <>the Warden · <em>witnessed</em></>
+          )}
+        </dd>
+        {(proof.issued ?? []).length > 0 && (
+          <>
+            <dt>issued by</dt>
+            <dd>
+              {(proof.issued ?? []).map((l, i) => (
+                <span key={i} className="evline">
+                  <strong>{l.credentialType}</strong> — <DidTag did={l.issuer} /> (a third party)
+                </span>
+              ))}
+            </dd>
+          </>
+        )}
         {proof.validUntil && (
           <>
             <dt>expires</dt>

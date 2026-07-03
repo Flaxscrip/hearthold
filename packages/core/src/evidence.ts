@@ -115,12 +115,30 @@ export function assembleEvidence(
   return { group, sensitivity, artefactIds: ids };
 }
 
+/**
+ * A reference to a third-party `issued` credential, composed into the graph as a leaf. The verifier
+ * trusts the **external issuer's** signature — the strongest leaf class (see docs/evidence-graph.md).
+ * It is a *reference*; the underlying VC is presented alongside so the verifier can check it directly.
+ */
+export interface IssuedLeafRef {
+  id: string;
+  type: ['HearthholdIssuedLeaf'];
+  trustClass: 'issued';
+  credentialDid: string;
+  issuer: string;
+  schema?: string;
+  credentialType: string;
+  descriptionSource: 'issuer-asserted';
+}
+
 export interface MintEvidenceArgs {
   /** The Sovereign — the claim is about them. */
   subjectDid: string;
   claim: string;
   structured?: Record<string, unknown>;
   evidence: EvidenceGroup[];
+  /** Third-party `issued` leaves composed alongside the witnessed evidence. */
+  issuedLeaves?: IssuedLeafRef[];
   /** Single-use transaction id (R1). */
   txn: string;
   /** When the ephemeral proof expires. */
@@ -143,6 +161,9 @@ export async function mintEvidenceGraph(
     HEARTHOLD_ATTESTATION_TYPE,
     openSchema(HEARTHOLD_ATTESTATION_TYPE),
   );
+  const issued = args.issuedLeaves ?? [];
+  const allEvidence = [...args.evidence, ...issued];
+  const trustClass = issued.length > 0 ? 'composite' : 'witnessed';
   const bound = await warden.keymaster.bindCredential(args.subjectDid, {
     schema: schemaDid,
     validUntil: args.validUntil,
@@ -150,8 +171,8 @@ export async function mintEvidenceGraph(
       type: HEARTHOLD_ATTESTATION_TYPE,
       claim: args.claim,
       structured: args.structured ?? {},
-      evidence: args.evidence,
-      trustClass: 'witnessed',
+      evidence: allEvidence,
+      trustClass,
       descriptionSource: 'machine-derived',
       txn: args.txn,
       ...(args.approval ? { approval: args.approval } : {}),
@@ -166,7 +187,7 @@ export async function mintEvidenceGraph(
   bound['@context'] = ctx;
 
   const extra = bound as unknown as Record<string, unknown>;
-  extra.evidence = args.evidence;
+  extra.evidence = allEvidence;
   extra.termsOfUse = [{ type: 'HearthholdSingleUse', txn: args.txn }];
 
   const credentialDid = await warden.keymaster.issueCredential(bound, {

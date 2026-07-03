@@ -22,6 +22,8 @@ export interface IssuedLeaf {
   subject: string;
   /** Best-effort credential type (e.g. 'GuildMembership'). */
   credentialType: string;
+  /** The credential's schema DID — a verifier requires the leaf by this in a composite challenge. */
+  schema?: string;
   /** The credential's claims (subject fields, minus the id). */
   claims: Record<string, unknown>;
   /** Issued credentials are asserted by their external issuer. */
@@ -83,12 +85,15 @@ export async function recordIssuedCredential(
   const specificType = vc.type.find((t) => t !== 'VerifiableCredential');
   const credentialType = String(subjectFields.type ?? specificType ?? 'VerifiableCredential');
 
+  const schema = (vc as { credentialSchema?: { id?: string } }).credentialSchema?.id;
+
   const leaf: IssuedLeaf = {
     trustClass: 'issued',
     credentialDid,
     issuer: vc.issuer,
     subject,
     credentialType,
+    schema,
     claims: subjectFields,
     descriptionSource: 'issuer-asserted',
     status: 'valid',

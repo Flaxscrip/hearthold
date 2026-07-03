@@ -17,9 +17,11 @@ import {
   verifyEvidenceApproval,
   requiredLevelFor,
   decideRelease,
+  IssuedStore,
   AuthzTier,
   PROTOCOL_VERSION,
   type ArtefactMeta,
+  type IssuedLeafRef,
   type EvidenceRequest,
   type EvidenceResponse,
   type ApprovalRequestMessage,
@@ -85,12 +87,35 @@ export class EvidenceService {
     // Ephemeral proof: expires after the requested window (Archon's validUntil), default 10 min.
     const ttlMin = req.validForMinutes && req.validForMinutes > 0 ? req.validForMinutes : 10;
     const validUntil = new Date(Date.now() + ttlMin * 60_000).toISOString();
+
+    // Compose third-party `issued` leaves the requester named — the strongest evidence class.
+    const issuedLeaves: IssuedLeafRef[] = [];
+    if (req.with && req.with.length > 0) {
+      const store = new IssuedStore(this.warden.dataFolder);
+      for (const did of req.with) {
+        const leaf = await store.get(did);
+        if (!leaf) return deny(`issued credential not in the vault: ${did.slice(0, 24)}…`);
+        if (leaf.status === 'revoked') return deny(`issued credential is revoked: ${did.slice(0, 24)}…`);
+        issuedLeaves.push({
+          id: `urn:hearthold:issued:${did.slice(-8)}`,
+          type: ['HearthholdIssuedLeaf'],
+          trustClass: 'issued',
+          credentialDid: did,
+          issuer: leaf.issuer,
+          schema: leaf.schema,
+          credentialType: leaf.credentialType,
+          descriptionSource: 'issuer-asserted',
+        });
+      }
+    }
+
     const mint = (approval?: Parameters<typeof mintEvidenceGraph>[1]['approval']) =>
       mintEvidenceGraph(this.warden, {
         subjectDid,
         claim: req.claim,
         structured: req.spec?.structured,
         evidence: [assembled.group],
+        issuedLeaves,
         txn: approval?.txn ?? randomUUID(),
         validUntil,
         approval,
@@ -121,6 +146,8 @@ export class EvidenceService {
           ],
           approved: Boolean(approval),
           validUntil,
+          trustClass: issuedLeaves.length > 0 ? 'composite' : 'witnessed',
+          issued: issuedLeaves.map((l) => ({ issuer: l.issuer, credentialType: l.credentialType, schema: l.schema })),
         },
       };
     };

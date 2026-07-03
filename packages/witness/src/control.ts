@@ -215,6 +215,8 @@ export async function runWitnessControl(
                       evidence: r.graph?.evidence,
                       approved: r.graph?.approved,
                       validUntil: r.graph?.validUntil,
+                      issued: r.graph?.issued,
+                      trustClass: r.graph?.trustClass,
                       at: now,
                     }
                   : { id: thid, claim: p.claim, kind: p.kind, status: 'denied', reason: r.reason, at: now };

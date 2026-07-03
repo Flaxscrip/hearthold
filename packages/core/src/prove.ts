@@ -32,7 +32,8 @@ export interface ProofRequest {
 export interface DisclosedCredential {
   credentialDid: string;
   issuer: string;
-  trustClass: 'issued';
+  /** `issued` (external issuer), `witnessed` (Warden-derived), or `composite` (both). */
+  trustClass: 'issued' | 'witnessed' | 'composite';
   claims: Record<string, unknown>;
 }
 
@@ -53,11 +54,25 @@ export interface ProofResult {
  * the key entirely rather than pass an empty array.
  */
 export async function requestProof(verifier: KeymasterHandle, req: ProofRequest): Promise<string> {
-  const credential =
-    req.trustedIssuers && req.trustedIssuers.length > 0
-      ? { schema: req.schema, issuers: req.trustedIssuers }
-      : { schema: req.schema };
-  return verifier.keymaster.createChallenge({ credentials: [credential] });
+  return requestCompositeProof(verifier, [req]);
+}
+
+/**
+ * Verifier: require SEVERAL credentials at once — **composite evidence**. Each requirement is a
+ * `{schema, trustedIssuers}`; the holder presents all matching credentials, and `verifyProof` checks
+ * every disclosed leaf against its (possibly different) trusted issuer. This is how a witnessed
+ * evidence graph and a third-party `issued` credential are verified together in one presentation.
+ */
+export async function requestCompositeProof(
+  verifier: KeymasterHandle,
+  reqs: ProofRequest[],
+): Promise<string> {
+  const credentials = reqs.map((r) =>
+    r.trustedIssuers && r.trustedIssuers.length > 0
+      ? { schema: r.schema, issuers: r.trustedIssuers }
+      : { schema: r.schema },
+  );
+  return verifier.keymaster.createChallenge({ credentials });
 }
 
 /** Holder (Sovereign): present the held credential in response to the verifier's challenge. */
@@ -95,10 +110,11 @@ export async function verifyProof(
   const disclosed: DisclosedCredential[] = vps.map((vp, i) => {
     const claims = { ...(vp.credentialSubject ?? {}) };
     delete (claims as { id?: unknown }).id;
+    const tc = (claims as { trustClass?: string }).trustClass;
     return {
       credentialDid: creds[i]?.vc ?? '',
       issuer: String(vp.issuer ?? ''),
-      trustClass: 'issued',
+      trustClass: tc === 'witnessed' || tc === 'composite' ? tc : 'issued',
       claims,
     };
   });
