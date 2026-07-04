@@ -17,7 +17,15 @@ import { VaultStore } from './store.js';
 import { WardenService } from './service.js';
 import { DelegationStore } from './delegations.js';
 import { EvidenceService } from './evidence.js';
+import { RecallService, OllamaEmbedder } from './recall.js';
 import { makeWardenHandler } from './handler.js';
+
+/** The recall-index embedder from config, or undefined when indexing is off. */
+function makeEmbedder(config: ReturnType<typeof loadConfig>): OllamaEmbedder | undefined {
+  return config.indexMode === 'ollama'
+    ? new OllamaEmbedder(config.ollamaUrl, config.embeddingModel)
+    : undefined;
+}
 import { runWardenControl } from './control.js';
 
 const HELP = `Hearthold Warden — home Keeper
@@ -31,6 +39,7 @@ Usage:
   warden control [port]    Serve DIDComm + a localhost control API for the Warden Console (default 4310)
   warden classify <kind> <text>   Classify text with the local model (test the classifier)
   warden vault             List stored artefacts (metadata only; payloads stay encrypted)
+  warden recall <query>    Ask your own vault a question (local RAG; nothing leaves the device)
   warden help              Show this message
 
 Env:
@@ -151,7 +160,7 @@ async function main(): Promise<void> {
       const transport = new DidCommTransport(handle, IDENTITY_NAME.warden, config.nodeUrl);
       await transport.ready();
       const handler = makeWardenHandler(
-        new WardenService(handle, createClassifier(config)),
+        new WardenService(handle, createClassifier(config), makeEmbedder(config)),
         new DelegationStore(handle),
         new EvidenceService(handle, config),
       );
@@ -186,6 +195,21 @@ async function main(): Promise<void> {
         );
       }
       process.stdout.write(`${items.length} artefact(s).\n`);
+      break;
+    }
+    case 'recall': {
+      const query = process.argv.slice(3).join(' ');
+      if (!query) throw new Error('usage: warden recall <query>');
+      await ensureIdentity(handle, config);
+      const result = await RecallService.forWarden(handle, config).recall(query);
+      process.stdout.write(`\n🔎 ${result.answer}\n`);
+      if (result.citations.length > 0) {
+        process.stdout.write(`\n  from ${result.citations.length} note(s):\n`);
+        for (const c of result.citations) {
+          process.stdout.write(`   · [${c.kind}] ${c.observedAt} (${c.score.toFixed(2)}) ${c.artefactId.slice(0, 20)}…\n`);
+        }
+      }
+      process.stdout.write(`\n  (machine-derived from your vault — local only; to prove a fact, use the evidence flow)\n`);
       break;
     }
     default:

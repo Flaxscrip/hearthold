@@ -5,10 +5,12 @@ import {
   type KeymasterHandle,
   type WitnessSubmission,
   type SubmissionReceipt,
+  type Embedder,
 } from '@hearthold/core';
 
 import { createClassifier, type Classifier } from './classifier.js';
 import { VaultStore, type Artefact } from './store.js';
+import { IndexStore } from './index-store.js';
 
 /**
  * The Warden's submission handler: unseal a witness payload locally, classify its sensitivity,
@@ -17,13 +19,21 @@ import { VaultStore, type Artefact } from './store.js';
 export class WardenService {
   private readonly store: VaultStore;
   private readonly classifier: Classifier;
+  private readonly index?: IndexStore;
+  private readonly embedder?: Embedder;
 
   constructor(
     private readonly warden: KeymasterHandle,
     classifier: Classifier = createClassifier(),
+    /** When supplied, each submission is embedded + added to the recall index (metadata only). */
+    embedder?: Embedder,
   ) {
     this.store = new VaultStore(warden.dataFolder);
     this.classifier = classifier;
+    if (embedder) {
+      this.embedder = embedder;
+      this.index = new IndexStore(warden.dataFolder);
+    }
   }
 
   /** Process one witness submission. `witnessDid` is the authenticated session subject. */
@@ -50,6 +60,23 @@ export class WardenService {
       metadata: { ...classification.metadata, witness: witnessDid },
     };
     await this.store.put(artefact);
+
+    // Index for recall (embeddings + metadata only; plaintext is not retained). Fail-open — an
+    // embedding failure must never break the submission/store path.
+    if (this.embedder && this.index) {
+      try {
+        const embedding = await this.embedder.embed(plaintext);
+        await this.index.put({
+          artefactId: id,
+          kind: submission.kind,
+          observedAt: submission.observedAt,
+          sensitivity: artefact.sensitivity,
+          embedding,
+        });
+      } catch {
+        /* recall index is best-effort; submission still succeeds */
+      }
+    }
 
     return {
       type: 'hearthold/submission-receipt',

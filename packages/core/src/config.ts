@@ -25,6 +25,10 @@ export interface HearthholdConfig {
   classifierModel: string;
   /** Warden: 'ollama' (local model) or 'quarantine' (fail-safe stub, everything SEALED). */
   classifierMode: 'ollama' | 'quarantine';
+  /** Warden: local embedding model for the recall index (Ollama). Stays on-device. */
+  embeddingModel: string;
+  /** Warden: 'ollama' (embed + index on submit) or 'off' (no recall index). */
+  indexMode: 'ollama' | 'off';
   /** Signet: PIN that gates the Sovereign's approval of a disclosure (the first proof-of-human). */
   signetPin?: string;
 }
@@ -34,6 +38,7 @@ const DEFAULT_REGISTRY = 'hyperswarm';
 const DEFAULT_DATA_ROOT = join(homedir(), '.hearthold');
 const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
 const DEFAULT_CLASSIFIER_MODEL = 'qwen3:8b';
+const DEFAULT_EMBEDDING_MODEL = 'nomic-embed-text';
 
 /** Build config from environment with sensible local-node defaults. */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): HearthholdConfig {
@@ -46,6 +51,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): HearthholdConf
     ollamaUrl: env.HEARTHOLD_OLLAMA_URL ?? DEFAULT_OLLAMA_URL,
     classifierModel: env.HEARTHOLD_CLASSIFIER_MODEL ?? DEFAULT_CLASSIFIER_MODEL,
     classifierMode: env.HEARTHOLD_CLASSIFIER === 'quarantine' ? 'quarantine' : 'ollama',
+    embeddingModel: env.HEARTHOLD_EMBEDDING_MODEL ?? DEFAULT_EMBEDDING_MODEL,
+    indexMode: env.HEARTHOLD_INDEX === 'off' ? 'off' : 'ollama',
     signetPin: env.HEARTHOLD_SIGNET_PIN,
   };
 }

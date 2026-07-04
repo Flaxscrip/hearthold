@@ -14,6 +14,8 @@
     "./delegations": { "types": "./dist/delegations.d.ts", "import": "./dist/delegations.js" },
     "./store": { "types": "./dist/store.d.ts", "import": "./dist/store.js" },
     "./evidence": { "types": "./dist/evidence.d.ts", "import": "./dist/evidence.js" },
+    "./recall": { "types": "./dist/recall.d.ts", "import": "./dist/recall.js" },
+    "./index-store": { "types": "./dist/index-store.d.ts", "import": "./dist/index-store.js" },
     "./classifier": { "types": "./dist/classifier.d.ts", "import": "./dist/classifier.js" }
   },
   "scripts": {

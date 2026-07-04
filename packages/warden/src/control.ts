@@ -35,6 +35,7 @@ import { WardenService } from './service.js';
 import { VaultStore, type Artefact } from './store.js';
 import { DelegationStore } from './delegations.js';
 import { EvidenceService, type SovereignApprover } from './evidence.js';
+import { OllamaEmbedder } from './recall.js';
 import { makeWardenHandler } from './handler.js';
 
 const sensitivityName = (s: number): SensitivityName => SENSITIVITY_NAMES[s] ?? 'SEALED';
@@ -55,7 +56,8 @@ export async function runWardenControl(
   const id = await ensureIdentity(handle, config);
   const store = new VaultStore(handle.dataFolder);
   const delegations = new DelegationStore(handle);
-  const service = new WardenService(handle, createClassifier(config));
+  const embedder = config.indexMode === 'ollama' ? new OllamaEmbedder(config.ollamaUrl, config.embeddingModel) : undefined;
+  const service = new WardenService(handle, createClassifier(config), embedder);
 
   const transport = new DidCommTransport(handle, IDENTITY_NAME.warden, config.nodeUrl);
   await transport.ready();

@@ -98,16 +98,23 @@ The Warden turns witnessed vault data into a signed, presentable, disclosure-con
 
 The whole prove side is clickable in the Witness app (*Prove a claim* → Signet approval → inspector).
 
-### R — Recall / Index: the private archive (RAG)  ◀ planned
+### R — Recall / Index: the private archive (RAG)  ◐ R1 built
 Hearthold's *other* mode: not proving to a third party, but **answering the Sovereign's own questions
 from the vault** — a sovereign, local-AI personal knowledge base ("when is America's anniversary?" →
-recalled from a witnessed document). Needs the deferred **Index** (embed artefacts via
-`nomic-embed-text` → a vector store) + **structured extraction** (extend the classifier seam to pull
-facts / entities / dates, not just sensitivity) + a **`recall` flow** (query → retrieve top-k → the
-local model answers). Local-only AI = **private RAG** — query + answer never leave the device.
-Composes with the prove side: recall an answer for yourself, then optionally wrap it in an evidence
-graph to prove it (with the honest `machine-derived` flag / `sovereign-confirmed` override). This is
-what turns Hearthold from a proof system into a general **archive + retrieval + disclosure** data layer.
+recalled from a witnessed document). Local-only AI = **private RAG**: query + answer never leave the device.
+- **R1 — Index + recall flow** ✅ (`core/recall.ts`, `warden/index-store.ts`, `warden/recall.ts`):
+  the Warden embeds each submission at store time (Ollama `nomic-embed-text`) into a local index that
+  holds **embeddings + metadata only, no plaintext** — content is re-unsealed transiently at recall
+  time, so the vault stays sealed at rest. `recall(query)` = embed → cosine-rank (with an optional
+  sensitivity ceiling) → re-unseal top-k → a local model answers with citations. CLI `warden recall`;
+  answers are flagged `machine-derived`. Fail-open (no embed model → submission still stores).
+  `e2e:recall` (hermetic). **To run live:** `ollama pull nomic-embed-text`.
+- **Next:** structured extraction (extend the classifier seam to pull facts / entities / dates);
+  a recall control endpoint + a GUI surface (Witness/Warden "ask your vault"); better vector store
+  (flat JSON → sqlite-vec). Composes with prove: recall an answer, then wrap it in an evidence graph
+  (honest `machine-derived` flag / a future `sovereign-confirmed` override).
+
+This is what turns Hearthold from a proof system into a general **archive + retrieval + disclosure** layer.
 
 ### T — Trust graph & registry  ✅
 The **DTG credential set** (VRC / VMC / VIC / VPC / VEC / VWC + RCard) issued and verified natively on
