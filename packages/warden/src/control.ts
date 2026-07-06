@@ -28,6 +28,7 @@ import {
   type WardenStatus,
   type DelegateRequest,
   type ClassifyRequest,
+  type RecallRequest,
 } from '@hearthold/control-types';
 
 import { createClassifier } from './classifier.js';
@@ -35,7 +36,7 @@ import { WardenService } from './service.js';
 import { VaultStore, type Artefact } from './store.js';
 import { DelegationStore } from './delegations.js';
 import { EvidenceService, type SovereignApprover } from './evidence.js';
-import { OllamaEmbedder } from './recall.js';
+import { OllamaEmbedder, RecallService } from './recall.js';
 import { makeWardenHandler } from './handler.js';
 
 const sensitivityName = (s: number): SensitivityName => SENSITIVITY_NAMES[s] ?? 'SEALED';
@@ -112,6 +113,13 @@ export async function runWardenControl(
           reason: (r.metadata.reason as string | undefined) ?? (r.metadata.error as string) ?? '',
           needsHumanConfirmation: r.needsHumanConfirmation,
         };
+      },
+      'POST /api/recall': async ({ body }) => {
+        const { query, k } = (body ?? {}) as RecallRequest;
+        if (!query) throw new Error('query is required');
+        // Private RAG over the vault — the query, retrieval, and answer all stay on this device.
+        const result = await RecallService.forWarden(handle, config).recall(query, k ? { k } : {});
+        return { result };
       },
     },
     onListening: (p) =>

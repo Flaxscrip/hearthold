@@ -81,6 +81,28 @@ export interface DelegateResponse {
   credentialDid: string;
 }
 
+/** Ask the vault a question — private local RAG (nothing leaves the device). */
+export interface RecallRequest {
+  query: string;
+  k?: number;
+}
+export interface RecallCitationView {
+  artefactId: string;
+  kind: string;
+  observedAt: string;
+  score: number;
+}
+export interface RecallResultView {
+  query: string;
+  answer: string;
+  citations: RecallCitationView[];
+  /** Recall answers are model-generated over the vault — fallible, and not a verifiable claim alone. */
+  descriptionSource: 'machine-derived';
+}
+export interface RecallResponse {
+  result: RecallResultView;
+}
+
 /** Test the classifier on some text (does not store anything). */
 export interface ClassifyRequest {
   kind: string;

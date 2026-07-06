@@ -48,7 +48,10 @@ export function App() {
     <div className="app warden">
       <TopBar snap={snap} error={error} flash={flash} />
       <main className="grid">
-        <VaultPanel vault={snap?.vault ?? []} />
+        <div className="col">
+          <RecallPanel />
+          <VaultPanel vault={snap?.vault ?? []} />
+        </div>
         <div className="col">
           <DelegatePanel onDone={refresh} />
           <DelegationsPanel snap={snap} />
@@ -211,6 +214,69 @@ function ClassifyPanel() {
         </button>
       </div>
       {out && <p className="note">{out}</p>}
+    </Card>
+  );
+}
+
+function RecallPanel() {
+  const [query, setQuery] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [answer, setAnswer] = useState<string | null>(null);
+  const [cites, setCites] = useState<{ artefactId: string; kind: string; observedAt: string; score: number }[]>([]);
+  const [err, setErr] = useState<string | null>(null);
+
+  const ask = async () => {
+    if (!query.trim()) return;
+    setBusy(true);
+    setErr(null);
+    setAnswer(null);
+    setCites([]);
+    try {
+      const { result } = await api.recall(query.trim());
+      setAnswer(result.answer);
+      setCites(result.citations);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card title="Ask your vault">
+      <div className="form col2">
+        <textarea
+          placeholder="Ask a question — the Warden answers from your vault with a local model. Nothing leaves the device."
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void ask();
+          }}
+          rows={2}
+        />
+        <button onClick={ask} disabled={busy || !query.trim()}>
+          {busy ? 'recalling…' : 'Recall'}
+        </button>
+      </div>
+      {answer && (
+        <div className="recall-answer">
+          <p className="answer">🔎 {answer}</p>
+          {cites.length > 0 && (
+            <ul className="cites">
+              {cites.map((c) => (
+                <li key={c.artefactId} className="cite">
+                  <span className="chip sens-low">{c.kind}</span>
+                  <span className="when">{new Date(c.observedAt).toLocaleDateString()}</span>
+                  <DidTag did={c.artefactId} />
+                  <span className="score">{c.score.toFixed(2)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="note dim">machine-derived from your vault · local only · to prove a fact, use the Witness prove flow</p>
+        </div>
+      )}
+      {err && <p className="note">✗ {err}</p>}
     </Card>
   );
 }

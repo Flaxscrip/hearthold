@@ -5,6 +5,7 @@ import type {
   WardenSnapshot,
   DelegateResponse,
   ClassifyResponse,
+  RecallResponse,
 } from '@hearthold/control-types';
 
 const BASE = (import.meta.env.VITE_CONTROL_URL as string | undefined) ?? 'http://127.0.0.1:4310';
@@ -34,6 +35,7 @@ export const api = {
   snapshot: () => get<WardenSnapshot>('/api/snapshot'),
   delegate: (witnessDid: string) => post<DelegateResponse>('/api/delegate', { witnessDid }),
   classify: (kind: string, text: string) => post<ClassifyResponse>('/api/classify', { kind, text }),
+  recall: (query: string) => post<RecallResponse>('/api/recall', { query }),
 };
 
 /** Subscribe to the daemon's SSE event stream; `onEvent` fires per pushed event. */

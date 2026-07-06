@@ -116,3 +116,12 @@ button {
 button:disabled { opacity: 0.45; cursor: default; }
 button:not(:disabled):hover { filter: brightness(1.07); }
 .note { margin: 10px 2px 0; font-size: 13px; color: var(--ink-dim); }
+.note.dim { color: var(--ink-faint); }
+
+/* ── recall (ask your vault) ── */
+.recall-answer { margin-top: 12px; padding: 12px 14px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px; }
+.recall-answer .answer { margin: 0 0 8px; color: var(--ink); line-height: 1.5; }
+.cites { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.cite { display: flex; align-items: center; gap: 9px; font-size: 13px; }
+.cite .when { color: var(--ink-faint); font-size: 12px; }
+.cite .score { margin-left: auto; color: var(--ember-soft); font-size: 12px; }
