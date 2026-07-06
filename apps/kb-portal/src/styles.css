@@ -207,6 +207,29 @@ button.ghost {
   font-size: 12px;
 }
 
+.seed {
+  background: #0f131b;
+  border: 1px solid var(--ember);
+  border-radius: 9px;
+  padding: 14px 16px;
+  margin: 12px 0;
+  color: var(--ember-soft);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 14px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.idlist {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+}
+.idpick {
+  text-align: left;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
 .dim {
   color: var(--ink-dim);
 }

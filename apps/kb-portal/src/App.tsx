@@ -1,10 +1,11 @@
 import { useState } from 'react';
 
-import { connect, signStatement, disconnect, type Member } from './keymaster';
+import { connect, createIdentity, recover, useIdentity, signStatement, disconnect, type Member } from './keymaster';
 import { portalApi, type KbCitation, type KbResult } from './api';
 
 const GATEKEEPER_URL = (import.meta.env.VITE_GATEKEEPER_URL as string | undefined) ?? 'http://flaxlap.local:4224';
 const KB_ID = (import.meta.env.VITE_KB_ID as string | undefined) ?? 'drake-kb';
+const REGISTRY = (import.meta.env.VITE_REGISTRY as string | undefined) ?? 'hyperswarm';
 
 /** A KB request statement — signed in the browser, verified by the Warden (matches core/protocol.ts). */
 interface KbRequestStatement {
@@ -56,17 +57,23 @@ export function App() {
   );
 }
 
+type ConnectMode = 'unlock' | 'create' | 'recover';
+
 function Connect({ onConnected }: { onConnected: (m: Member) => void }) {
+  const [mode, setMode] = useState<ConnectMode>('unlock');
   const [passphrase, setPassphrase] = useState('');
+  const [name, setName] = useState('');
+  const [seed, setSeed] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [created, setCreated] = useState<{ member: Member; mnemonic: string } | null>(null);
+  const [recoveredIds, setRecoveredIds] = useState<string[] | null>(null);
 
-  const go = async () => {
-    if (!passphrase) return;
+  const run = async (fn: () => Promise<void>) => {
     setBusy(true);
     setErr(null);
     try {
-      onConnected(await connect(GATEKEEPER_URL, passphrase));
+      await fn();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -74,26 +81,132 @@ function Connect({ onConnected }: { onConnected: (m: Member) => void }) {
     }
   };
 
+  const doUnlock = () => run(async () => onConnected(await connect(GATEKEEPER_URL, passphrase)));
+  const doCreate = () =>
+    run(async () => setCreated(await createIdentity(GATEKEEPER_URL, passphrase, name.trim(), REGISTRY)));
+  const doRecover = () =>
+    run(async () => {
+      const ids = await recover(GATEKEEPER_URL, passphrase, seed);
+      if (ids.length === 1) onConnected(await useIdentity(ids[0] as string));
+      else setRecoveredIds(ids);
+    });
+
+  // After create — show the mnemonic so it gets backed up before continuing.
+  if (created) {
+    return (
+      <section className="card connect">
+        <h2>Back up your recovery phrase</h2>
+        <p className="dim">
+          This is the ONLY way to restore <code>{created.member.name}</code> ({created.member.did.slice(0, 20)}…).
+          Write it down and keep it safe — it is never shown again and never leaves this browser.
+        </p>
+        <pre className="seed">{created.mnemonic}</pre>
+        <button onClick={() => onConnected(created.member)}>I&rsquo;ve saved it — continue</button>
+      </section>
+    );
+  }
+
+  // After recover with multiple identities — let the member pick which DID to act as.
+  if (recoveredIds) {
+    return (
+      <section className="card connect">
+        <h2>Choose your identity</h2>
+        <p className="dim">Recovered {recoveredIds.length} identities from your seed.</p>
+        <div className="idlist">
+          {recoveredIds.map((id) => (
+            <button
+              key={id}
+              className="ghost idpick"
+              disabled={busy}
+              onClick={() => run(async () => onConnected(await useIdentity(id)))}
+            >
+              {id}
+            </button>
+          ))}
+        </div>
+        {err && <p className="err">✗ {err}</p>}
+      </section>
+    );
+  }
+
   return (
     <section className="card connect">
       <h2>Prove who you are</h2>
-      <p className="dim">
-        Unlock your Archon wallet to prove control of your <code>did:cid</code>. Nothing is uploaded —
-        your key signs each request locally.
-      </p>
-      <input
-        type="password"
-        placeholder="wallet passphrase"
-        value={passphrase}
-        onChange={(e) => setPassphrase(e.target.value)}
-        onKeyDown={(e) => e.key === 'Enter' && void go()}
-        autoFocus
-      />
-      <button onClick={go} disabled={busy || !passphrase}>
-        {busy ? 'unlocking…' : 'Connect wallet'}
-      </button>
+      <div className="tabs">
+        <button className={mode === 'unlock' ? 'on' : ''} onClick={() => setMode('unlock')}>
+          Unlock
+        </button>
+        <button className={mode === 'create' ? 'on' : ''} onClick={() => setMode('create')}>
+          Create
+        </button>
+        <button className={mode === 'recover' ? 'on' : ''} onClick={() => setMode('recover')}>
+          Recover
+        </button>
+      </div>
+
+      {mode === 'unlock' && (
+        <>
+          <p className="dim">
+            Unlock your Archon wallet already in this browser to prove control of your <code>did:cid</code>.
+          </p>
+          <input
+            type="password"
+            placeholder="wallet passphrase"
+            value={passphrase}
+            onChange={(e) => setPassphrase(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && void doUnlock()}
+            autoFocus
+          />
+          <button onClick={doUnlock} disabled={busy || !passphrase}>
+            {busy ? 'unlocking…' : 'Connect wallet'}
+          </button>
+        </>
+      )}
+
+      {mode === 'create' && (
+        <>
+          <p className="dim">Create a fresh identity in this browser. You&rsquo;ll get a recovery phrase to back up.</p>
+          <input placeholder="identity name (e.g. flaxscrip)" value={name} onChange={(e) => setName(e.target.value)} />
+          <input
+            type="password"
+            placeholder="choose a wallet passphrase"
+            value={passphrase}
+            onChange={(e) => setPassphrase(e.target.value)}
+          />
+          <button onClick={doCreate} disabled={busy || !name.trim() || !passphrase}>
+            {busy ? 'creating…' : 'Create identity'}
+          </button>
+        </>
+      )}
+
+      {mode === 'recover' && (
+        <>
+          <p className="dim">
+            Reuse an existing DID (e.g. <code>flaxscrip</code>) — enter its recovery phrase. Your seed is
+            used locally and never leaves this browser.
+          </p>
+          <textarea
+            rows={2}
+            placeholder="12-word recovery phrase"
+            value={seed}
+            onChange={(e) => setSeed(e.target.value)}
+          />
+          <input
+            type="password"
+            placeholder="set a wallet passphrase for this browser"
+            value={passphrase}
+            onChange={(e) => setPassphrase(e.target.value)}
+          />
+          <button onClick={doRecover} disabled={busy || !seed.trim() || !passphrase}>
+            {busy ? 'recovering…' : 'Recover identity'}
+          </button>
+        </>
+      )}
+
       {err && <p className="err">✗ {err}</p>}
-      <p className="tiny dim">node: {GATEKEEPER_URL}</p>
+      <p className="tiny dim">
+        node: {GATEKEEPER_URL} · registry: {REGISTRY}
+      </p>
     </section>
   );
 }
