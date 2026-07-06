@@ -43,7 +43,8 @@
     "e2e:evidence-composite": "npm run build && node --experimental-strip-types scripts/e2e-evidence-composite.ts",
     "e2e:evidence-selective": "npm run build && node --experimental-strip-types scripts/e2e-evidence-selective.ts",
     "e2e:recall": "npm run build && node --experimental-strip-types scripts/e2e-recall.ts",
-    "e2e:kb": "npm run build && node --experimental-strip-types scripts/e2e-kb.ts"
+    "e2e:kb": "npm run build && node --experimental-strip-types scripts/e2e-kb.ts",
+    "e2e:kb-login": "npm run build && node --experimental-strip-types scripts/e2e-kb-login.ts"
   },
   "engines": {
     "node": ">=22"

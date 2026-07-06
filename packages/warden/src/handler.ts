@@ -5,6 +5,9 @@ import {
   type WitnessSubmission,
   type EvidenceRequest,
   type KbRequestMessage,
+  type KbLoginStartMessage,
+  type KbLoginCompleteMessage,
+  type KbSessionRequestMessage,
 } from '@hearthold/core';
 
 import type { WardenService } from './service.js';
@@ -60,6 +63,23 @@ export function makeWardenHandler(
       case 'hearthold/kb-request': {
         if (!kb) return deny('KB service not configured');
         return kb.serve((message as KbRequestMessage).request);
+      }
+
+      // KB web login (challenge/response) — keys stay in the member's wallet/Signet; the Warden
+      // authenticates (issues + verifies the challenge) and issues the session. The Mage only relays.
+      case 'hearthold/kb-login-start': {
+        if (!kb) return deny('KB service not configured');
+        const m = message as KbLoginStartMessage;
+        const challenge = await kb.startLogin(m.kbId, m.callback);
+        return { type: 'hearthold/kb-login-challenge', version: PROTOCOL_VERSION, challenge };
+      }
+      case 'hearthold/kb-login-complete': {
+        if (!kb) return deny('KB service not configured');
+        return kb.completeLogin((message as KbLoginCompleteMessage).response);
+      }
+      case 'hearthold/kb-session-request': {
+        if (!kb) return deny('KB service not configured');
+        return kb.serveWithSession(message as KbSessionRequestMessage);
       }
 
       default:

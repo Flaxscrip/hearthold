@@ -29,6 +29,8 @@ import {
   type SignedKbRequest,
   type KbChallengeMessage,
   type KbResultMessage,
+  type KbSessionMessage,
+  type KbSessionRequestMessage,
 } from '@hearthold/core';
 
 import { createClassifier } from './classifier.js';
@@ -43,15 +45,18 @@ interface KbServiceOptions {
   wardenDid: string;
   /** Authorizes `read` (query) / `write` (update) on the KB resource (a GroupTrustRegistry). */
   registry: TrustEvaluator;
-  /** Nonce lifetime; a challenge unused past this is rejected. */
+  /** Nonce lifetime (per-request signature path); a challenge unused past this is rejected. */
   nonceTtlMs?: number;
+  /** Web-login session lifetime (default 30 min). */
+  sessionTtlMs?: number;
 }
 
 export class KbService {
   private readonly store: VaultStore;
   private readonly index: IndexStore;
   private readonly embedder: OllamaEmbedder;
-  private readonly nonces = new Map<string, number>(); // nonce → expiry
+  private readonly nonces = new Map<string, number>(); // nonce → expiry (signed path)
+  private readonly sessions = new Map<string, { did: string; exp: number }>(); // token → {did, expiry} (web login)
 
   constructor(
     private readonly warden: KeymasterHandle,
@@ -77,70 +82,103 @@ export class KbService {
     return Date.now() <= exp;
   }
 
-  /** Authenticate + authorize + serve a signed KB request. */
+  /**
+   * Per-request signature path (CLI / machine clients): authenticate by the requester's own signature
+   * over our nonce, then serve. The relaying Mage can't forge it.
+   */
   async serve(signed: SignedKbRequest): Promise<KbResultMessage> {
-    const err = (reason: string): KbResultMessage => ({ type: 'hearthold/kb-error', version: PROTOCOL_VERSION, reason });
-
-    if (signed?.kbId !== this.opts.kbId) return err('request is for a different KB');
-
-    // 1. Authenticate — the request is signed by the DID it claims (end-to-end; the Mage can't forge).
+    if (signed?.kbId !== this.opts.kbId) return kbErr('request is for a different KB');
     const auth = await verifyKbRequestSignature(this.warden, signed);
-    if (!auth.ok) return err(`authentication failed: ${auth.reason}`);
+    if (!auth.ok) return kbErr(`authentication failed: ${auth.reason}`);
+    if (!signed.nonce || !this.consumeNonce(signed.nonce)) return kbErr('stale or unknown challenge nonce');
+    return this.execute(signed.requester, signed);
+  }
 
-    // 2. Freshness — the nonce is one we issued and hasn't been used (anti-replay).
-    if (!signed.nonce || !this.consumeNonce(signed.nonce)) return err('stale or unknown challenge nonce');
+  // ── Challenge/response login + sessions (web path; keys stay in the member's wallet / the Signet) ──
 
-    // 3. Authorize — this member may read (query) / write (update) the KB.
-    const action = signed.action === 'update' ? 'write' : 'read';
-    const authz = await this.opts.registry.authorize({ entity_id: signed.requester, action, resource: this.opts.kbId });
-    if (!authz.authorized) return err(`not authorized to ${action} this KB`);
+  /** Begin login: issue an Archon challenge embedding the Mage's public callback. Returns its DID (→ QR). */
+  async startLogin(kbId: string, callback: string): Promise<string> {
+    if (kbId !== this.opts.kbId) throw new Error('login is for a different KB');
+    const createChallenge = this.warden.keymaster.createChallenge.bind(this.warden.keymaster) as (
+      challenge?: Record<string, unknown>,
+      options?: Record<string, unknown>,
+    ) => Promise<string>;
+    // A pure authentication challenge — a callback, no credential requirements. `createResponse` on the
+    // member's wallet proves DID control; the callback tells the wallet where to POST the response.
+    return createChallenge({ callback, kbId }, { registry: this.config.registry });
+  }
 
-    // 4. Serve.
-    if (signed.action === 'query') {
-      if (!signed.query) return err('query is required');
-      // INVARIANT II — no query attribution retained. The query and `signed.requester` are read in
-      // memory only to answer; nothing about *who asked what, when* is persisted or logged. Retaining
-      // it would let the host reconstruct a member's interest graph (PVM Reconstruction Ceiling, R<1).
-      // Any future ops metrics MUST be aggregate and non-attributable. Do not add query/requester logging here.
-      const result = await RecallService.forWarden(this.warden, this.config).recall(signed.query, signed.k ? { k: signed.k } : {});
-      return {
-        type: 'hearthold/kb-result',
-        version: PROTOCOL_VERSION,
-        action: 'query',
-        answer: result.answer,
-        citations: result.citations,
-      };
+  /** Complete login: verify the wallet's response, then mint a short-lived session bound to the DID. */
+  async completeLogin(responseDID: string): Promise<KbSessionMessage | KbResultMessage> {
+    type VerifyResult = { match?: boolean; responder?: string };
+    const verifyResponse = this.warden.keymaster.verifyResponse.bind(this.warden.keymaster) as (
+      r: string,
+      o?: Record<string, unknown>,
+    ) => Promise<VerifyResult>;
+    const res: VerifyResult = await verifyResponse(responseDID).catch(() => ({ match: false }));
+    if (!res.match || !res.responder) return kbErr('login response did not verify');
+    const token = randomBytes(24).toString('hex');
+    const exp = Date.now() + (this.opts.sessionTtlMs ?? 30 * 60_000);
+    this.sessions.set(token, { did: res.responder, exp });
+    return { type: 'hearthold/kb-session', version: PROTOCOL_VERSION, token, did: res.responder, expiresAt: new Date(exp).toISOString() };
+  }
+
+  /** Serve a session-authenticated request (the token stands in for a per-request signature). */
+  async serveWithSession(req: KbSessionRequestMessage): Promise<KbResultMessage> {
+    if (req.kbId !== this.opts.kbId) return kbErr('request is for a different KB');
+    const s = this.sessions.get(req.token);
+    if (!s) return kbErr('unknown session — please log in');
+    if (Date.now() > s.exp) {
+      this.sessions.delete(req.token);
+      return kbErr('session expired — please log in again');
+    }
+    return this.execute(s.did, req);
+  }
+
+  /** Shared: authorize the DID for the action, then query (recall) or update (seal+classify+index). */
+  private async execute(
+    did: string,
+    req: { action: 'query' | 'update'; query?: string; k?: number; kind?: string; text?: string },
+  ): Promise<KbResultMessage> {
+    const action = req.action === 'update' ? 'write' : 'read';
+    const authz = await this.opts.registry.authorize({ entity_id: did, action, resource: this.opts.kbId });
+    if (!authz.authorized) return kbErr(`not authorized to ${action} this KB`);
+
+    if (req.action === 'query') {
+      if (!req.query) return kbErr('query is required');
+      // INVARIANT II — no query attribution retained. The query and `did` are read in memory only to
+      // answer; nothing about *who asked what, when* is persisted or logged. Retaining it would let the
+      // host reconstruct a member's interest graph (PVM Reconstruction Ceiling, R<1). Any future ops
+      // metrics MUST be aggregate and non-attributable. Do not add query/requester logging here.
+      const result = await RecallService.forWarden(this.warden, this.config).recall(req.query, req.k ? { k: req.k } : {});
+      return { type: 'hearthold/kb-result', version: PROTOCOL_VERSION, action: 'query', answer: result.answer, citations: result.citations };
     }
 
     // update — INVARIANT I: this stores *shared* knowledge into the KB, contributor-attributed. It is
     // not a personal vault; a member's 7th Capital must never be routed here (content discipline is a
     // governance rule — the prove→contribute path is how a consented, derived fact enters the KB).
-    if (!signed.kind || !signed.text) return err('kind and text are required for an update');
-    const ciphertext = await sealForWarden(this.warden, this.opts.wardenDid, JSON.stringify({ text: signed.text }));
-    const classification = await createClassifier(this.config).classify({ kind: signed.kind, text: signed.text });
+    if (!req.kind || !req.text) return kbErr('kind and text are required for an update');
+    const ciphertext = await sealForWarden(this.warden, this.opts.wardenDid, JSON.stringify({ text: req.text }));
+    const classification = await createClassifier(this.config).classify({ kind: req.kind, text: req.text });
     const id = contentId(ciphertext, this.warden.cipher);
     const artefact: Artefact = {
       id,
-      kind: signed.kind as Artefact['kind'],
+      kind: req.kind as Artefact['kind'],
       observedAt: new Date().toISOString(),
       storedAt: new Date().toISOString(),
       sensitivity: classification.sensitivity,
       ciphertext,
-      metadata: { ...classification.metadata, kb: this.opts.kbId, contributor: signed.requester },
+      metadata: { ...classification.metadata, kb: this.opts.kbId, contributor: did },
     };
     await this.store.put(artefact);
     try {
-      const embedding = await this.embedder.embed(signed.text);
-      await this.index.put({
-        artefactId: id,
-        kind: artefact.kind,
-        observedAt: artefact.observedAt,
-        sensitivity: artefact.sensitivity,
-        embedding,
-      });
+      const embedding = await this.embedder.embed(req.text);
+      await this.index.put({ artefactId: id, kind: artefact.kind, observedAt: artefact.observedAt, sensitivity: artefact.sensitivity, embedding });
     } catch {
       /* index is best-effort */
     }
     return { type: 'hearthold/kb-result', version: PROTOCOL_VERSION, action: 'update', artefactId: id };
   }
 }
+
+const kbErr = (reason: string): KbResultMessage => ({ type: 'hearthold/kb-error', version: PROTOCOL_VERSION, reason });

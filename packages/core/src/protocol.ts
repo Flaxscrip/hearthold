@@ -246,6 +246,56 @@ export interface KbRequestMessage {
   request: SignedKbRequest;
 }
 
+// ── KB login: challenge/response (keys stay in the member's wallet / the Signet) ──
+//
+// The archon.social/login pattern. The Warden issues an Archon challenge (embedding the Mage's public
+// callback); the member's wallet/Signet `createResponse`s it (proving DID control, keys never leaving
+// the wallet); the Warden `verifyResponse`s and issues a short-lived session. The Mage only relays.
+
+/** Browser → Mage → Warden: begin login; `callback` is the Mage's public URL the wallet will POST to. */
+export interface KbLoginStartMessage {
+  type: 'hearthold/kb-login-start';
+  version: typeof PROTOCOL_VERSION;
+  kbId: string;
+  callback: string;
+}
+
+/** Warden → Mage → browser: the challenge DID to render as a QR / deep link. */
+export interface KbLoginChallengeMessage {
+  type: 'hearthold/kb-login-challenge';
+  version: typeof PROTOCOL_VERSION;
+  challenge: string;
+}
+
+/** Wallet → Mage callback → Warden: the signed response DID (`createResponse` output). */
+export interface KbLoginCompleteMessage {
+  type: 'hearthold/kb-login-complete';
+  version: typeof PROTOCOL_VERSION;
+  response: string;
+}
+
+/** Warden → Mage → browser: a short-lived session bound to the authenticated DID. */
+export interface KbSessionMessage {
+  type: 'hearthold/kb-session';
+  version: typeof PROTOCOL_VERSION;
+  token: string;
+  did: string;
+  expiresAt: string;
+}
+
+/** Browser → Mage → Warden: a session-authenticated KB op (the token stands in for a signature). */
+export interface KbSessionRequestMessage {
+  type: 'hearthold/kb-session-request';
+  version: typeof PROTOCOL_VERSION;
+  token: string;
+  kbId: string;
+  action: 'query' | 'update';
+  query?: string;
+  k?: number;
+  kind?: string;
+  text?: string;
+}
+
 /** Warden → Sovereign (via Mage): the result of an authorized KB request, or a refusal. */
 export type KbResultMessage =
   | {
@@ -286,5 +336,10 @@ export type HearthholdMessage =
   | KbChallengeRequestMessage
   | KbChallengeMessage
   | KbRequestMessage
+  | KbLoginStartMessage
+  | KbLoginChallengeMessage
+  | KbLoginCompleteMessage
+  | KbSessionMessage
+  | KbSessionRequestMessage
   | KbResultMessage
   | ErrorMessage;
