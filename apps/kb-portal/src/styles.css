@@ -230,6 +230,92 @@ button.ghost {
   text-align: left;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
+/* ── QR sign-in ── */
+.qrwrap {
+  display: block;
+  width: fit-content;
+  margin: 14px auto;
+  padding: 12px;
+  background: #fff;
+  border-radius: 12px;
+  line-height: 0;
+}
+.qrwrap.placeholder {
+  width: 224px;
+  height: 224px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0f131b;
+  color: var(--ink-faint);
+  line-height: 1;
+  font-size: 13px;
+}
+.qr {
+  width: 224px;
+  height: 224px;
+  display: block;
+}
+.ways {
+  margin: 8px 0;
+  padding-left: 20px;
+  color: var(--ink-dim);
+  font-size: 14px;
+  line-height: 2;
+}
+.ways .btn {
+  display: inline-block;
+}
+.challenge {
+  display: block;
+  margin: 8px 0;
+  padding: 9px 11px;
+  background: #0f131b;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 11.5px;
+  color: var(--ink-dim);
+  word-break: break-all;
+}
+.waiting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ember);
+  animation: pulse 1.3s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.btn {
+  background: var(--ember);
+  color: #1a1206;
+  border: none;
+  border-radius: 8px;
+  padding: 7px 13px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+}
+.btn.ghost {
+  background: transparent;
+  color: var(--ink-dim);
+  border: 1px solid var(--line);
+  font-weight: 400;
+}
 .dim {
   color: var(--ink-dim);
 }

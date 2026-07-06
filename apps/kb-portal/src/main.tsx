@@ -1,5 +1,3 @@
-import './polyfills'; // FIRST — sets the Buffer global before Keymaster loads
-
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 

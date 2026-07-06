@@ -39,23 +39,31 @@ The member opens the page, unlocks their Archon wallet (passphrase), and asks/co
 | `VITE_PORTAL_URL` | `http://127.0.0.1:4313` | the Mage `kb-web` HTTP bridge |
 | `VITE_GATEKEEPER_URL` | `http://flaxlap.local:4224` | Archon gatekeeper (browser Keymaster) |
 | `VITE_KB_ID` | `drake-kb` | which Knowledge Base this portal serves |
-| `VITE_REGISTRY` | `hyperswarm` | registry a newly-created member DID is anchored on |
+| `VITE_SIGNET_URL` | `https://wallet.archon.technology` | web wallet / Signet that handles `?challenge=…` deep links (→ `https://signet.archon.social`) |
 
 The Mage bridge binds to loopback by default; set `HEARTHOLD_PORTAL_HOST=0.0.0.0` (or a tailnet
 address) on `witness kb-web` to expose it.
 
-## Identity: unlock / create / recover
+## Sign in — challenge/response (no keys in the browser)
 
-The **Connect** screen has three modes, so a member always has a way in:
+The portal holds **no keys**. Login is the archon.social pattern: the Warden issues a challenge, the
+member's own wallet/Signet responds (proving DID control), and the Warden mints a short-lived session.
+The sign-in screen conveys the challenge **three ways**, so any wallet works:
 
-- **Unlock** — an Archon wallet already in this browser (on archon.social it's in
-  `localStorage['archon-keymaster']` → effectively SSO).
-- **Create** — a fresh identity in the browser; the member gets a recovery phrase to back up.
-- **Recover** — bring an existing DID (e.g. `flaxscrip`) into a fresh browser from its recovery phrase.
-  The seed is used locally and never leaves the browser. Use this to reuse your own DID in demos.
+1. **Scan** the QR with a phone Archon wallet.
+2. **Open in Signet** — click the QR / button; opens `VITE_SIGNET_URL` with `?challenge=…` (a web wallet
+   or the Sovereign Signet app at `signet.archon.social`).
+3. **Copy the challenge DID** and paste it into any wallet.
 
-Connecting only proves DID control (local); the member still needs `warden kb-grant <did>` before
-Ask/Contribute succeed.
+The browser then **polls** until the wallet has responded and the session is minted — the key never
+leaves the wallet, and the portal never sees it. Login proves DID control; the member still needs
+`warden kb-grant <did>` before Ask/Contribute succeed.
+
+**Login endpoints** (on the Mage, `witness kb-web`): `POST /api/kb/login/start` → challenge;
+`POST /api/kb/login/callback?login=<id>` (the wallet posts its response here — the URL baked into the
+challenge); `GET /api/kb/login/poll?login=<id>` → the session; then `POST /api/kb/session-request`
+carries the session token. Set `HEARTHOLD_PORTAL_PUBLIC_URL` on `witness kb-web` so the callback baked
+into the challenge is publicly reachable.
 
 ## Split-host deployment
 

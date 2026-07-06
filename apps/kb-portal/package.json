@@ -3,21 +3,19 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Hearthold Knowledge Portal — the public Mage's browser face: members prove DID control and query/update a shared KB.",
+  "description": "Hearthold Knowledge Portal — the public Mage's browser face: members sign in with their own wallet (challenge/response) and query/update a shared KB. No keys in the browser.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
-    "@didcid/cipher": "^0.4.0",
-    "@didcid/gatekeeper": "^0.6.0",
-    "@didcid/keymaster": "^0.6.0",
-    "buffer": "^6.0.3",
+    "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@types/qrcode": "^1.5.5",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",

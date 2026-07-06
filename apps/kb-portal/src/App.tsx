@@ -1,33 +1,14 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import QRCode from 'qrcode';
 
-import { connect, createIdentity, recover, useIdentity, signStatement, disconnect, type Member } from './keymaster';
-import { portalApi, type KbCitation, type KbResult } from './api';
+import { portalApi, type KbCitation, type KbResult, type Session } from './api';
 
-const GATEKEEPER_URL = (import.meta.env.VITE_GATEKEEPER_URL as string | undefined) ?? 'http://flaxlap.local:4224';
 const KB_ID = (import.meta.env.VITE_KB_ID as string | undefined) ?? 'drake-kb';
-const REGISTRY = (import.meta.env.VITE_REGISTRY as string | undefined) ?? 'hyperswarm';
-
-/** A KB request statement — signed in the browser, verified by the Warden (matches core/protocol.ts). */
-interface KbRequestStatement {
-  action: 'query' | 'update';
-  requester: string;
-  kbId: string;
-  nonce: string;
-  query?: string;
-  kind?: string;
-  text?: string;
-}
-
-/** Fetch a fresh nonce, sign the statement with the member's wallet, submit via the Mage. */
-async function submit(body: Omit<KbRequestStatement, 'nonce'>): Promise<KbResult> {
-  const { nonce } = await portalApi.challenge(body.kbId);
-  const signed = await signStatement<KbRequestStatement>({ ...body, nonce } as KbRequestStatement);
-  const { result } = await portalApi.request(signed);
-  return result;
-}
+// The Sovereign Signet web app (or any Archon web wallet) that handles ?challenge=… deep links.
+const SIGNET_URL = (import.meta.env.VITE_SIGNET_URL as string | undefined) ?? 'https://wallet.archon.technology';
 
 export function App() {
-  const [member, setMember] = useState<Member | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
   return (
     <div className="wrap">
       <header className="top">
@@ -40,183 +21,127 @@ export function App() {
             </p>
           </div>
         </div>
-        {member && (
-          <button className="ghost" onClick={() => (disconnect(), setMember(null))}>
-            {member.name} · disconnect
+        {session && (
+          <button className="ghost" onClick={() => setSession(null)}>
+            {session.did.slice(0, 16)}… · sign out
           </button>
         )}
       </header>
 
-      {!member ? <Connect onConnected={setMember} /> : <Portal member={member} />}
+      {!session ? <Login onSession={setSession} /> : <Portal session={session} />}
 
       <footer className="foot">
-        Your wallet stays in your browser — the portal (a Mage) only carries your signed request to the
-        Warden. Answers are machine-derived from the KB; the Warden keeps no record of who asked what.
+        Your keys never enter this page — you sign in with your own wallet (challenge/response). The
+        portal (a Mage) only carries your request to the Warden, which keeps no record of who asked what.
       </footer>
     </div>
   );
 }
 
-type ConnectMode = 'unlock' | 'create' | 'recover';
-
-function Connect({ onConnected }: { onConnected: (m: Member) => void }) {
-  const [mode, setMode] = useState<ConnectMode>('unlock');
-  const [passphrase, setPassphrase] = useState('');
-  const [name, setName] = useState('');
-  const [seed, setSeed] = useState('');
-  const [busy, setBusy] = useState(false);
+function Login({ onSession }: { onSession: (s: Session) => void }) {
+  const [challenge, setChallenge] = useState<string | null>(null);
+  const [loginId, setLoginId] = useState<string | null>(null);
+  const [qr, setQr] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [created, setCreated] = useState<{ member: Member; mnemonic: string } | null>(null);
-  const [recoveredIds, setRecoveredIds] = useState<string[] | null>(null);
+  const [copied, setCopied] = useState(false);
+  const started = useRef(false);
 
-  const run = async (fn: () => Promise<void>) => {
-    setBusy(true);
+  const deepLink = challenge ? `${SIGNET_URL}/?challenge=${challenge}` : '';
+
+  const start = useCallback(async () => {
     setErr(null);
     try {
-      await fn();
+      const { loginId: id, challenge: ch } = await portalApi.loginStart(KB_ID);
+      setLoginId(id);
+      setChallenge(ch);
+      setQr(await QRCode.toDataURL(`${SIGNET_URL}/?challenge=${ch}`, { margin: 1, width: 224 }));
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
     }
+  }, []);
+
+  // Begin a login attempt on mount.
+  useEffect(() => {
+    if (started.current) return;
+    started.current = true;
+    void start();
+  }, [start]);
+
+  // Poll until the wallet has responded and the Warden has minted a session.
+  useEffect(() => {
+    if (!loginId) return;
+    const iv = window.setInterval(async () => {
+      try {
+        const r = await portalApi.loginPoll(loginId);
+        if (r.status === 'ready' && r.session) {
+          window.clearInterval(iv);
+          onSession(r.session);
+        } else if (r.status === 'unknown') {
+          window.clearInterval(iv); // challenge expired — offer a retry
+          setErr('This sign-in expired. Refresh to try again.');
+        }
+      } catch {
+        /* transient; keep polling */
+      }
+    }, 2000);
+    return () => window.clearInterval(iv);
+  }, [loginId, onSession]);
+
+  const copy = async () => {
+    if (!challenge) return;
+    await navigator.clipboard.writeText(challenge);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
   };
-
-  const doUnlock = () => run(async () => onConnected(await connect(GATEKEEPER_URL, passphrase)));
-  const doCreate = () =>
-    run(async () => setCreated(await createIdentity(GATEKEEPER_URL, passphrase, name.trim(), REGISTRY)));
-  const doRecover = () =>
-    run(async () => {
-      const ids = await recover(GATEKEEPER_URL, passphrase, seed);
-      if (ids.length === 1) onConnected(await useIdentity(ids[0] as string));
-      else setRecoveredIds(ids);
-    });
-
-  // After create — show the mnemonic so it gets backed up before continuing.
-  if (created) {
-    return (
-      <section className="card connect">
-        <h2>Back up your recovery phrase</h2>
-        <p className="dim">
-          This is the ONLY way to restore <code>{created.member.name}</code> ({created.member.did.slice(0, 20)}…).
-          Write it down and keep it safe — it is never shown again and never leaves this browser.
-        </p>
-        <pre className="seed">{created.mnemonic}</pre>
-        <button onClick={() => onConnected(created.member)}>I&rsquo;ve saved it — continue</button>
-      </section>
-    );
-  }
-
-  // After recover with multiple identities — let the member pick which DID to act as.
-  if (recoveredIds) {
-    return (
-      <section className="card connect">
-        <h2>Choose your identity</h2>
-        <p className="dim">Recovered {recoveredIds.length} identities from your seed.</p>
-        <div className="idlist">
-          {recoveredIds.map((id) => (
-            <button
-              key={id}
-              className="ghost idpick"
-              disabled={busy}
-              onClick={() => run(async () => onConnected(await useIdentity(id)))}
-            >
-              {id}
-            </button>
-          ))}
-        </div>
-        {err && <p className="err">✗ {err}</p>}
-      </section>
-    );
-  }
 
   return (
     <section className="card connect">
-      <h2>Prove who you are</h2>
-      <div className="tabs">
-        <button className={mode === 'unlock' ? 'on' : ''} onClick={() => setMode('unlock')}>
-          Unlock
-        </button>
-        <button className={mode === 'create' ? 'on' : ''} onClick={() => setMode('create')}>
-          Create
-        </button>
-        <button className={mode === 'recover' ? 'on' : ''} onClick={() => setMode('recover')}>
-          Recover
-        </button>
-      </div>
-
-      {mode === 'unlock' && (
-        <>
-          <p className="dim">
-            Unlock your Archon wallet already in this browser to prove control of your <code>did:cid</code>.
-          </p>
-          <input
-            type="password"
-            placeholder="wallet passphrase"
-            value={passphrase}
-            onChange={(e) => setPassphrase(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && void doUnlock()}
-            autoFocus
-          />
-          <button onClick={doUnlock} disabled={busy || !passphrase}>
-            {busy ? 'unlocking…' : 'Connect wallet'}
-          </button>
-        </>
-      )}
-
-      {mode === 'create' && (
-        <>
-          <p className="dim">Create a fresh identity in this browser. You&rsquo;ll get a recovery phrase to back up.</p>
-          <input placeholder="identity name (e.g. flaxscrip)" value={name} onChange={(e) => setName(e.target.value)} />
-          <input
-            type="password"
-            placeholder="choose a wallet passphrase"
-            value={passphrase}
-            onChange={(e) => setPassphrase(e.target.value)}
-          />
-          <button onClick={doCreate} disabled={busy || !name.trim() || !passphrase}>
-            {busy ? 'creating…' : 'Create identity'}
-          </button>
-        </>
-      )}
-
-      {mode === 'recover' && (
-        <>
-          <p className="dim">
-            Reuse an existing DID (e.g. <code>flaxscrip</code>) — enter its recovery phrase. Your seed is
-            used locally and never leaves this browser.
-          </p>
-          <textarea
-            rows={2}
-            placeholder="12-word recovery phrase"
-            value={seed}
-            onChange={(e) => setSeed(e.target.value)}
-          />
-          <input
-            type="password"
-            placeholder="set a wallet passphrase for this browser"
-            value={passphrase}
-            onChange={(e) => setPassphrase(e.target.value)}
-          />
-          <button onClick={doRecover} disabled={busy || !seed.trim() || !passphrase}>
-            {busy ? 'recovering…' : 'Recover identity'}
-          </button>
-        </>
-      )}
-
-      {err && <p className="err">✗ {err}</p>}
-      <p className="tiny dim">
-        node: {GATEKEEPER_URL} · registry: {REGISTRY}
+      <h2>Sign in with your wallet</h2>
+      <p className="dim">
+        Prove control of your <code>did:cid</code> — three ways, your keys never leave your wallet:
       </p>
+
+      {qr ? (
+        <a className="qrwrap" href={deepLink} target="_blank" rel="noreferrer" title="Open in your Signet">
+          <img className="qr" src={qr} alt="Scan this challenge with your Archon wallet" />
+        </a>
+      ) : (
+        <div className="qrwrap placeholder">{err ? '—' : 'preparing…'}</div>
+      )}
+
+      <ol className="ways">
+        <li>
+          <strong>Scan</strong> the code with your phone&rsquo;s Archon wallet
+        </li>
+        <li>
+          <a className="btn" href={deepLink} target="_blank" rel="noreferrer">
+            Open in Signet
+          </a>{' '}
+          (or click the code)
+        </li>
+        <li>
+          <button className="btn ghost" onClick={copy} disabled={!challenge}>
+            {copied ? 'copied ✓' : 'Copy challenge DID'}
+          </button>{' '}
+          to paste into any wallet
+        </li>
+      </ol>
+
+      {challenge && <code className="challenge">{challenge}</code>}
+      <p className="tiny dim waiting">
+        <span className="pulse" /> waiting for your wallet to respond…
+      </p>
+      {err && <p className="err">✗ {err}</p>}
     </section>
   );
 }
 
-function Portal({ member }: { member: Member }) {
+function Portal({ session }: { session: Session }) {
   const [tab, setTab] = useState<'query' | 'contribute'>('query');
   return (
     <>
       <div className="who card">
-        <span className="okdot" /> Connected as <code title={member.did}>{member.did.slice(0, 30)}…</code>
+        <span className="okdot" /> Signed in as <code title={session.did}>{session.did.slice(0, 30)}…</code>
       </div>
       <div className="tabs">
         <button className={tab === 'query' ? 'on' : ''} onClick={() => setTab('query')}>
@@ -226,12 +151,12 @@ function Portal({ member }: { member: Member }) {
           Contribute
         </button>
       </div>
-      {tab === 'query' ? <QueryPanel member={member} /> : <ContributePanel member={member} />}
+      {tab === 'query' ? <QueryPanel session={session} /> : <ContributePanel session={session} />}
     </>
   );
 }
 
-function QueryPanel({ member }: { member: Member }) {
+function QueryPanel({ session }: { session: Session }) {
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
   const [answer, setAnswer] = useState<string | null>(null);
@@ -245,11 +170,16 @@ function QueryPanel({ member }: { member: Member }) {
     setAnswer(null);
     setCites([]);
     try {
-      const r = await submit({ action: 'query', requester: member.did, kbId: KB_ID, query: q.trim() });
-      if (r.type === 'hearthold/kb-error') setErr(r.reason);
-      else if (r.action === 'query') {
-        setAnswer(r.answer);
-        setCites(r.citations);
+      const { result }: { result: KbResult } = await portalApi.sessionRequest({
+        token: session.token,
+        kbId: KB_ID,
+        action: 'query',
+        query: q.trim(),
+      });
+      if (result.type === 'hearthold/kb-error') setErr(result.reason);
+      else if (result.action === 'query') {
+        setAnswer(result.answer);
+        setCites(result.citations);
       }
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -292,7 +222,7 @@ function QueryPanel({ member }: { member: Member }) {
   );
 }
 
-function ContributePanel({ member }: { member: Member }) {
+function ContributePanel({ session }: { session: Session }) {
   const [kind, setKind] = useState('event');
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -305,9 +235,15 @@ function ContributePanel({ member }: { member: Member }) {
     setErr(null);
     setMsg(null);
     try {
-      const r = await submit({ action: 'update', requester: member.did, kbId: KB_ID, kind, text: text.trim() });
-      if (r.type === 'hearthold/kb-error') setErr(r.reason);
-      else if (r.action === 'update') {
+      const { result }: { result: KbResult } = await portalApi.sessionRequest({
+        token: session.token,
+        kbId: KB_ID,
+        action: 'update',
+        kind,
+        text: text.trim(),
+      });
+      if (result.type === 'hearthold/kb-error') setErr(result.reason);
+      else if (result.action === 'update') {
         setMsg('✓ contributed to the Knowledge Base');
         setText('');
       }
@@ -321,8 +257,8 @@ function ContributePanel({ member }: { member: Member }) {
   return (
     <section className="card">
       <p className="dim">
-        Contribute <strong>shared knowledge</strong> to the KB (requires write authorization). This is
-        never your private vault — only knowledge meant for the community.
+        Contribute <strong>shared knowledge</strong> (requires write authorization) — never your private
+        vault, only knowledge meant for the community.
       </p>
       <div className="kinds">
         {['event', 'document', 'activity', 'location'].map((k) => (
@@ -331,12 +267,7 @@ function ContributePanel({ member }: { member: Member }) {
           </button>
         ))}
       </div>
-      <textarea
-        rows={3}
-        placeholder="A fact the guild should know…"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-      />
+      <textarea rows={3} placeholder="A fact the guild should know…" value={text} onChange={(e) => setText(e.target.value)} />
       <button onClick={add} disabled={busy || !text.trim()}>
         {busy ? 'contributing…' : 'Contribute'}
       </button>

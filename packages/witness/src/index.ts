@@ -170,9 +170,11 @@ async function main(): Promise<void> {
       if (!wardenDid) throw new Error('HEARTHOLD_WARDEN_DID is required — the portal relays to the Warden');
       const port = Number(process.argv[3] ?? process.env.HEARTHOLD_PORTAL_PORT ?? 4313);
       const host = process.env.HEARTHOLD_PORTAL_HOST ?? '127.0.0.1';
+      // Public base URL baked into the login callback the wallet POSTs to (set for a real deployment).
+      const publicUrl = process.env.HEARTHOLD_PORTAL_PUBLIC_URL ?? `http://127.0.0.1:${port}`;
       const transport = new DidCommTransport(handle, IDENTITY_NAME.witness, config.nodeUrl);
       await transport.ready();
-      const server = startKbPortalServer({ transport, wardenDid, port, host });
+      const server = startKbPortalServer({ transport, wardenDid, port, host, publicUrl });
       const shutdown = (): void => {
         server.close();
         process.exit(0);
