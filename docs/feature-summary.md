@@ -141,9 +141,13 @@ agent — archiving, recalling, *and* proving, all sovereign.
 recall R1, the trust registry + DTG set, and the three GUIs — each end-to-end tested.
 
 **Next / in progress:**
+- **Recall** — structured fact/entity/date extraction, a recall GUI surface, a real vector store.
+- **Knowledge Portal** — a shared, authorized Knowledge Base a community can query and update through a
+  **public Mage portal** in front of a **private Warden** (the projector pattern, inverted); authenticate
+  via Archon challenge/response, authorize via a trust-registry group. A hosted, multi-party demo — see
+  [knowledge-portal.md](knowledge-portal.md). *(The natural driver for a guild-manager GUI.)*
 - **Proof-of-human** beyond PIN (level 1) — biometric / face-liveness / FIDO2 behind the same gate.
 - **Per-device Witnesses** with kind-scope enforcement (one Sovereign, many Witnesses).
-- **Recall** — structured fact/entity/date extraction, a recall GUI surface, a real vector store.
 - **Sovereign-signed Warden policy** (lift access-control config into a signed document the Warden
   verifies / fails safe).
 

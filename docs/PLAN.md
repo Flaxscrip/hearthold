@@ -162,6 +162,40 @@ rules), to make the system demonstrable without a terminal:
 
 Demo-first steps toward the layered Hearthold GUI (admin base → DID cards → themes).
 
+### KB — Knowledge Base via a public Mage portal + a private Warden  ◀ proposed
+A shared, authorized **Knowledge Base** that authorized Sovereign(s) can **query and update** — WITHOUT
+touching the home Warden's invariant. The public surface is a **public Mage** (Witness): the community's
+world-facing portal that authenticates who is asking and **carries** the query; the **Warden stays
+private** (home-bound, local-only AI, holds the KB, authorizes, recalls) and never faces the public.
+This is the projector pattern *inverted* — where prove is `verifier → Mage relays → Sovereign approves →
+Mage carries out`, a KB query is `authorized Sovereign → Mage relays → Warden authorizes + recalls →
+Mage carries out`. Multi-tenancy lives in the Mage (holds no secret = safe to share), not the Warden.
+
+**Authenticate → authorize:** a visiting Sovereign first proves control of their DID via an **Archon
+challenge/response** (the portal issues a challenge; the Sovereign signs; control is verified — as
+archon.social / archon-ssh do); *then* the Warden authorizes that authenticated DID against a KB
+**`GroupTrustRegistry`** membership (`read`/`write` on the KB resource). Over an established DIDComm
+session, authcrypt already authenticates the sender DID, so the explicit challenge is for the
+web-portal entry point.
+
+Reuses almost everything: **query = recall** (in the Warden), **update = submit** (registry-gated,
+provenance-stamped), the Mage relay = the built **projector** pattern, and facts can be **proven** from
+the KB (evidence graph over KB entries, composited with the contributor's credential). Sensitivity is
+repurposed as **visibility** (public / member-only / role-gated). Content discipline: shared knowledge
+only — **never** private 7th Capital (that stays in a personal Warden).
+
+- **First increment** (single Sovereign): a KB access group; the Warden does registry-gated recall +
+  authorized update; a Witness relays KB queries; a public web portal over the Mage. Hosted on flaxlap.
+- **Grows to:** multi-Sovereign (add members to the group), a guild/public GUI, and a **prove→contribute
+  bridge** (publish a consented, derived fact from a personal vault into the shared KB).
+- **Demo vehicle:** the Drake Gamers Guild Knowledge Base — members query/update via the guild's public
+  Mage, authorization = guild membership (VMC / group), facts provable. Drives the guild-manager GUI.
+
+PVM-preserving by design: the public-facing role (Mage) holds no secret; the secret-holder (Warden)
+never faces the public. Honest boundary: the guild's host still runs the Warden and sees queries at it —
+a coherent *librarian* posture (the guild's brain, reached through its portal), not a personal
+privacy-vault claim; the AI stays local (no cloud leak); query privacy over DIDComm is preserved.
+
 ### P2 — NAS / filesystem ingestion
 Filesystem connector, bulk classification, fail-safe quarantine, human-confirm triage.
 
