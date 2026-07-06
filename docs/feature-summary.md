@@ -4,9 +4,10 @@
 in `did:cid`. Your accumulated personal history — the **7th Capital** — made safely liquid.*
 
 **Repo:** [github.com/Flaxscrip/hearthold](https://github.com/Flaxscrip/hearthold) (public, MIT) ·
-**Runs on:** Archon `did:cid` · **Stack:** DIDComm v2 · W3C VC 2.0 · ToIP TRQP · local-only AI (Ollama)
-· **Status:** the full loop — witness → store → **prove** — runs and is tested end-to-end, and a
-second mode, **recall**, is now live. — *GenitriX, House of Archon*
+**Runs on:** Archon `did:cid` (verified on node **v0.11.0**) · **Stack:** DIDComm v2 · W3C VC 2.0 ·
+ToIP TRQP · local-only AI (Ollama) · **Status:** the full loop — witness → store → **prove** — runs and
+is tested end-to-end, a second mode, **recall**, is live, and a shared **Knowledge Portal** (a public
+Mage over a private Warden) runs the whole thing multi-party. — *GenitriX, House of Archon*
 
 ---
 
@@ -159,9 +160,10 @@ control from data means such a compromise still cannot *change policy* or forge 
 
 ## Provenance — how to check the claims
 
-The repo is public and the assertions above are backed by an automated end-to-end suite run against a
-live Archon node (`npm run e2e:*`): `delegation`, `submission`, `issued`, `prove`, `prove-didcomm`,
-`projector`, `dtg-set`, `trust-registry`, `inward-registry`, `interop:registry`, `evidence`,
-`evidence-stepup`, `evidence-direct`, `evidence-composite`, `evidence-selective`, `recall`. Design
-details live in `docs/` (architecture, evidence-graph, security-model, sovereign-signet,
-trust-graph-and-delegation, standards-alignment).
+The repo is public and the assertions above are backed by an automated end-to-end suite — **19/19
+passing against Archon node v0.11.0** (a clean upgrade from v0.10.0 with zero regressions). Run
+`npm run e2e:*`: `delegation`, `submission`, `smoke:didcomm`, `issued`, `prove`, `prove-didcomm`,
+`projector`, `dtg-set`, `trust-registry`, `inward-registry`, `interop:registry` (against an
+independent TRQP deployment), `evidence`, `evidence-stepup`, `evidence-direct`, `evidence-composite`,
+`evidence-selective`, `recall`, `kb`. Design details live in `docs/` (architecture, evidence-graph,
+security-model, sovereign-signet, trust-graph-and-delegation, standards-alignment, knowledge-portal).

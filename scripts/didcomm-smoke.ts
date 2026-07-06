@@ -11,7 +11,7 @@
  * Drawbridge URL (default :4222), not the raw Gatekeeper (:4224). Confirm/adjust live — if identity
  * ops and didcomm don't both route through one URL on this node, we'll split them.
  *
- * Run (once flaxlap is on v0.10.0):  HEARTHOLD_PASSPHRASE=… npm run smoke:didcomm
+ * Run:  HEARTHOLD_PASSPHRASE=… npm run smoke:didcomm
  */
 
 import { fileURLToPath } from 'node:url';
@@ -20,7 +20,10 @@ import { dirname, join } from 'node:path';
 import { loadConfig, openKeymaster, ensureIdentity, IDENTITY_NAME, type KeymasterHandle } from '@hearthold/core';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const DATA_ROOT = join(here, '..', '.hearthold-didcomm');
+// Honor HEARTHOLD_DATA_ROOT (isolated per-run) like the other scripts; fall back to a fixed folder.
+const DATA_ROOT = process.env.HEARTHOLD_DATA_ROOT
+  ? join(process.env.HEARTHOLD_DATA_ROOT, 'didcomm-smoke')
+  : join(here, '..', '.hearthold-didcomm');
 const NODE_URL = process.env.HEARTHOLD_NODE_URL ?? 'http://flaxlap.local:4222';
 const PASSPHRASE = process.env.HEARTHOLD_PASSPHRASE ?? 'hearthold-didcomm-pass';
 
