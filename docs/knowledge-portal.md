@@ -81,14 +81,31 @@ an anonymous blob but a graph of attributed knowledge. A member can also take a 
 fact** from their *private* vault, prove it (an evidence graph), and **contribute** that proof into the
 shared KB. Recall over the KB can then cite attributed, even independently-verifiable, entries.
 
-## Honest boundary
+## Invariants & honest boundary
 
-The guild's host runs the Warden and sees queries as they arrive at it. That is a coherent **librarian**
-posture — the guild's brain, reached through the guild's portal — **not** a personal privacy-vault claim.
-Crucially: the recall AI stays **local** (no cloud leak), the KB holds shared knowledge (never one
-member's secrets), and **query privacy** (who asked what) can still be preserved over DIDComm since the
-transport writes nothing to the registry. Content discipline is the rule: private 7th Capital stays in a
-personal Warden; only shareable knowledge goes to the KB.
+Two invariants keep the Knowledge Portal from drifting into a surveillance surface as the KB grows.
+They are **rules, not notes**:
+
+- **Invariant I — guild brain ≠ personal vault.** The KB holds *shared* knowledge; it **never** holds a
+  member's **7th Capital**. The personal Warden holds the 7th Capital. **These must never merge.** A
+  member may *contribute* a consented, derived fact (via prove→contribute), but the KB is not, and must
+  not become, a store of members' private histories. This is the line between a guild *brain* and a
+  *surveillance surface*.
+- **Invariant II — no query attribution retained.** The Warden reads a query **in memory only** to answer
+  it; it does **not** persist the query text or *who asked what, when*. **Query logging is off by
+  default.** Retaining per-DID query attribution would let the guild host reconstruct a member's interest
+  graph — putting the PVM **Reconstruction Ceiling (R < 1)** at risk *even for a shared KB*. So the
+  default is structural forgetting: a query leaves no trace at the Warden. (Enforced in code: the KB
+  service's query path recalls and replies without writing the query or requester anywhere — the code
+  comment marks it as a deliberate invariant. Any future ops metrics must be aggregate and
+  non-attributable.)
+
+**The honest part.** The guild's host still runs the Warden and, at request time, sees the query *in
+memory* to answer it (unavoidable — it must read the question). That is a coherent **librarian** posture:
+the guild's brain, reached through the guild's portal — **not** a personal privacy-vault claim. What the
+invariants guarantee is that the librarian *keeps no record of who read what* and *never becomes a store
+of members' private lives*. The recall AI stays **local** (no cloud leak), and DIDComm writes nothing to
+the registry, so no outside observer learns the member↔KB relationship either.
 
 ## First increment → growth
 

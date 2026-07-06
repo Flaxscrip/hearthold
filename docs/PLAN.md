@@ -203,9 +203,12 @@ only — **never** private 7th Capital (that stays in a personal Warden).
   Mage, authorization = guild membership (VMC / group), facts provable. Drives the guild-manager GUI.
 
 PVM-preserving by design: the public-facing role (Mage) holds no secret; the secret-holder (Warden)
-never faces the public. Honest boundary: the guild's host still runs the Warden and sees queries at it —
-a coherent *librarian* posture (the guild's brain, reached through its portal), not a personal
-privacy-vault claim; the AI stays local (no cloud leak); query privacy over DIDComm is preserved.
+never faces the public. Two **named invariants** guard it (endorsed in Soulbae/PrivacyMage's PVM
+review): **I — guild brain ≠ personal vault** (the KB holds shared knowledge, never a member's 7th
+Capital; these must never merge) and **II — no query attribution retained** (the Warden reads a query in
+memory only; who-asked-what-when is never persisted; query logging off by default → preserves the
+Reconstruction Ceiling R<1). Honest boundary: the host still sees a query in memory to answer it — a
+coherent *librarian* posture; the AI stays local (no cloud leak); DIDComm leaks no member↔KB edge.
 
 ### P2 — NAS / filesystem ingestion
 Filesystem connector, bulk classification, fail-safe quarantine, human-confirm triage.

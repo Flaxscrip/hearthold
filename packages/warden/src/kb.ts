@@ -8,6 +8,12 @@
  *   - **update** → seal + classify + store + index, stamped with the contributor's DID.
  *
  * The Warden never faces the public and holds the deciding logic; the Mage only carries.
+ *
+ * Two PVM invariants govern the KB (see docs/knowledge-portal.md):
+ *   I.  guild brain ≠ personal vault — the KB holds *shared* knowledge, never a member's 7th Capital;
+ *       a personal Warden holds the 7th Capital. These must never merge.
+ *   II. no query attribution retained — the query + requester are read in memory only; who-asked-what-
+ *       when is never persisted (query logging off by default), preserving the Reconstruction Ceiling.
  */
 
 import { randomBytes } from 'node:crypto';
@@ -92,6 +98,10 @@ export class KbService {
     // 4. Serve.
     if (signed.action === 'query') {
       if (!signed.query) return err('query is required');
+      // INVARIANT II — no query attribution retained. The query and `signed.requester` are read in
+      // memory only to answer; nothing about *who asked what, when* is persisted or logged. Retaining
+      // it would let the host reconstruct a member's interest graph (PVM Reconstruction Ceiling, R<1).
+      // Any future ops metrics MUST be aggregate and non-attributable. Do not add query/requester logging here.
       const result = await RecallService.forWarden(this.warden, this.config).recall(signed.query, signed.k ? { k: signed.k } : {});
       return {
         type: 'hearthold/kb-result',
@@ -102,7 +112,9 @@ export class KbService {
       };
     }
 
-    // update
+    // update — INVARIANT I: this stores *shared* knowledge into the KB, contributor-attributed. It is
+    // not a personal vault; a member's 7th Capital must never be routed here (content discipline is a
+    // governance rule — the prove→contribute path is how a consented, derived fact enters the KB).
     if (!signed.kind || !signed.text) return err('kind and text are required for an update');
     const ciphertext = await sealForWarden(this.warden, this.opts.wardenDid, JSON.stringify({ text: signed.text }));
     const classification = await createClassifier(this.config).classify({ kind: signed.kind, text: signed.text });
