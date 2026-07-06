@@ -37,6 +37,7 @@ import { VaultStore, type Artefact } from './store.js';
 import { DelegationStore } from './delegations.js';
 import { EvidenceService, type SovereignApprover } from './evidence.js';
 import { OllamaEmbedder, RecallService } from './recall.js';
+import { buildKbService } from './kb-config.js';
 import { makeWardenHandler } from './handler.js';
 
 const sensitivityName = (s: number): SensitivityName => SENSITIVITY_NAMES[s] ?? 'SEALED';
@@ -146,8 +147,11 @@ export async function runWardenControl(
       }
     : undefined;
 
+  // Serve a provisioned Knowledge Base over DIDComm too (a public Mage relays to this mailbox).
+  const kb = await buildKbService(handle, config, id.did);
+
   // Wrap the real handler so a stored submission is pushed to connected consoles.
-  const inner = makeWardenHandler(service, delegations, new EvidenceService(handle, config, approver));
+  const inner = makeWardenHandler(service, delegations, new EvidenceService(handle, config, approver), kb);
   const handler: RequestHandler = async (message, fromDid) => {
     const result = await inner(message, fromDid);
     if (

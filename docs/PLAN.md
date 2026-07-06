@@ -190,9 +190,13 @@ only — **never** private 7th Capital (that stays in a personal Warden).
   forge identity; the nonce gives anti-replay), is **authorized** by a KB `read`/`write`
   `GroupTrustRegistry` group, then **queries** (recall) or **updates** (seal+classify+index, contributor-
   stamped). The public Mage (`makeKbRelayHandler`) forwards and holds nothing. Verified live: member
-  update+query, non-member refused, forged requester rejected, replayed nonce rejected. **Still to do
-  this increment:** a hosted web portal over the Mage, and the Warden's `serve`/`control` wiring a live
-  `KbService` (the e2e drives it in-process).
+  update+query, non-member refused, forged requester rejected, replayed nonce rejected.
+- **Deployable CLI + daemon** ✅: `warden kb-init <kbId>` (creates read/write groups) · `kb-grant` /
+  `kb-revoke` / `kb-status`; `warden serve` (and `control`) load the `KbService` and serve the KB over
+  DIDComm; `witness kb-portal` runs the public Mage; `sovereign kb-query` / `kb-update` are the member
+  client (challenge → sign → request). Verified live over DIDComm end-to-end: a member contributes and
+  queries the guild KB through the Mage portal, three real processes. **Still to do:** a hosted **web
+  portal** over the Mage (browser member login via Archon challenge/response); multi-KB per Warden.
 - **Grows to:** multi-Sovereign (add members to the group), a guild/public GUI, and a **prove→contribute
   bridge** (publish a consented, derived fact from a personal vault into the shared KB).
 - **Demo vehicle:** the Drake Gamers Guild Knowledge Base — members query/update via the guild's public

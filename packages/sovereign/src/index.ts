@@ -12,6 +12,9 @@ import {
   ensureSchema,
   openSchema,
   issueClaim,
+  signKbRequest,
+  PROTOCOL_VERSION,
+  type KbRequestStatement,
 } from '@hearthold/core';
 
 import { makeSovereignHandler } from './handler.js';
@@ -29,6 +32,8 @@ Usage:
                              Issue a credential to a subject (act as an issuer, e.g. a guild manager)
   sovereign serve            Serve over DIDComm: present proofs on request (terminal PIN)
   sovereign control [port]   Serve DIDComm + a control API for the Signet Approver app (default 4311)
+  sovereign kb-query <mageDid> <kbId> <query>          Ask a Knowledge Base (via its public Mage portal)
+  sovereign kb-update <mageDid> <kbId> <kind> <text>   Contribute knowledge to a KB (if authorized)
   sovereign help             Show this message
 
 Env:
@@ -152,6 +157,46 @@ async function main(): Promise<void> {
         );
       }
       process.stdout.write(`${issued.length} issued credential(s).\n`);
+      break;
+    }
+    case 'kb-query':
+    case 'kb-update': {
+      const mageDid = process.argv[3];
+      const kbId = process.argv[4];
+      if (!mageDid || !kbId) throw new Error(`usage: sovereign ${cmd} <mageDid> <kbId> …`);
+      const transport = new DidCommTransport(handle, IDENTITY_NAME.sovereign, config.nodeUrl);
+      await transport.ready();
+
+      // 1. Get a fresh challenge nonce from the KB (relayed by the Mage).
+      const chReply = await transport.request(mageDid, {
+        type: 'hearthold/kb-challenge-request',
+        version: PROTOCOL_VERSION,
+        kbId,
+      });
+      if (chReply.type !== 'hearthold/kb-challenge') {
+        throw new Error(`no challenge: ${JSON.stringify(chReply)}`);
+      }
+      const nonce = chReply.nonce;
+
+      // 2. Sign the request over the nonce (proves DID control end-to-end), send via the Mage.
+      const statement: KbRequestStatement =
+        cmd === 'kb-query'
+          ? { action: 'query', requester: id.did, kbId, nonce, query: process.argv.slice(5).join(' ') }
+          : { action: 'update', requester: id.did, kbId, nonce, kind: process.argv[5], text: process.argv.slice(6).join(' ') };
+      const request = await signKbRequest(handle, statement);
+      const reply = await transport.request(mageDid, { type: 'hearthold/kb-request', version: PROTOCOL_VERSION, request });
+
+      if (reply.type === 'hearthold/kb-error') {
+        process.stderr.write(`KB refused: ${reply.reason}\n`);
+        process.exitCode = 1;
+      } else if (reply.type === 'hearthold/kb-result' && reply.action === 'query') {
+        process.stdout.write(`\n🔎 ${reply.answer}\n`);
+        for (const c of reply.citations) {
+          process.stdout.write(`   · [${c.kind}] ${c.observedAt} (${c.score.toFixed(2)})\n`);
+        }
+      } else if (reply.type === 'hearthold/kb-result' && reply.action === 'update') {
+        process.stdout.write(`✓ contributed to the KB · ${reply.artefactId.slice(0, 28)}…\n`);
+      }
       break;
     }
     default:

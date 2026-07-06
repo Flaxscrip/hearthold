@@ -5,6 +5,9 @@ import {
   ensureIdentity,
   ensureDelegationSchema,
   issueDelegation,
+  createRegistryGroup,
+  grantAuthorization,
+  revokeAuthorization,
   DidCommTransport,
   IDENTITY_NAME,
   AuthzTier,
@@ -18,6 +21,7 @@ import { WardenService } from './service.js';
 import { DelegationStore } from './delegations.js';
 import { EvidenceService } from './evidence.js';
 import { RecallService, OllamaEmbedder } from './recall.js';
+import { KbConfigStore, buildKbService } from './kb-config.js';
 import { makeWardenHandler } from './handler.js';
 
 /** The recall-index embedder from config, or undefined when indexing is off. */
@@ -40,6 +44,10 @@ Usage:
   warden classify <kind> <text>   Classify text with the local model (test the classifier)
   warden vault             List stored artefacts (metadata only; payloads stay encrypted)
   warden recall <query>    Ask your own vault a question (local RAG; nothing leaves the device)
+  warden kb-init <kbId>    Provision a shared Knowledge Base (read/write access groups)
+  warden kb-grant <did> [read|write|both]   Authorize a Sovereign DID on the KB (default both)
+  warden kb-revoke <did> [read|write|both]  Revoke a Sovereign's KB authorization
+  warden kb-status         Show the KB config and its authorized members
   warden help              Show this message
 
 Env:
@@ -159,14 +167,17 @@ async function main(): Promise<void> {
       const id = await ensureIdentity(handle, config);
       const transport = new DidCommTransport(handle, IDENTITY_NAME.warden, config.nodeUrl);
       await transport.ready();
+      const kb = await buildKbService(handle, config, id.did);
       const handler = makeWardenHandler(
         new WardenService(handle, createClassifier(config), makeEmbedder(config)),
         new DelegationStore(handle),
         new EvidenceService(handle, config),
+        kb,
       );
       const stop = await transport.serve(handler);
       process.stdout.write(
         `Warden serving over DIDComm\n  did:  ${id.did}\n  node: ${config.nodeUrl}\n` +
+          `  kb:   ${kb ? 'serving a Knowledge Base' : 'none provisioned'}\n` +
           `  (Ctrl-C to stop)\n`,
       );
       const shutdown = (): void => {
@@ -210,6 +221,64 @@ async function main(): Promise<void> {
         }
       }
       process.stdout.write(`\n  (machine-derived from your vault — local only; to prove a fact, use the evidence flow)\n`);
+      break;
+    }
+    case 'kb-init': {
+      const kbId = process.argv[3];
+      if (!kbId) throw new Error('usage: warden kb-init <kbId>');
+      await ensureIdentity(handle, config);
+      const store = new KbConfigStore(handle.dataFolder);
+      if (await store.read()) throw new Error('a KB is already provisioned for this Warden');
+      const readGroup = await createRegistryGroup(handle, `kb-read-${kbId}`, config.registry);
+      const writeGroup = await createRegistryGroup(handle, `kb-write-${kbId}`, config.registry);
+      await store.save({ kbId, readGroup, writeGroup });
+      process.stdout.write(
+        `Knowledge Base "${kbId}" provisioned\n` +
+          `  read group:  ${readGroup}\n  write group: ${writeGroup}\n` +
+          `  → grant members:  warden kb-grant <sovereignDid>\n` +
+          `  → serve it:       warden serve   (or warden control)\n`,
+      );
+      break;
+    }
+    case 'kb-grant':
+    case 'kb-revoke': {
+      const did = process.argv[3];
+      const scope = (process.argv[4] ?? 'both').toLowerCase();
+      if (!did) throw new Error(`usage: warden ${cmd} <sovereignDid> [read|write|both]`);
+      await ensureIdentity(handle, config);
+      const kb = await new KbConfigStore(handle.dataFolder).read();
+      if (!kb) throw new Error('no KB provisioned — run `warden kb-init <kbId>` first');
+      const groups: string[] = [];
+      if (scope === 'read' || scope === 'both') groups.push(kb.readGroup);
+      if (scope === 'write' || scope === 'both') groups.push(kb.writeGroup);
+      if (groups.length === 0) throw new Error('scope must be read | write | both');
+      for (const g of groups) {
+        if (cmd === 'kb-grant') await grantAuthorization(handle, g, did);
+        else await revokeAuthorization(handle, g, did);
+      }
+      process.stdout.write(
+        `${cmd === 'kb-grant' ? 'Granted' : 'Revoked'} ${scope} for ${did.slice(0, 28)}… on "${kb.kbId}"\n`,
+      );
+      break;
+    }
+    case 'kb-status': {
+      await ensureIdentity(handle, config);
+      const kb = await new KbConfigStore(handle.dataFolder).read();
+      if (!kb) {
+        process.stdout.write('No Knowledge Base provisioned. Run `warden kb-init <kbId>`.\n');
+        break;
+      }
+      const members = async (group: string): Promise<string[]> => {
+        const g = (await handle.keymaster.getGroup(group).catch(() => null)) as { members?: string[] } | null;
+        return g?.members ?? [];
+      };
+      const readers = await members(kb.readGroup);
+      const writers = await members(kb.writeGroup);
+      process.stdout.write(
+        `Knowledge Base "${kb.kbId}"\n` +
+          `  read group:  ${kb.readGroup}\n    ${readers.length} member(s): ${readers.map((m) => m.slice(0, 20) + '…').join(', ') || '(none)'}\n` +
+          `  write group: ${kb.writeGroup}\n    ${writers.length} member(s): ${writers.map((m) => m.slice(0, 20) + '…').join(', ') || '(none)'}\n`,
+      );
       break;
     }
     default:
