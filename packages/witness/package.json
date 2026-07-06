@@ -9,7 +9,8 @@
   },
   "exports": {
     ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
-    "./handler": { "types": "./dist/handler.d.ts", "import": "./dist/handler.js" }
+    "./handler": { "types": "./dist/handler.d.ts", "import": "./dist/handler.js" },
+    "./kb-relay": { "types": "./dist/kb-relay.d.ts", "import": "./dist/kb-relay.js" }
   },
   "scripts": {
     "build": "tsc --build",

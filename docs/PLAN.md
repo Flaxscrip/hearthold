@@ -162,7 +162,7 @@ rules), to make the system demonstrable without a terminal:
 
 Demo-first steps toward the layered Hearthold GUI (admin base → DID cards → themes).
 
-### KB — Knowledge Base via a public Mage portal + a private Warden  ◀ proposed
+### KB — Knowledge Base via a public Mage portal + a private Warden  ◐ first increment built
 A shared, authorized **Knowledge Base** that authorized Sovereign(s) can **query and update** — WITHOUT
 touching the home Warden's invariant. The public surface is a **public Mage** (Witness): the community's
 world-facing portal that authenticates who is asking and **carries** the query; the **Warden stays
@@ -184,8 +184,15 @@ the KB (evidence graph over KB entries, composited with the contributor's creden
 repurposed as **visibility** (public / member-only / role-gated). Content discipline: shared knowledge
 only — **never** private 7th Capital (that stays in a personal Warden).
 
-- **First increment** (single Sovereign): a KB access group; the Warden does registry-gated recall +
-  authorized update; a Witness relays KB queries; a public web portal over the Mage. Hosted on flaxlap.
+- **First increment** ✅ (`core/kb.ts`, `warden/kb.ts`, `witness/kb-relay.ts`, `e2e:kb`): a KB Warden
+  serves a shared KB; a member **authenticates** by signing the request over a Warden-issued nonce
+  (`signKbRequest`/`verifyKbRequestSignature` — DID control proven end-to-end, so the relaying Mage can't
+  forge identity; the nonce gives anti-replay), is **authorized** by a KB `read`/`write`
+  `GroupTrustRegistry` group, then **queries** (recall) or **updates** (seal+classify+index, contributor-
+  stamped). The public Mage (`makeKbRelayHandler`) forwards and holds nothing. Verified live: member
+  update+query, non-member refused, forged requester rejected, replayed nonce rejected. **Still to do
+  this increment:** a hosted web portal over the Mage, and the Warden's `serve`/`control` wiring a live
+  `KbService` (the e2e drives it in-process).
 - **Grows to:** multi-Sovereign (add members to the group), a guild/public GUI, and a **prove→contribute
   bridge** (publish a consented, derived fact from a personal vault into the shared KB).
 - **Demo vehicle:** the Drake Gamers Guild Knowledge Base — members query/update via the guild's public

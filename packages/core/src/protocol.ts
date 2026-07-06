@@ -200,6 +200,73 @@ export type ApprovalResponseMessage =
       reason: string;
     };
 
+// ── Knowledge Base — the public Mage portal to a private Warden ───────────────
+//
+// An authorized Sovereign queries/updates a shared KB. The public Mage (Witness) relays; the private
+// Warden authenticates (DID control) + authorizes (trust-registry group) + serves. Authentication is
+// end-to-end: the Sovereign signs the request over a Warden-issued nonce, so the relaying Mage cannot
+// forge the requester's identity. This is challenge/response semantics (Warden nonce = freshness).
+
+/** Sovereign → Warden (via Mage): "let me in" — asks for a fresh nonce to sign. */
+export interface KbChallengeRequestMessage {
+  type: 'hearthold/kb-challenge-request';
+  version: typeof PROTOCOL_VERSION;
+  kbId: string;
+}
+
+/** Warden → Sovereign (via Mage): a fresh, single-use nonce to bind the next request to. */
+export interface KbChallengeMessage {
+  type: 'hearthold/kb-challenge';
+  version: typeof PROTOCOL_VERSION;
+  nonce: string;
+}
+
+/** What the Sovereign signs — proves DID control and binds to the Warden's nonce. */
+export interface KbRequestStatement {
+  action: 'query' | 'update';
+  /** The Sovereign's DID (must match the signature and a KB group member). */
+  requester: string;
+  kbId: string;
+  /** The nonce the Warden issued (freshness / anti-replay). */
+  nonce: string;
+  /** Query: the question. */
+  query?: string;
+  k?: number;
+  /** Update: the knowledge to contribute. */
+  kind?: string;
+  text?: string;
+}
+/** A KB request statement plus the Sovereign's detached signature (`keymaster.addProof`). */
+export type SignedKbRequest = KbRequestStatement & { proof?: unknown };
+
+/** Sovereign → Warden (via Mage): the signed query/update. */
+export interface KbRequestMessage {
+  type: 'hearthold/kb-request';
+  version: typeof PROTOCOL_VERSION;
+  request: SignedKbRequest;
+}
+
+/** Warden → Sovereign (via Mage): the result of an authorized KB request, or a refusal. */
+export type KbResultMessage =
+  | {
+      type: 'hearthold/kb-result';
+      version: typeof PROTOCOL_VERSION;
+      action: 'query';
+      answer: string;
+      citations: { artefactId: string; kind: string; observedAt: string; score: number }[];
+    }
+  | {
+      type: 'hearthold/kb-result';
+      version: typeof PROTOCOL_VERSION;
+      action: 'update';
+      artefactId: string;
+    }
+  | {
+      type: 'hearthold/kb-error';
+      version: typeof PROTOCOL_VERSION;
+      reason: string;
+    };
+
 /** Warden → Witness: a request was refused (e.g. not authorized). */
 export interface ErrorMessage {
   type: 'hearthold/error';
@@ -216,4 +283,8 @@ export type HearthholdMessage =
   | ProofPresentationMessage
   | ApprovalRequestMessage
   | ApprovalResponseMessage
+  | KbChallengeRequestMessage
+  | KbChallengeMessage
+  | KbRequestMessage
+  | KbResultMessage
   | ErrorMessage;

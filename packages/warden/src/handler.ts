@@ -4,11 +4,13 @@ import {
   type HearthholdMessage,
   type WitnessSubmission,
   type EvidenceRequest,
+  type KbRequestMessage,
 } from '@hearthold/core';
 
 import type { WardenService } from './service.js';
 import type { DelegationStore } from './delegations.js';
 import type { EvidenceService } from './evidence.js';
+import type { KbService } from './kb.js';
 
 /**
  * Builds the Warden's inbound request handler. Authentication of `fromDid` is already done by the
@@ -18,6 +20,7 @@ export function makeWardenHandler(
   service: WardenService,
   delegations: DelegationStore,
   evidence?: EvidenceService,
+  kb?: KbService,
 ): RequestHandler {
   const deny = (reason: string): HearthholdMessage => ({
     type: 'hearthold/error',
@@ -45,6 +48,18 @@ export function makeWardenHandler(
         }
         const delegationValid = await delegations.isAuthorized(fromDid);
         return evidence.handle(message as EvidenceRequest, fromDid, delegationValid);
+      }
+
+      // Knowledge Base — the KB service authenticates + authorizes end-to-end (the requester's own
+      // signature over our nonce), so a relaying Mage never gains authority. `fromDid` is only the
+      // transport hop (the Mage), deliberately not trusted for identity here.
+      case 'hearthold/kb-challenge-request': {
+        if (!kb) return deny('KB service not configured');
+        return kb.challenge();
+      }
+      case 'hearthold/kb-request': {
+        if (!kb) return deny('KB service not configured');
+        return kb.serve((message as KbRequestMessage).request);
       }
 
       default:
