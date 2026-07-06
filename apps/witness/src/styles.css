@@ -124,6 +124,11 @@ input {
 }
 input:focus { border-color: var(--mage); }
 .claimin { width: 100%; }
+.structuredrow { display: flex; align-items: center; gap: 8px; }
+.structuredrow .claimin { flex: 1; }
+.structuredtag { font-size: 11px; color: var(--ink-faint); white-space: nowrap; }
+.linkbtn { background: none; border: none; color: var(--mage); font: inherit; font-size: 12px; cursor: pointer; padding: 0; }
+.linkbtn:hover { color: var(--mage-soft); text-decoration: underline; }
 .ttlrow { display: flex; align-items: center; gap: 8px; color: var(--ink-dim); font-size: 13px; }
 .ttlin { width: 72px; }
 .daterow { display: flex; align-items: center; gap: 8px; }

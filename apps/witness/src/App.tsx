@@ -169,15 +169,29 @@ function SubmitPanel({ onReceipt }: { onReceipt: (r: ReceiptRecord) => void }) {
   );
 }
 
+/** Derive a structured predicate from the GUI selections (kind + optional window). */
+function autoStructured(kind: string, from: string, to: string): string {
+  const obj: Record<string, unknown> = { type: kind };
+  if (from) obj.from = from;
+  if (to) obj.to = to;
+  return JSON.stringify(obj);
+}
+
 function ProvePanel({ onProof, sovereignSet }: { onProof: (p: ProofRecord) => void; sovereignSet: boolean }) {
-  const [claim, setClaim] = useState('Resided in FR during 2026-H1');
+  const [claim, setClaim] = useState('');
   const [kind, setKind] = useState<string>('location');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
-  const [structured, setStructured] = useState('{"type":"residence","country":"FR","period":"2026-H1"}');
+  const [structured, setStructured] = useState('');
+  // Until the user hand-edits the structured field, keep it in sync with the GUI selections.
+  const [structuredEdited, setStructuredEdited] = useState(false);
   const [ttl, setTtl] = useState('10');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!structuredEdited) setStructured(autoStructured(kind, from, to));
+  }, [kind, from, to, structuredEdited]);
 
   const request = async () => {
     if (!claim.trim()) return;
@@ -232,13 +246,34 @@ function ProvePanel({ onProof, sovereignSet }: { onProof: (p: ProofRecord) => vo
           <span className="dash">→</span>
           <input type="date" value={to} onChange={(e) => setTo(e.target.value)} title="to (optional)" />
         </div>
-        <input
-          className="claimin"
-          placeholder="structured predicate (JSON, optional)"
-          value={structured}
-          onChange={(e) => setStructured(e.target.value)}
-          spellCheck={false}
-        />
+        <div className="structuredrow">
+          <input
+            className="claimin"
+            placeholder="structured predicate (JSON, optional)"
+            value={structured}
+            onChange={(e) => {
+              setStructured(e.target.value);
+              setStructuredEdited(true);
+            }}
+            spellCheck={false}
+          />
+          <span className="structuredtag">
+            {structuredEdited ? (
+              <button
+                type="button"
+                className="linkbtn"
+                onClick={() => {
+                  setStructuredEdited(false);
+                  setStructured(autoStructured(kind, from, to));
+                }}
+              >
+                reset to auto
+              </button>
+            ) : (
+              'auto ✎'
+            )}
+          </span>
+        </div>
         <label className="ttlrow">
           valid for
           <input className="ttlin" type="number" min={1} value={ttl} onChange={(e) => setTtl(e.target.value)} />
