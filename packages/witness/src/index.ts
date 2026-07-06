@@ -13,6 +13,7 @@ import {
 
 import { makeWitnessProjectorHandler } from './handler.js';
 import { makeKbRelayHandler } from './kb-relay.js';
+import { startKbPortalServer } from './kb-portal-server.js';
 import { runWitnessControl } from './control.js';
 
 const HELP = `Hearthold Witness — Companion
@@ -24,6 +25,7 @@ Usage:
   witness submit <kind> <text> Seal an observation and submit it to the Warden over DIDComm
   witness serve                Project to the world: relay proof-requests to the Sovereign (Signet)
   witness kb-portal            Public Mage: relay Knowledge Base traffic to the Warden (carries only)
+  witness kb-web [port]        Public Mage web portal: HTTP→DIDComm bridge for the browser (default 4313)
   witness control [port]       Submit + project over DIDComm, with a control API for the Witness app (default 4312)
   witness help                 Show this message
 
@@ -157,6 +159,22 @@ async function main(): Promise<void> {
       );
       const shutdown = (): void => {
         stop();
+        process.exit(0);
+      };
+      process.on('SIGINT', shutdown);
+      process.on('SIGTERM', shutdown);
+      break;
+    }
+    case 'kb-web': {
+      const wardenDid = config.wardenDid;
+      if (!wardenDid) throw new Error('HEARTHOLD_WARDEN_DID is required — the portal relays to the Warden');
+      const port = Number(process.argv[3] ?? process.env.HEARTHOLD_PORTAL_PORT ?? 4313);
+      const host = process.env.HEARTHOLD_PORTAL_HOST ?? '127.0.0.1';
+      const transport = new DidCommTransport(handle, IDENTITY_NAME.witness, config.nodeUrl);
+      await transport.ready();
+      const server = startKbPortalServer({ transport, wardenDid, port, host });
+      const shutdown = (): void => {
+        server.close();
         process.exit(0);
       };
       process.on('SIGINT', shutdown);

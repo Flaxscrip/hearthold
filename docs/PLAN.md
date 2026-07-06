@@ -195,8 +195,20 @@ only — **never** private 7th Capital (that stays in a personal Warden).
   `kb-revoke` / `kb-status`; `warden serve` (and `control`) load the `KbService` and serve the KB over
   DIDComm; `witness kb-portal` runs the public Mage; `sovereign kb-query` / `kb-update` are the member
   client (challenge → sign → request). Verified live over DIDComm end-to-end: a member contributes and
-  queries the guild KB through the Mage portal, three real processes. **Still to do:** a hosted **web
-  portal** over the Mage (browser member login via Archon challenge/response); multi-KB per Warden.
+  queries the guild KB through the Mage portal, three real processes.
+- **Web portal** ✅ (`witness/kb-portal-server.ts` + `witness kb-web`; `apps/kb-portal`): the public
+  Mage's browser face. `witness kb-web [port]` is an HTTP→DIDComm bridge (`POST /api/kb/challenge` +
+  `/api/kb/request`) relaying to the Warden. `apps/kb-portal` is a Vite/React app using **browser
+  Keymaster** (the archon.social / react-wallet recipe: Buffer shim + `WalletWeb` + `CipherWeb` +
+  `GatekeeperClient`): the member unlocks their own wallet, `addProof`-signs each request in-browser,
+  and fetches to the Mage. The browser produces the byte-for-byte same signed `KbRequestStatement` the
+  CLI does → **zero backend changes**. Verified live: the full HTTP path (contribute + ask) against the
+  real Warden + Ollama returns grounded answers with citations. *Remaining: a real-browser manual test
+  of the in-browser wallet unlock/sign (the proven archon.social pattern), and static-serving from the
+  Mage.* **Still to do:** multi-KB per Warden.
+- **DEPLOY** (next, per plan): to **archon.social** — build the static portal, serve behind its web
+  server, provision a fresh KB Warden + Mage + KB group (the new KB database + identities); on
+  archon.social the member wallet is already in `localStorage['archon-keymaster']` (effectively SSO).
 - **Grows to:** multi-Sovereign (add members to the group), a guild/public GUI, and a **prove→contribute
   bridge** (publish a consented, derived fact from a personal vault into the shared KB).
 - **Demo vehicle:** the Drake Gamers Guild Knowledge Base — members query/update via the guild's public
