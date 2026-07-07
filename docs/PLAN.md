@@ -206,6 +206,15 @@ only — **never** private 7th Capital (that stays in a personal Warden).
   real Warden + Ollama returns grounded answers with citations. *Remaining: a real-browser manual test
   of the in-browser wallet unlock/sign (the proven archon.social pattern), and static-serving from the
   Mage.* **Still to do:** multi-KB per Warden.
+- **Assurance / factor 2** ✅ (registry-governed step-up): the **Trust Registry** declares required
+  assurance per action (`AssuranceTier`, a ledger **policy asset** — `warden kb-policy write factor2`;
+  `authorize()` returns `{authorized, requiredAssurance}`). A web-login session is factor1; when policy
+  demands factor2 the Warden asks the member's **Signet directly, out-of-band** (`kb-approval-request`
+  over DIDComm — the Mage is never on that channel, so it can't forge/replay), gated by a fresh
+  proof-of-human. Reads never step up; policy (not code) governs. This is the fool-proof tier for the
+  Sovereign and for AI-agent authorization (human-in-the-loop = registry policy + out-of-band approval).
+  e2e: `kb-stepup` (enforcement) + `kb-stepup-didcomm` (live channel). Builds toward
+  [[project-witness-modules]] — the `auth` module's assurance step-up.
 - **DEPLOY** (next, per plan): to **archon.social** — build the static portal, serve behind its web
   server, provision a fresh KB Warden + Mage + KB group (the new KB database + identities); on
   archon.social the member wallet is already in `localStorage['archon-keymaster']` (effectively SSO).
