@@ -27,6 +27,7 @@ import {
   type HearthholdConfig,
   type TrustEvaluator,
   meetsAssurance,
+  type Transport,
   type SignedKbRequest,
   type KbChallengeMessage,
   type KbResultMessage,
@@ -66,6 +67,34 @@ export interface KbActionApprover {
     resource: string;
     summary: string;
   }): Promise<boolean>;
+}
+
+/**
+ * A KbActionApprover backed by DIDComm: the Warden asks the member's Signet **directly** to authorize
+ * the action. The Mage is not on this channel. Times out (deny) if the Signet doesn't answer.
+ */
+export function makeDidcommActionApprover(transport: Transport, timeoutMs = 170_000): KbActionApprover {
+  return {
+    async requestActionApproval(req) {
+      try {
+        const reply = await transport.request(
+          req.member,
+          {
+            type: 'hearthold/kb-approval-request',
+            version: PROTOCOL_VERSION,
+            member: req.member,
+            action: req.action,
+            resource: req.resource,
+            summary: req.summary,
+          },
+          { timeoutMs },
+        );
+        return reply.type === 'hearthold/kb-approval-response' && reply.approved === true;
+      } catch {
+        return false; // unreachable Signet or timeout ⇒ not approved (fail closed)
+      }
+    },
+  };
 }
 
 export class KbService {

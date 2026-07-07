@@ -5,6 +5,7 @@ import {
   type RequestHandler,
   type ProofRequestMessage,
   type ApprovalRequestMessage,
+  type KbApprovalRequestMessage,
   type EvidenceApprovalStatement,
   type KeymasterHandle,
 } from '@hearthold/core';
@@ -65,6 +66,22 @@ export function makeSovereignHandler(sovereign: KeymasterHandle, gate: ApprovalG
       };
       const approval = await signEvidenceApproval(sovereign, statement);
       return { type: 'hearthold/approval-response', version: PROTOCOL_VERSION, approved: true, approval };
+    }
+
+    // KB assurance step-up: the Warden asks the member (this Sovereign) to authorize a factor2 action,
+    // directly and out-of-band. Gated by a fresh proof-of-human — the Mage is never on this channel.
+    if (message.type === 'hearthold/kb-approval-request') {
+      const m = message as KbApprovalRequestMessage;
+      const humanProof = await gate.approve({
+        requester: fromDid,
+        action: { action: m.action, resource: m.resource, summary: m.summary },
+      });
+      return {
+        type: 'hearthold/kb-approval-response',
+        version: PROTOCOL_VERSION,
+        approved: !!humanProof,
+        reason: humanProof ? undefined : 'declined by the Sovereign',
+      };
     }
 
     return null;

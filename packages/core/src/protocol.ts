@@ -296,6 +296,31 @@ export interface KbSessionRequestMessage {
   text?: string;
 }
 
+// ── KB assurance step-up (factor 2): the Warden asks the member out-of-band to authorize an action ──
+// This travels DIRECTLY Warden → the member's Signet — the Mage is never on this channel, so it can
+// neither forge nor replay the approval. Reads never trigger it; policy (the registry) decides which
+// actions do.
+
+/** Warden → member's Signet: authorize this action? (direct control-plane channel). */
+export interface KbApprovalRequestMessage {
+  type: 'hearthold/kb-approval-request';
+  version: typeof PROTOCOL_VERSION;
+  /** The member being asked (must be the DIDComm recipient). */
+  member: string;
+  action: string;
+  resource: string;
+  /** A human-readable description of the action (Warden-authored). */
+  summary: string;
+}
+
+/** Member's Signet → Warden: the out-of-band decision. */
+export interface KbApprovalResponseMessage {
+  type: 'hearthold/kb-approval-response';
+  version: typeof PROTOCOL_VERSION;
+  approved: boolean;
+  reason?: string;
+}
+
 /** Warden → Sovereign (via Mage): the result of an authorized KB request, or a refusal. */
 export type KbResultMessage =
   | {
@@ -341,5 +366,7 @@ export type HearthholdMessage =
   | KbLoginCompleteMessage
   | KbSessionMessage
   | KbSessionRequestMessage
+  | KbApprovalRequestMessage
+  | KbApprovalResponseMessage
   | KbResultMessage
   | ErrorMessage;

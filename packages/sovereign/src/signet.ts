@@ -26,6 +26,12 @@ export interface ApprovalContext {
     requiredLevel: number;
     reason: string;
   };
+  /** For a KB assurance step-up (factor 2): the action the member is asked to authorize out-of-band. */
+  action?: {
+    action: string;
+    resource: string;
+    summary: string;
+  };
 }
 
 export interface ApprovalGate {
@@ -69,7 +75,9 @@ export class PromptGate implements ApprovalGate {
   async approve(ctx: ApprovalContext): Promise<HumanPresenceAssertion | null> {
     const detail = ctx.disclosure
       ? `   claim:     ${ctx.disclosure.claim}\n   reason:    ${ctx.disclosure.reason}\n`
-      : `   challenge: ${(ctx.challengeDid ?? '').slice(0, 40)}…\n`;
+      : ctx.action
+        ? `   action:    ${ctx.action.action} on ${ctx.action.resource}\n   detail:    ${ctx.action.summary}\n`
+        : `   challenge: ${(ctx.challengeDid ?? '').slice(0, 40)}…\n`;
     process.stdout.write(
       `\n🔑 Signet — a disclosure needs your approval\n` +
         `   from:      ${ctx.requester.slice(0, 40)}…\n` +

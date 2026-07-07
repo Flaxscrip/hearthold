@@ -22,6 +22,7 @@ import { WardenService } from './service.js';
 import { DelegationStore } from './delegations.js';
 import { EvidenceService } from './evidence.js';
 import { RecallService, OllamaEmbedder } from './recall.js';
+import { makeDidcommActionApprover } from './kb.js';
 import { KbConfigStore, buildKbService } from './kb-config.js';
 import { makeWardenHandler } from './handler.js';
 
@@ -169,7 +170,7 @@ async function main(): Promise<void> {
       const id = await ensureIdentity(handle, config);
       const transport = new DidCommTransport(handle, IDENTITY_NAME.warden, config.nodeUrl);
       await transport.ready();
-      const kb = await buildKbService(handle, config, id.did);
+      const kb = await buildKbService(handle, config, id.did, makeDidcommActionApprover(transport));
       const handler = makeWardenHandler(
         new WardenService(handle, createClassifier(config), makeEmbedder(config)),
         new DelegationStore(handle),

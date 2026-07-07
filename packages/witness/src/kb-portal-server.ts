@@ -110,7 +110,8 @@ export function startKbPortalServer(opts: KbPortalOptions): ControlServer {
         const reply = await transport.request(
           wardenDid,
           { type: 'hearthold/kb-session-request', version: PROTOCOL_VERSION, token, kbId, action, query, k, kind, text },
-          { timeoutMs: 120_000 },
+          // Long enough to outlast a factor-2 step-up (the Warden may be awaiting the member's Signet).
+          { timeoutMs: 200_000 },
         );
         return { result: reply };
       },

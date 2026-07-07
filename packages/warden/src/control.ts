@@ -37,6 +37,7 @@ import { VaultStore, type Artefact } from './store.js';
 import { DelegationStore } from './delegations.js';
 import { EvidenceService, type SovereignApprover } from './evidence.js';
 import { OllamaEmbedder, RecallService } from './recall.js';
+import { makeDidcommActionApprover } from './kb.js';
 import { buildKbService } from './kb-config.js';
 import { makeWardenHandler } from './handler.js';
 
@@ -148,7 +149,8 @@ export async function runWardenControl(
     : undefined;
 
   // Serve a provisioned Knowledge Base over DIDComm too (a public Mage relays to this mailbox).
-  const kb = await buildKbService(handle, config, id.did);
+  // The step-up approver reaches the member's Signet directly (out-of-band from the Mage).
+  const kb = await buildKbService(handle, config, id.did, makeDidcommActionApprover(transport));
 
   // Wrap the real handler so a stored submission is pushed to connected consoles.
   const inner = makeWardenHandler(service, delegations, new EvidenceService(handle, config, approver), kb);
