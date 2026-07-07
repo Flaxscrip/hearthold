@@ -125,3 +125,16 @@ button:not(:disabled):hover { filter: brightness(1.07); }
 .cite { display: flex; align-items: center; gap: 9px; font-size: 13px; }
 .cite .when { color: var(--ink-faint); font-size: 12px; }
 .cite .score { margin-left: auto; color: var(--ember-soft); font-size: 12px; }
+
+/* ── Knowledge Base panel ── */
+.kb-cols { display: flex; gap: 14px; margin: 10px 0 4px; }
+.kb-cols > div { flex: 1; min-width: 0; }
+.kb-h { font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--ink-dim); margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+.kb-h .tier { text-transform: none; letter-spacing: 0; font-size: 11px; color: var(--ember-soft); background: var(--bg-2); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; }
+.kb-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.kb-member { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.kb-grant { margin-top: 10px; }
+.kb-policy { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.mini { background: transparent; color: var(--ink-dim); border: 1px solid var(--line); border-radius: 7px; font-size: 12px; padding: 3px 9px; cursor: pointer; }
+.mini:not(:disabled):hover { color: var(--ink); border-color: var(--ink-faint); }
+.mini.deny:hover { color: var(--ember); border-color: var(--ember); }

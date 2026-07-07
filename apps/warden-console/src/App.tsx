@@ -4,6 +4,7 @@ import type {
   WardenSnapshot,
   VaultItem,
   SubmissionStoredEvent,
+  KbView,
 } from '@hearthold/control-types';
 
 import { api, useEvents } from './api';
@@ -50,6 +51,7 @@ export function App() {
       <main className="grid">
         <div className="col">
           <RecallPanel />
+          <KbPanel />
           <VaultPanel vault={snap?.vault ?? []} />
         </div>
         <div className="col">
@@ -277,6 +279,104 @@ function RecallPanel() {
         </div>
       )}
       {err && <p className="note">✗ {err}</p>}
+    </Card>
+  );
+}
+
+function KbPanel() {
+  const [kb, setKb] = useState<KbView | null>(null);
+  const [did, setDid] = useState('');
+  const [scope, setScope] = useState<'read' | 'write' | 'both'>('both');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setKb(await api.kb());
+    } catch {
+      /* daemon may be old build; leave null */
+    }
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const run = async (fn: () => Promise<KbView>, ok: string) => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      setKb(await fn());
+      setMsg(ok);
+      window.setTimeout(() => setMsg(null), 2500);
+    } catch (e) {
+      setMsg(`✗ ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!kb) return null; // no KB daemon / not provisioned yet
+  if (!kb.provisioned) {
+    return (
+      <Card title="Knowledge Base">
+        <p className="note dim">No KB provisioned. Run <code>warden kb-init &lt;kbId&gt;</code>.</p>
+      </Card>
+    );
+  }
+
+  const memberRow = (m: string, s: 'read' | 'write') => (
+    <li key={`${s}-${m}`} className="kb-member">
+      <DidTag did={m} />
+      <button className="mini deny" disabled={busy} onClick={() => run(() => api.kbRevoke(m, s), 'revoked')}>
+        revoke
+      </button>
+    </li>
+  );
+
+  return (
+    <Card title={`Knowledge Base · ${kb.kbId}`}>
+      <p className="note dim">
+        Access is granted to the <strong>member</strong> DID that signs in — never the relaying Mage.
+      </p>
+
+      <div className="kb-cols">
+        <div>
+          <div className="kb-h">read <span className="tier">{kb.policy.read}</span></div>
+          <ul className="kb-list">{kb.readers.length ? kb.readers.map((m) => memberRow(m, 'read')) : <li className="dim tiny">none</li>}</ul>
+        </div>
+        <div>
+          <div className="kb-h">write <span className="tier">{kb.policy.write}</span></div>
+          <ul className="kb-list">{kb.writers.length ? kb.writers.map((m) => memberRow(m, 'write')) : <li className="dim tiny">none</li>}</ul>
+        </div>
+      </div>
+
+      <div className="form col2 kb-grant">
+        <input className="claimin" placeholder="member did:cid to authorize" value={did} onChange={(e) => setDid(e.target.value)} spellCheck={false} />
+        <div className="kinds">
+          {(['read', 'write', 'both'] as const).map((s) => (
+            <button key={s} className={`kindpick${scope === s ? ' on' : ''}`} type="button" onClick={() => setScope(s)}>
+              {s}
+            </button>
+          ))}
+        </div>
+        <button disabled={busy || !did.trim()} onClick={() => run(() => api.kbGrant(did.trim(), scope), 'granted')}>
+          {busy ? '…' : 'Grant access'}
+        </button>
+      </div>
+
+      <div className="kb-policy">
+        <span className="dim tiny">assurance:</span>
+        {(['read', 'write'] as const).map((action) => {
+          const tier = kb.policy[action];
+          const next = tier === 'factor2' ? 'factor1' : 'factor2';
+          return (
+            <button key={action} className="mini" disabled={busy} onClick={() => run(() => api.kbPolicy(action, next), `${action} → ${next}`)}>
+              {action}: {tier} →
+            </button>
+          );
+        })}
+      </div>
+      {msg && <p className="note">{msg}</p>}
     </Card>
   );
 }

@@ -86,6 +86,27 @@ export interface RecallRequest {
   query: string;
   k?: number;
 }
+
+/** The Knowledge Base's membership + assurance policy, for the Warden Console KB panel. */
+export interface KbView {
+  provisioned: boolean;
+  kbId?: string;
+  readGroup?: string;
+  writeGroup?: string;
+  /** DIDs authorized to read (query) / write (contribute). */
+  readers: string[];
+  writers: string[];
+  /** Required assurance per action (governance policy). */
+  policy: { read: string; write: string };
+}
+export interface KbGrantRequest {
+  did: string;
+  scope: 'read' | 'write' | 'both';
+}
+export interface KbPolicyRequest {
+  action: 'read' | 'write';
+  tier: 'factor1' | 'factor2';
+}
 export interface RecallCitationView {
   artefactId: string;
   kind: string;

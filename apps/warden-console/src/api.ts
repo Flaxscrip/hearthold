@@ -6,7 +6,10 @@ import type {
   DelegateResponse,
   ClassifyResponse,
   RecallResponse,
+  KbView,
 } from '@hearthold/control-types';
+
+type Scope = 'read' | 'write' | 'both';
 
 const BASE = (import.meta.env.VITE_CONTROL_URL as string | undefined) ?? 'http://127.0.0.1:4310';
 
@@ -36,6 +39,11 @@ export const api = {
   delegate: (witnessDid: string) => post<DelegateResponse>('/api/delegate', { witnessDid }),
   classify: (kind: string, text: string) => post<ClassifyResponse>('/api/classify', { kind, text }),
   recall: (query: string) => post<RecallResponse>('/api/recall', { query }),
+  kb: () => get<{ kb: KbView }>('/api/kb').then((r) => r.kb),
+  kbGrant: (did: string, scope: Scope) => post<{ kb: KbView }>('/api/kb/grant', { did, scope }).then((r) => r.kb),
+  kbRevoke: (did: string, scope: Scope) => post<{ kb: KbView }>('/api/kb/revoke', { did, scope }).then((r) => r.kb),
+  kbPolicy: (action: 'read' | 'write', tier: 'factor1' | 'factor2') =>
+    post<{ kb: KbView }>('/api/kb/policy', { action, tier }).then((r) => r.kb),
 };
 
 /** Subscribe to the daemon's SSE event stream; `onEvent` fires per pushed event. */
