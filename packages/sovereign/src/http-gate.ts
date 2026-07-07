@@ -40,23 +40,36 @@ export class HttpGate implements ApprovalGate {
 
   approve(ctx: ApprovalContext): Promise<HumanPresenceAssertion | null> {
     const id = randomUUID();
-    const approval: PendingApproval = ctx.disclosure
-      ? {
-          id,
-          requester: ctx.requester,
-          kind: 'evidence-approval',
-          claim: ctx.disclosure.claim,
-          reason: ctx.disclosure.reason,
-          receivedAt: new Date().toISOString(),
-        }
-      : {
-          id,
-          requester: ctx.requester,
-          kind: 'proof-request',
-          challengeDid: ctx.challengeDid,
-          schema: ctx.schema,
-          receivedAt: new Date().toISOString(),
-        };
+    let approval: PendingApproval;
+    if (ctx.disclosure) {
+      approval = {
+        id,
+        requester: ctx.requester,
+        kind: 'evidence-approval',
+        claim: ctx.disclosure.claim,
+        reason: ctx.disclosure.reason,
+        receivedAt: new Date().toISOString(),
+      };
+    } else if (ctx.action) {
+      approval = {
+        id,
+        requester: ctx.requester,
+        kind: 'kb-action',
+        action: ctx.action.action,
+        resource: ctx.action.resource,
+        summary: ctx.action.summary,
+        receivedAt: new Date().toISOString(),
+      };
+    } else {
+      approval = {
+        id,
+        requester: ctx.requester,
+        kind: 'proof-request',
+        challengeDid: ctx.challengeDid,
+        schema: ctx.schema,
+        receivedAt: new Date().toISOString(),
+      };
+    }
     return new Promise<HumanPresenceAssertion | null>((resolve) => {
       const timer = setTimeout(() => {
         if (!this.pending.has(id)) return;
