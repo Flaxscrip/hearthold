@@ -88,6 +88,65 @@ export class DidCommTransport implements Transport {
     }
   }
 
+  // `receiveDidComm` is destructive, so there must be exactly ONE reader of the mailbox. This single
+  // loop serves both roles: it resolves replies to in-flight requests (matched by `thid`) and
+  // dispatches incoming requests to the handler. Handlers run WITHOUT blocking the loop, so a handler
+  // that itself awaits a reply (an approver / relay) can't deadlock the sole reader.
+  private readonly pending = new Map<string, (m: HearthholdMessage) => void>();
+  private handler: RequestHandler | null = null;
+  private loopRunning = false;
+
+  private ensureLoop(pollMs: number): void {
+    if (this.loopRunning) return;
+    this.loopRunning = true;
+    void (async () => {
+      while (this.handler || this.pending.size > 0) {
+        let inbound: Awaited<ReturnType<typeof this.handle.keymaster.receiveDidComm>> = [];
+        try {
+          inbound = await this.handle.keymaster.receiveDidComm({ name: this.idName });
+        } catch {
+          inbound = [];
+        }
+
+        for (const m of inbound) {
+          const wrapped = m.message as { thid?: string; body?: HearthholdMessage };
+          const body = wrapped?.body;
+          const thid = wrapped?.thid;
+          if (!body?.type) continue;
+
+          // A reply to one of our in-flight requests — hand it to the waiter.
+          if (thid && this.pending.has(thid)) {
+            const resolve = this.pending.get(thid);
+            this.pending.delete(thid);
+            resolve?.(body);
+            continue;
+          }
+
+          // Otherwise it's an incoming request — dispatch to the handler off the loop.
+          const h = this.handler;
+          const fromDid = bareDid(m.metadata?.sender);
+          if (!h || !fromDid) continue;
+          void (async () => {
+            let reply: HearthholdMessage | null = null;
+            try {
+              reply = await h(body, fromDid);
+            } catch {
+              reply = null;
+            }
+            if (reply) {
+              await this.handle.keymaster
+                .sendDidComm({ type: reply.type, thid, body: reply }, fromDid, { name: this.idName })
+                .catch(() => undefined);
+            }
+          })();
+        }
+
+        if (this.handler || this.pending.size > 0) await sleep(pollMs);
+      }
+      this.loopRunning = false;
+    })();
+  }
+
   async request(
     toDid: string,
     message: HearthholdMessage,
@@ -97,61 +156,29 @@ export class DidCommTransport implements Transport {
     const pollMs = opts.pollMs ?? 1500;
     const thid = randomUUID();
 
+    const reply = new Promise<HearthholdMessage>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (this.pending.delete(thid)) reject(new Error(`transport: timed out awaiting reply to ${message.type}`));
+      }, timeoutMs);
+      timer.unref?.();
+      this.pending.set(thid, (m) => {
+        clearTimeout(timer);
+        resolve(m);
+      });
+    });
+
     await this.handle.keymaster.sendDidComm({ type: message.type, thid, body: message }, toDid, {
       name: this.idName,
     });
-
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-      const inbound = await this.handle.keymaster.receiveDidComm({ name: this.idName });
-      const reply = inbound.find((m) => (m.message as { thid?: string })?.thid === thid);
-      if (reply) return (reply.message as { body: HearthholdMessage }).body;
-      await sleep(pollMs);
-    }
-    throw new Error(`transport: timed out awaiting reply to ${message.type}`);
+    this.ensureLoop(pollMs);
+    return reply;
   }
 
   async serve(handler: RequestHandler, opts: { pollMs?: number } = {}): Promise<() => void> {
-    const pollMs = opts.pollMs ?? 1500;
-    let running = true;
-
-    const loop = async (): Promise<void> => {
-      while (running) {
-        let inbound: Awaited<ReturnType<typeof this.handle.keymaster.receiveDidComm>> = [];
-        try {
-          inbound = await this.handle.keymaster.receiveDidComm({ name: this.idName });
-        } catch {
-          inbound = [];
-        }
-
-        for (const m of inbound) {
-          const fromDid = bareDid(m.metadata?.sender);
-          const wrapped = m.message as { thid?: string; body?: HearthholdMessage };
-          const body = wrapped?.body;
-          if (!fromDid || !body?.type) continue;
-
-          let reply: HearthholdMessage | null = null;
-          try {
-            reply = await handler(body, fromDid);
-          } catch {
-            reply = null;
-          }
-          if (reply) {
-            await this.handle.keymaster
-              .sendDidComm({ type: reply.type, thid: wrapped.thid, body: reply }, fromDid, {
-                name: this.idName,
-              })
-              .catch(() => undefined);
-          }
-        }
-
-        if (running) await sleep(pollMs);
-      }
-    };
-
-    void loop();
+    this.handler = handler;
+    this.ensureLoop(opts.pollMs ?? 1500);
     return () => {
-      running = false;
+      this.handler = null;
     };
   }
 }
