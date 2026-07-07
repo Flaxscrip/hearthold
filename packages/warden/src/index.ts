@@ -6,6 +6,7 @@ import {
   ensureDelegationSchema,
   issueDelegation,
   createRegistryGroup,
+  createAssurancePolicy,
   grantAuthorization,
   revokeAuthorization,
   DidCommTransport,
@@ -47,7 +48,8 @@ Usage:
   warden kb-init <kbId>    Provision a shared Knowledge Base (read/write access groups)
   warden kb-grant <did> [read|write|both]   Authorize a Sovereign DID on the KB (default both)
   warden kb-revoke <did> [read|write|both]  Revoke a Sovereign's KB authorization
-  warden kb-status         Show the KB config and its authorized members
+  warden kb-policy <action> <factor1|factor2>   Set required assurance for a KB action (governance)
+  warden kb-status         Show the KB config, members, and assurance policy
   warden help              Show this message
 
 Env:
@@ -231,13 +233,37 @@ async function main(): Promise<void> {
       if (await store.read()) throw new Error('a KB is already provisioned for this Warden');
       const readGroup = await createRegistryGroup(handle, `kb-read-${kbId}`, config.registry);
       const writeGroup = await createRegistryGroup(handle, `kb-write-${kbId}`, config.registry);
-      await store.save({ kbId, readGroup, writeGroup });
+      // Governance policy asset — default: everything factor1 (raise per action with `kb-policy`).
+      const policyAsset = await createAssurancePolicy(handle, { read: 'factor1', write: 'factor1' }, config.registry);
+      await store.save({ kbId, readGroup, writeGroup, policyAsset });
       process.stdout.write(
         `Knowledge Base "${kbId}" provisioned\n` +
-          `  read group:  ${readGroup}\n  write group: ${writeGroup}\n` +
+          `  read group:  ${readGroup}\n  write group: ${writeGroup}\n  policy:      ${policyAsset}\n` +
           `  → grant members:  warden kb-grant <sovereignDid>\n` +
+          `  → raise assurance: warden kb-policy write factor2\n` +
           `  → serve it:       warden serve   (or warden control)\n`,
       );
+      break;
+    }
+    case 'kb-policy': {
+      const action = process.argv[3];
+      const tier = process.argv[4];
+      if (!action || (tier !== 'factor1' && tier !== 'factor2')) {
+        throw new Error('usage: warden kb-policy <action> <factor1|factor2>  (e.g. kb-policy write factor2)');
+      }
+      await ensureIdentity(handle, config);
+      const store = new KbConfigStore(handle.dataFolder);
+      const kb = await store.read();
+      if (!kb) throw new Error('no KB provisioned — run `warden kb-init <kbId>` first');
+      // Read the current policy, apply the change, and re-anchor it on the ledger (owner-controlled).
+      const current = (kb.policyAsset ? await handle.keymaster.resolveAsset(kb.policyAsset).catch(() => ({})) : {}) as Record<
+        string,
+        'factor1' | 'factor2'
+      >;
+      const next: Record<string, 'factor1' | 'factor2'> = { ...current, [action]: tier };
+      const policyAsset = await createAssurancePolicy(handle, next, config.registry);
+      await store.save({ ...kb, policyAsset });
+      process.stdout.write(`Policy set: ${action} → ${tier} on "${kb.kbId}"\n  policy: ${policyAsset}\n`);
       break;
     }
     case 'kb-grant':
@@ -274,10 +300,12 @@ async function main(): Promise<void> {
       };
       const readers = await members(kb.readGroup);
       const writers = await members(kb.writeGroup);
+      const policy = (kb.policyAsset ? await handle.keymaster.resolveAsset(kb.policyAsset).catch(() => ({})) : {}) as Record<string, string>;
       process.stdout.write(
         `Knowledge Base "${kb.kbId}"\n` +
           `  read group:  ${kb.readGroup}\n    ${readers.length} member(s): ${readers.map((m) => m.slice(0, 20) + '…').join(', ') || '(none)'}\n` +
-          `  write group: ${kb.writeGroup}\n    ${writers.length} member(s): ${writers.map((m) => m.slice(0, 20) + '…').join(', ') || '(none)'}\n`,
+          `  write group: ${kb.writeGroup}\n    ${writers.length} member(s): ${writers.map((m) => m.slice(0, 20) + '…').join(', ') || '(none)'}\n` +
+          `  assurance:   read → ${policy.read ?? 'factor1'} · write → ${policy.write ?? 'factor1'}\n`,
       );
       break;
     }

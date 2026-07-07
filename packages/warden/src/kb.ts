@@ -26,6 +26,7 @@ import {
   type KeymasterHandle,
   type HearthholdConfig,
   type TrustEvaluator,
+  meetsAssurance,
   type SignedKbRequest,
   type KbChallengeMessage,
   type KbResultMessage,
@@ -49,6 +50,22 @@ interface KbServiceOptions {
   nonceTtlMs?: number;
   /** Web-login session lifetime (default 30 min). */
   sessionTtlMs?: number;
+  /** Out-of-band step-up: asks the member's Signet to authorize a factor2 action, when policy demands it. */
+  approver?: KbActionApprover;
+}
+
+/**
+ * Steps up a factor1 session to factor2 by asking the member — **directly, out-of-band** — to authorize
+ * an action. The Mage is deliberately not on this channel, so it can neither forge nor replay the
+ * approval (the fool-proof second factor for high-stakes actions / AI-agent authorization).
+ */
+export interface KbActionApprover {
+  requestActionApproval(req: {
+    member: string;
+    action: string;
+    resource: string;
+    summary: string;
+  }): Promise<boolean>;
 }
 
 export class KbService {
@@ -143,6 +160,18 @@ export class KbService {
     const action = req.action === 'update' ? 'write' : 'read';
     const authz = await this.opts.registry.authorize({ entity_id: did, action, resource: this.opts.kbId });
     if (!authz.authorized) return kbErr(`not authorized to ${action} this KB`);
+
+    // Assurance step-up (factor 2) — governance policy, read from the registry. Both entry paths (a
+    // signed request, a web-login session) achieve factor1; if policy requires more, the Warden asks
+    // the member out-of-band (direct to their Signet — a channel the Mage is never on) to authorize it.
+    const required = authz.requiredAssurance ?? 'factor1';
+    if (!meetsAssurance('factor1', required)) {
+      if (!this.opts.approver) return kbErr(`${action} requires ${required}, but no step-up channel is configured`);
+      const summary =
+        req.action === 'update' ? `contribute to ${this.opts.kbId}: “${(req.text ?? '').slice(0, 80)}”` : `${action} on ${this.opts.kbId}`;
+      const approved = await this.opts.approver.requestActionApproval({ member: did, action, resource: this.opts.kbId, summary });
+      if (!approved) return kbErr(`${action} was not authorized by the Sovereign (${required} step-up declined)`);
+    }
 
     if (req.action === 'query') {
       if (!req.query) return kbErr('query is required');

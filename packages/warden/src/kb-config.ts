@@ -3,17 +3,20 @@ import { join } from 'node:path';
 
 import {
   GroupTrustRegistry,
+  LedgerAssurancePolicy,
   type KeymasterHandle,
   type HearthholdConfig,
 } from '@hearthold/core';
 
-import { KbService } from './kb.js';
+import { KbService, type KbActionApprover } from './kb.js';
 
-/** Persisted KB provisioning for a Warden: which resource, and the read/write authorization groups. */
+/** Persisted KB provisioning for a Warden: the resource, its access groups, and its policy asset. */
 export interface KbConfig {
   kbId: string;
   readGroup: string;
   writeGroup: string;
+  /** Ledger asset declaring required assurance per action (governance policy). */
+  policyAsset?: string;
 }
 
 /**
@@ -49,9 +52,12 @@ export async function buildKbService(
   handle: KeymasterHandle,
   config: HearthholdConfig,
   wardenDid: string,
+  approver?: KbActionApprover,
 ): Promise<KbService | undefined> {
   const kb = await new KbConfigStore(handle.dataFolder).read();
   if (!kb) return undefined;
+  // Governance policy (required assurance per action) lives on the ledger; the Warden only reads it.
+  const policy = kb.policyAsset ? new LedgerAssurancePolicy(handle, kb.policyAsset) : undefined;
   const registry = new GroupTrustRegistry(
     handle,
     [
@@ -59,6 +65,7 @@ export async function buildKbService(
       { action: 'write', resource: kb.kbId, group: kb.writeGroup },
     ],
     wardenDid,
+    policy,
   );
-  return new KbService(handle, config, { kbId: kb.kbId, wardenDid, registry });
+  return new KbService(handle, config, { kbId: kb.kbId, wardenDid, registry, approver });
 }
