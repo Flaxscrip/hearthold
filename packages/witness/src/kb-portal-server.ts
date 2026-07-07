@@ -58,12 +58,18 @@ export function startKbPortalServer(opts: KbPortalOptions): ControlServer {
         if (!kbId) throw new Error('kbId is required');
         const loginId = randomBytes(12).toString('hex');
         const callback = `${publicUrl}/api/kb/login/callback?login=${loginId}`;
+        process.stdout.write(`[kb-web] login/start → relaying to Warden ${wardenDid.slice(0, 20)}…\n`);
         const reply = await transport.request(
           wardenDid,
           { type: 'hearthold/kb-login-start', version: PROTOCOL_VERSION, kbId, callback },
           { timeoutMs: 60_000 },
         );
-        if (reply.type !== 'hearthold/kb-login-challenge') throw new Error(`no challenge from the Warden (${reply.type})`);
+        if (reply.type !== 'hearthold/kb-login-challenge') {
+          const why = reply.type === 'hearthold/error' ? reply.reason : reply.type;
+          process.stdout.write(`[kb-web] login/start ✗ ${why}\n`);
+          throw new Error(`Warden did not issue a challenge: ${why}`);
+        }
+        process.stdout.write(`[kb-web] login/start ✓ challenge received\n`);
         logins.set(loginId, { challenge: reply.challenge, createdAt: Date.now() });
         return { loginId, challenge: reply.challenge };
       },

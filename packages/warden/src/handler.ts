@@ -70,8 +70,17 @@ export function makeWardenHandler(
       case 'hearthold/kb-login-start': {
         if (!kb) return deny('KB service not configured');
         const m = message as KbLoginStartMessage;
-        const challenge = await kb.startLogin(m.kbId, m.callback);
-        return { type: 'hearthold/kb-login-challenge', version: PROTOCOL_VERSION, challenge };
+        process.stdout.write(`[kb] login-start received (kb=${m.kbId}) from ${fromDid.slice(0, 20)}…\n`);
+        try {
+          const challenge = await kb.startLogin(m.kbId, m.callback);
+          process.stdout.write(`[kb] → challenge issued\n`);
+          return { type: 'hearthold/kb-login-challenge', version: PROTOCOL_VERSION, challenge };
+        } catch (e) {
+          // Surface a startup failure as a real reply (not a hang the caller times out on).
+          const reason = e instanceof Error ? e.message : String(e);
+          process.stdout.write(`[kb] login-start FAILED: ${reason}\n`);
+          return deny(`kb login failed: ${reason}`);
+        }
       }
       case 'hearthold/kb-login-complete': {
         if (!kb) return deny('KB service not configured');
