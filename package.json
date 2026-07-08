@@ -46,7 +46,8 @@
     "e2e:kb": "npm run build && node --experimental-strip-types scripts/e2e-kb.ts",
     "e2e:kb-login": "npm run build && node --experimental-strip-types scripts/e2e-kb-login.ts",
     "e2e:kb-stepup": "npm run build && node --experimental-strip-types scripts/e2e-kb-stepup.ts",
-    "e2e:kb-stepup-didcomm": "npm run build && node --experimental-strip-types scripts/e2e-kb-stepup-didcomm.ts"
+    "e2e:kb-stepup-didcomm": "npm run build && node --experimental-strip-types scripts/e2e-kb-stepup-didcomm.ts",
+    "e2e:ruleset": "npm run build && node --experimental-strip-types scripts/e2e-ruleset.ts"
   },
   "engines": {
     "node": ">=22"

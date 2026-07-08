@@ -18,4 +18,5 @@ export * from './game42.js';
 export * from './evidence.js';
 export * from './recall.js';
 export * from './kb.js';
+export * from './ruleset.js';
 export * from './control-server.js';
