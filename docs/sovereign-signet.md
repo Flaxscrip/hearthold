@@ -60,6 +60,28 @@ attests the method used into its signature — turning a co-signature from binar
 This is the deepest answer to **presence ≠ person**: a PIN proves a secret; graded on-device
 liveness proves *a live, verified human now*, with the strength explicit and policy-governed.
 
+## Readability is a security property
+
+Proof-of-human proves the *right human is present*; it does **not** prove they understood what they
+approved. That second half is only real if the human can **read and understand** what they're signing.
+So every Signet approval must present a **human-readable, Warden-authored description** of the exact
+thing being authorized — and this is a *security requirement*, not UX polish:
+
+- **The Warden authors the description, never the requesting agent** (§7.7 of standards-alignment). The
+  approver sees the Warden's account of the transaction, so a world-facing agent (a Witness/Mage, or a
+  cantrip) can't misdescribe what it's getting the human to approve. Every approval surface already
+  carries this field: the evidence-disclosure `reason`/`claim`, the KB action `summary`, the
+  policy-change `summary`, and (future, P3) a cantrip's capability manifest.
+- **Comprehensibility bounds power.** A capability review means nothing if it's unreadable. This is why
+  Sevenfold's cantrips are scripted in a *readable-as-English* DSL (CantripTalk) rather than opaque
+  code: the Sovereign reads the capability manifest at the Signet before granting it. An approval a
+  non-programmer cannot parse is an approval that isn't really being given — so the requirement is that
+  what the Signet shows is legible to the person holding it, at the altitude of *consequence*
+  ("contribute to drake-kb", "reveal a HIGH card") rather than mechanism.
+- **Corollary — no opaque blobs at the Signet.** A hash, a raw DID, or an un-summarized payload is not
+  an approvable object. If the Warden cannot render a consequence in plain language, it must not ask for
+  a signature. Legibility is part of what makes the human-in-the-loop a *control* and not a rubber stamp.
+
 ## Placement (decided)
 
 - **Dev:** a third wallet on the same machine to build the signing/verification mechanics.
