@@ -17,6 +17,7 @@ import {
   revokeAuthorization,
   selfSigner,
   AuthzTier,
+  Sensitivity,
   PROTOCOL_VERSION,
   type HearthholdConfig,
   type KeymasterHandle,
@@ -34,6 +35,9 @@ import {
   type ClassifyRequest,
   type RecallRequest,
   type CardFaceRequest,
+  type TriageConfirmRequest,
+  type MarkCandidate,
+  type MarkClaimRequest,
   type KbView,
   type KbGrantRequest,
   type KbPolicyRequest,
@@ -47,6 +51,8 @@ import { EvidenceService, type SovereignApprover } from './evidence.js';
 import { OllamaEmbedder, RecallService } from './recall.js';
 import { makeDidcommActionApprover, makeDidcommRulesetSigner } from './kb.js';
 import { hydrateCardFace } from './face.js';
+import { triageQueue, confirmTriage } from './triage.js';
+import { claimableMarks, claimMark } from './marks.js';
 import { buildKbServices, KbConfigStore, setKbAssurance, readKbAssurance } from './kb-config.js';
 import { makeWardenHandler } from './handler.js';
 
@@ -161,6 +167,29 @@ export async function runWardenControl(
         const t = (tier ?? AuthzTier.STANDING) as AuthzTier;
         const card = await hydrateCardFace(handle, { artefactId, tier: t });
         return { card };
+      },
+
+      // Triage — the born-obsidian confirmation queue.
+      'GET /api/triage': async () => ({ queue: await triageQueue(handle) }),
+      'POST /api/triage/confirm': async ({ body }) => {
+        const { artefactId, sensitivity } = (body ?? {}) as TriageConfirmRequest;
+        if (!artefactId || sensitivity === undefined) throw new Error('artefactId and sensitivity are required');
+        const item = await confirmTriage(handle, { artefactId, sensitivity: sensitivity as Sensitivity });
+        server.emit('triage-confirmed', { item });
+        return { item };
+      },
+
+      // SevenfoldMark — explicit claim; the Warden re-counts and issues (axes-free).
+      'POST /api/marks/claimable': async ({ body }) => {
+        const { candidates } = (body ?? {}) as { candidates?: MarkCandidate[] };
+        return { marks: await claimableMarks(handle, candidates ?? []) };
+      },
+      'POST /api/marks/claim': async ({ body }) => {
+        const { candidate, subjectDid } = (body ?? {}) as MarkClaimRequest;
+        if (!candidate || !subjectDid) throw new Error('candidate and subjectDid are required');
+        const result = await claimMark(handle, { candidate, subjectDid });
+        if (result.issued) server.emit('mark-issued', { result });
+        return { result };
       },
 
       // ── Knowledge Base membership + assurance policy (many KBs per Warden) ──

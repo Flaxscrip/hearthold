@@ -19,6 +19,8 @@
     "./kb": { "types": "./dist/kb.d.ts", "import": "./dist/kb.js" },
     "./kb-config": { "types": "./dist/kb-config.d.ts", "import": "./dist/kb-config.js" },
     "./face": { "types": "./dist/face.d.ts", "import": "./dist/face.js" },
+    "./triage": { "types": "./dist/triage.d.ts", "import": "./dist/triage.js" },
+    "./marks": { "types": "./dist/marks.d.ts", "import": "./dist/marks.js" },
     "./ruleset-store": { "types": "./dist/ruleset-store.d.ts", "import": "./dist/ruleset-store.js" },
     "./classifier": { "types": "./dist/classifier.d.ts", "import": "./dist/classifier.js" }
   },

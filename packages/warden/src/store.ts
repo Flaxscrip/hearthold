@@ -36,7 +36,8 @@ export class VaultStore {
 
   async put(artefact: Artefact): Promise<void> {
     await mkdir(this.dataFolder, { recursive: true });
-    const all = await this.readAll();
+    // Content-addressed ids are idempotent — replace an existing entry rather than duplicating it.
+    const all = (await this.readAll()).filter((a) => a.id !== artefact.id);
     all.push(artefact);
     await writeFile(this.file, JSON.stringify(all, null, 2), 'utf8');
   }

@@ -17,6 +17,7 @@
 
 import type { KeymasterHandle } from './keymaster.js';
 import type { TrustEvaluator } from './trust-registry.js';
+import type { SpentTxnStore } from './single-use.js';
 
 export interface ProofRequest {
   /** Credential schema (DID) the verifier requires. */
@@ -98,6 +99,8 @@ export async function verifyProof(
     /** Schema DID the proof concerned — passed to the registry as the `resource`. */
     schema?: string;
     requiredClaims?: Record<string, unknown>;
+    /** Enforce single-use: refuse a second presentation of a spent `txn` (scrolls burn). */
+    spentTxns?: SpentTxnStore;
   },
 ): Promise<ProofResult> {
   const res = await verifier.keymaster.verifyResponse(responseDid);
@@ -147,6 +150,15 @@ export async function verifyProof(
       Object.entries(required).every(([k, v]) => d.claims[k] === v),
     );
     if (!satisfied) return fail('required claims not present');
+  }
+  // Single-use enforcement — a spent scroll cannot be presented again. Check ALL txns before marking
+  // any, so a burned scroll never half-commits.
+  if (opts.spentTxns) {
+    const txns = [...new Set(disclosed.map((d) => (d.claims as { txn?: string }).txn).filter((t): t is string => !!t))];
+    for (const t of txns) {
+      if (await opts.spentTxns.isSpent(t)) return fail('single-use scroll already spent (burned)');
+    }
+    for (const t of txns) await opts.spentTxns.markSpent(t);
   }
   return { ok: true, responder: res.responder, disclosed };
 }

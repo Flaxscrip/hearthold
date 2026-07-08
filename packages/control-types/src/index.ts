@@ -168,6 +168,60 @@ export interface CardFaceResponse {
   card: CardFace;
 }
 
+// ── Triage / born-obsidian confirmation queue (Sevenfold Table) ─────────────────
+
+/** A quarantined artefact awaiting the Sovereign's confirmation (rendered fully obsidian, G1). */
+export interface TriageItem {
+  artefactId: string;
+  kind: string;
+  observedAt: string;
+  /** The Scribe's proposed sensitivity (accept or override at confirm). */
+  proposedSensitivity: number;
+  proposedSensitivityName: SensitivityName;
+  tags: string[];
+  reason: string;
+}
+export interface TriageQueueResponse {
+  queue: TriageItem[];
+}
+/** Confirm a quarantined artefact at a chosen sensitivity — this human gesture IS the confirmation. */
+export interface TriageConfirmRequest {
+  artefactId: string;
+  sensitivity: number;
+}
+export interface TriageConfirmResponse {
+  item: TriageItem;
+}
+
+// ── SevenfoldMark issuance (Warden-issued, explicit claim) ──────────────────────
+
+/** A candidate Mark: its name, what counts toward it (axes-free), and the threshold. */
+export interface MarkCandidate {
+  markName: string;
+  spec: { kind?: string };
+  threshold: number;
+}
+export interface MarkStatus {
+  markName: string;
+  count: number;
+  threshold: number;
+  claimable: boolean;
+}
+export interface MarkClaimableResponse {
+  marks: MarkStatus[];
+}
+export interface MarkClaimRequest {
+  candidate: MarkCandidate;
+  /** The Sovereign DID the Mark is issued to. */
+  subjectDid: string;
+}
+export type MarkClaimResult =
+  | { issued: true; markName: string; count: number; threshold: number; credentialDid: string }
+  | { issued: false; markName: string; count: number; threshold: number };
+export interface MarkClaimResponse {
+  result: MarkClaimResult;
+}
+
 /** Test the classifier on some text (does not store anything). */
 export interface ClassifyRequest {
   kind: string;

@@ -57,7 +57,7 @@ export class WardenService {
       storedAt,
       sensitivity: classification.sensitivity,
       ciphertext: submission.ciphertext,
-      metadata: { ...classification.metadata, witness: witnessDid },
+      metadata: { ...classification.metadata, witness: witnessDid, needsHumanConfirmation: classification.needsHumanConfirmation },
     };
     await this.store.put(artefact);
 

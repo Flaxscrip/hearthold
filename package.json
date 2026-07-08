@@ -52,7 +52,10 @@
     "e2e:cantrip-auth": "npm run build && node --experimental-strip-types scripts/e2e-cantrip-auth.ts",
     "e2e:ruleset-governance": "npm run build && node --experimental-strip-types scripts/e2e-ruleset-governance.ts",
     "e2e:kb-multi": "npm run build && node --experimental-strip-types scripts/e2e-kb-multi.ts",
-    "e2e:face-hydration": "npm run build && node --experimental-strip-types scripts/e2e-face-hydration.ts"
+    "e2e:face-hydration": "npm run build && node --experimental-strip-types scripts/e2e-face-hydration.ts",
+    "e2e:triage": "npm run build && HEARTHOLD_CLASSIFIER=quarantine node --experimental-strip-types scripts/e2e-triage.ts",
+    "e2e:mark": "npm run build && HEARTHOLD_CLASSIFIER=quarantine node --experimental-strip-types scripts/e2e-mark.ts",
+    "e2e:scroll-burn": "npm run build && node --experimental-strip-types scripts/e2e-scroll-burn.ts"
   },
   "engines": {
     "node": ">=22"
