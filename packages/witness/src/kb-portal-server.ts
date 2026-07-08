@@ -31,6 +31,7 @@ export interface KbPortalOptions {
 }
 
 interface LoginAttempt {
+  kbId: string;
   challenge: string;
   session?: KbSessionMessage;
   createdAt: number;
@@ -70,7 +71,7 @@ export function startKbPortalServer(opts: KbPortalOptions): ControlServer {
           throw new Error(`Warden did not issue a challenge: ${why}`);
         }
         process.stdout.write(`[kb-web] login/start ✓ challenge received\n`);
-        logins.set(loginId, { challenge: reply.challenge, createdAt: Date.now() });
+        logins.set(loginId, { kbId, challenge: reply.challenge, createdAt: Date.now() });
         return { loginId, challenge: reply.challenge };
       },
 
@@ -83,7 +84,7 @@ export function startKbPortalServer(opts: KbPortalOptions): ControlServer {
         if (!response) throw new Error('response is required');
         const reply = await transport.request(
           wardenDid,
-          { type: 'hearthold/kb-login-complete', version: PROTOCOL_VERSION, response },
+          { type: 'hearthold/kb-login-complete', version: PROTOCOL_VERSION, kbId: attempt.kbId, response },
           { timeoutMs: 60_000 },
         );
         if (reply.type !== 'hearthold/kb-session') throw new Error(reply.type === 'hearthold/kb-error' ? reply.reason : 'login failed');

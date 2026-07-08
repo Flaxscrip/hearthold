@@ -23,13 +23,17 @@ export function makeWardenHandler(
   service: WardenService,
   delegations: DelegationStore,
   evidence?: EvidenceService,
-  kb?: KbService,
+  /** All KBs this Warden serves, keyed by kbId. A request is routed to the KB matching its `kbId`. */
+  kbs?: Map<string, KbService>,
 ): RequestHandler {
   const deny = (reason: string): HearthholdMessage => ({
     type: 'hearthold/error',
     version: PROTOCOL_VERSION,
     reason,
   });
+
+  // Resolve the KbService for a request's kbId (or deny if unknown / none provisioned).
+  const kbFor = (kbId: string | undefined): KbService | undefined => (kbId ? kbs?.get(kbId) : undefined);
 
   return async (message, fromDid) => {
     switch (message.type) {
@@ -57,38 +61,45 @@ export function makeWardenHandler(
       // signature over our nonce), so a relaying Mage never gains authority. `fromDid` is only the
       // transport hop (the Mage), deliberately not trusted for identity here.
       case 'hearthold/kb-challenge-request': {
-        if (!kb) return deny('KB service not configured');
+        const kb = kbFor((message as { kbId?: string }).kbId);
+        if (!kb) return deny('unknown KB');
         return kb.challenge();
       }
       case 'hearthold/kb-request': {
-        if (!kb) return deny('KB service not configured');
-        return kb.serve((message as KbRequestMessage).request);
+        const req = (message as KbRequestMessage).request;
+        const kb = kbFor((req as { kbId?: string }).kbId);
+        if (!kb) return deny('unknown KB');
+        return kb.serve(req);
       }
 
       // KB web login (challenge/response) — keys stay in the member's wallet/Signet; the Warden
       // authenticates (issues + verifies the challenge) and issues the session. The Mage only relays.
       case 'hearthold/kb-login-start': {
-        if (!kb) return deny('KB service not configured');
         const m = message as KbLoginStartMessage;
+        const kb = kbFor(m.kbId);
+        if (!kb) return deny('unknown KB');
         process.stdout.write(`[kb] login-start received (kb=${m.kbId}) from ${fromDid.slice(0, 20)}…\n`);
         try {
           const challenge = await kb.startLogin(m.kbId, m.callback);
           process.stdout.write(`[kb] → challenge issued\n`);
           return { type: 'hearthold/kb-login-challenge', version: PROTOCOL_VERSION, challenge };
         } catch (e) {
-          // Surface a startup failure as a real reply (not a hang the caller times out on).
           const reason = e instanceof Error ? e.message : String(e);
           process.stdout.write(`[kb] login-start FAILED: ${reason}\n`);
           return deny(`kb login failed: ${reason}`);
         }
       }
       case 'hearthold/kb-login-complete': {
-        if (!kb) return deny('KB service not configured');
-        return kb.completeLogin((message as KbLoginCompleteMessage).response);
+        const m = message as KbLoginCompleteMessage;
+        const kb = kbFor(m.kbId);
+        if (!kb) return deny('unknown KB');
+        return kb.completeLogin(m.response);
       }
       case 'hearthold/kb-session-request': {
-        if (!kb) return deny('KB service not configured');
-        return kb.serveWithSession(message as KbSessionRequestMessage);
+        const m = message as KbSessionRequestMessage;
+        const kb = kbFor(m.kbId);
+        if (!kb) return deny('unknown KB');
+        return kb.serveWithSession(m);
       }
 
       default:

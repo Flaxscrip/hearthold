@@ -95,8 +95,9 @@ export async function readKbAssurance(handle: KeymasterHandle, chainAsset?: stri
 }
 
 /**
- * File-backed KB config in the Warden's data folder. One KB per Warden in this increment (the
- * Warden's vault *is* the KB), so this holds a single config.
+ * File-backed store of the Warden's Knowledge Bases, keyed by `kbId`. One Warden identity custodies
+ * many KBs (a password DB, a guild KB, a docs KB, …), each a resource with its own groups + governed
+ * policy. Migrates transparently from the old single-config shape.
  */
 export class KbConfigStore {
   private readonly file: string;
@@ -105,32 +106,44 @@ export class KbConfigStore {
     this.file = join(dataFolder, 'hearthold-kb.json');
   }
 
-  async read(): Promise<KbConfig | null> {
+  private async all(): Promise<Record<string, KbConfig>> {
     try {
-      return JSON.parse(await readFile(this.file, 'utf8')) as KbConfig;
+      const raw = JSON.parse(await readFile(this.file, 'utf8')) as Record<string, unknown>;
+      // Migrate the legacy single-config shape ({ kbId, readGroup, ... }) → a { [kbId]: config } map.
+      if (typeof raw.kbId === 'string') {
+        const cfg = raw as unknown as KbConfig;
+        return { [cfg.kbId]: cfg };
+      }
+      return raw as Record<string, KbConfig>;
     } catch {
-      return null;
+      return {};
     }
   }
 
-  async save(config: KbConfig): Promise<void> {
+  /** All provisioned KBs. */
+  async list(): Promise<KbConfig[]> {
+    return Object.values(await this.all());
+  }
+
+  /** One KB by id, or the sole KB when `kbId` is omitted and exactly one exists (CLI convenience). */
+  async get(kbId?: string): Promise<KbConfig | null> {
+    const all = await this.all();
+    if (kbId) return all[kbId] ?? null;
+    const only = Object.values(all);
+    return only.length === 1 ? (only[0] as KbConfig) : null;
+  }
+
+  /** Add or replace a KB config. */
+  async put(config: KbConfig): Promise<void> {
+    const all = await this.all();
+    all[config.kbId] = config;
     await mkdir(this.dataFolder, { recursive: true });
-    await writeFile(this.file, JSON.stringify(config, null, 2), 'utf8');
+    await writeFile(this.file, JSON.stringify(all, null, 2), 'utf8');
   }
 }
 
-/**
- * Build a live `KbService` from the Warden's persisted KB config, or undefined if no KB is provisioned.
- * Used by the daemon (`serve` / `control`) to serve the KB over DIDComm.
- */
-export async function buildKbService(
-  handle: KeymasterHandle,
-  config: HearthholdConfig,
-  wardenDid: string,
-  approver?: KbActionApprover,
-): Promise<KbService | undefined> {
-  const kb = await new KbConfigStore(handle.dataFolder).read();
-  if (!kb) return undefined;
+/** Build a live `KbService` from one KB config. */
+function serviceFor(handle: KeymasterHandle, config: HearthholdConfig, wardenDid: string, kb: KbConfig, approver?: KbActionApprover): KbService {
   // Governance policy (required assurance per action) is a Sovereign-signed Ruleset chain on the
   // ledger; the Warden reads + verifies it, PINNED to the governing DID (fail-closed on tamper or a
   // forged self-signature — a compromised Warden cannot rewrite policy it doesn't govern).
@@ -145,4 +158,18 @@ export async function buildKbService(
     policy,
   );
   return new KbService(handle, config, { kbId: kb.kbId, wardenDid, registry, approver });
+}
+
+/**
+ * Build every provisioned KB's `KbService`, keyed by `kbId`. The daemon routes an incoming request to
+ * the service matching its `kbId`. Empty map when no KB is provisioned.
+ */
+export async function buildKbServices(
+  handle: KeymasterHandle,
+  config: HearthholdConfig,
+  wardenDid: string,
+  approver?: KbActionApprover,
+): Promise<Map<string, KbService>> {
+  const kbs = await new KbConfigStore(handle.dataFolder).list();
+  return new Map(kbs.map((kb) => [kb.kbId, serviceFor(handle, config, wardenDid, kb, approver)]));
 }

@@ -284,15 +284,11 @@ function RecallPanel() {
 }
 
 function KbPanel() {
-  const [kb, setKb] = useState<KbView | null>(null);
-  const [did, setDid] = useState('');
-  const [scope, setScope] = useState<'read' | 'write' | 'both'>('both');
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
+  const [kbs, setKbs] = useState<KbView[] | null>(null);
 
   const load = useCallback(async () => {
     try {
-      setKb(await api.kb());
+      setKbs(await api.kb());
     } catch {
       /* daemon may be old build; leave null */
     }
@@ -301,11 +297,37 @@ function KbPanel() {
     void load();
   }, [load]);
 
-  const run = async (fn: () => Promise<KbView>, ok: string) => {
+  if (!kbs) return null; // no KB daemon
+  if (kbs.length === 0) {
+    return (
+      <Card title="Knowledge Bases">
+        <p className="note dim">None provisioned. Run <code>warden kb-init &lt;kbId&gt;</code> (one Warden holds many).</p>
+      </Card>
+    );
+  }
+  return (
+    <Card title={`Knowledge Bases · ${kbs.length}`}>
+      <p className="note dim">
+        Access is granted to the <strong>member</strong> DID that signs in — never the relaying Mage.
+      </p>
+      {kbs.map((kb) => (
+        <KbCard key={kb.kbId} kb={kb} onChanged={setKbs} />
+      ))}
+    </Card>
+  );
+}
+
+function KbCard({ kb, onChanged }: { kb: KbView; onChanged: (kbs: KbView[]) => void }) {
+  const [did, setDid] = useState('');
+  const [scope, setScope] = useState<'read' | 'write' | 'both'>('both');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const run = async (fn: () => Promise<KbView[]>, ok: string) => {
     setBusy(true);
     setMsg(null);
     try {
-      setKb(await fn());
+      onChanged(await fn());
       setMsg(ok);
       window.setTimeout(() => setMsg(null), 2500);
     } catch (e) {
@@ -315,30 +337,20 @@ function KbPanel() {
     }
   };
 
-  if (!kb) return null; // no KB daemon / not provisioned yet
-  if (!kb.provisioned) {
-    return (
-      <Card title="Knowledge Base">
-        <p className="note dim">No KB provisioned. Run <code>warden kb-init &lt;kbId&gt;</code>.</p>
-      </Card>
-    );
-  }
-
   const memberRow = (m: string, s: 'read' | 'write') => (
     <li key={`${s}-${m}`} className="kb-member">
       <DidTag did={m} />
-      <button className="mini deny" disabled={busy} onClick={() => run(() => api.kbRevoke(m, s), 'revoked')}>
+      <button className="mini deny" disabled={busy} onClick={() => run(() => api.kbRevoke(kb.kbId, m, s), 'revoked')}>
         revoke
       </button>
     </li>
   );
 
   return (
-    <Card title={`Knowledge Base · ${kb.kbId}`}>
-      <p className="note dim">
-        Access is granted to the <strong>member</strong> DID that signs in — never the relaying Mage.
-      </p>
-
+    <div className="kb-card">
+      <div className="kb-title">
+        {kb.kbId} <span className={`tier ${kb.governed ? 'gov' : ''}`}>{kb.governed ? 'Sovereign-governed' : 'self-governed'}</span>
+      </div>
       <div className="kb-cols">
         <div>
           <div className="kb-h">read <span className="tier">{kb.policy.read}</span></div>
@@ -359,7 +371,7 @@ function KbPanel() {
             </button>
           ))}
         </div>
-        <button disabled={busy || !did.trim()} onClick={() => run(() => api.kbGrant(did.trim(), scope), 'granted')}>
+        <button disabled={busy || !did.trim()} onClick={() => run(() => api.kbGrant(kb.kbId, did.trim(), scope), 'granted')}>
           {busy ? '…' : 'Grant access'}
         </button>
       </div>
@@ -370,13 +382,13 @@ function KbPanel() {
           const tier = kb.policy[action];
           const next = tier === 'factor2' ? 'factor1' : 'factor2';
           return (
-            <button key={action} className="mini" disabled={busy} onClick={() => run(() => api.kbPolicy(action, next), `${action} → ${next}`)}>
+            <button key={action} className="mini" disabled={busy} onClick={() => run(() => api.kbPolicy(kb.kbId, action, next), `${action} → ${next}`)}>
               {action}: {tier} →
             </button>
           );
         })}
       </div>
       {msg && <p className="note">{msg}</p>}
-    </Card>
+    </div>
   );
 }

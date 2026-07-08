@@ -50,7 +50,8 @@
     "e2e:ruleset": "npm run build && node --experimental-strip-types scripts/e2e-ruleset.ts",
     "e2e:kb-policy": "npm run build && node --experimental-strip-types scripts/e2e-kb-policy.ts",
     "e2e:cantrip-auth": "npm run build && node --experimental-strip-types scripts/e2e-cantrip-auth.ts",
-    "e2e:ruleset-governance": "npm run build && node --experimental-strip-types scripts/e2e-ruleset-governance.ts"
+    "e2e:ruleset-governance": "npm run build && node --experimental-strip-types scripts/e2e-ruleset-governance.ts",
+    "e2e:kb-multi": "npm run build && node --experimental-strip-types scripts/e2e-kb-multi.ts"
   },
   "engines": {
     "node": ">=22"

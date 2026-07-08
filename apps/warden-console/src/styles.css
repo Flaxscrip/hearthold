@@ -138,3 +138,7 @@ button:not(:disabled):hover { filter: brightness(1.07); }
 .mini { background: transparent; color: var(--ink-dim); border: 1px solid var(--line); border-radius: 7px; font-size: 12px; padding: 3px 9px; cursor: pointer; }
 .mini:not(:disabled):hover { color: var(--ink); border-color: var(--ink-faint); }
 .mini.deny:hover { color: var(--ember); border-color: var(--ember); }
+.kb-card { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-top: 12px; }
+.kb-title { font-weight: 600; font-size: 14px; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+.kb-title .tier { font-weight: 400; font-size: 11px; color: var(--ink-faint); background: var(--bg-2); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; }
+.kb-title .tier.gov { color: #cba8f2; border-color: #b07cf0; }

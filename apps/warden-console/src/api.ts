@@ -39,11 +39,11 @@ export const api = {
   delegate: (witnessDid: string) => post<DelegateResponse>('/api/delegate', { witnessDid }),
   classify: (kind: string, text: string) => post<ClassifyResponse>('/api/classify', { kind, text }),
   recall: (query: string) => post<RecallResponse>('/api/recall', { query }),
-  kb: () => get<{ kb: KbView }>('/api/kb').then((r) => r.kb),
-  kbGrant: (did: string, scope: Scope) => post<{ kb: KbView }>('/api/kb/grant', { did, scope }).then((r) => r.kb),
-  kbRevoke: (did: string, scope: Scope) => post<{ kb: KbView }>('/api/kb/revoke', { did, scope }).then((r) => r.kb),
-  kbPolicy: (action: 'read' | 'write', tier: 'factor1' | 'factor2') =>
-    post<{ kb: KbView }>('/api/kb/policy', { action, tier }).then((r) => r.kb),
+  kb: () => get<{ kbs: KbView[] }>('/api/kb').then((r) => r.kbs),
+  kbGrant: (kbId: string, did: string, scope: Scope) => post<{ kbs: KbView[] }>('/api/kb/grant', { kbId, did, scope }).then((r) => r.kbs),
+  kbRevoke: (kbId: string, did: string, scope: Scope) => post<{ kbs: KbView[] }>('/api/kb/revoke', { kbId, did, scope }).then((r) => r.kbs),
+  kbPolicy: (kbId: string, action: 'read' | 'write', tier: 'factor1' | 'factor2') =>
+    post<{ kbs: KbView[] }>('/api/kb/policy', { kbId, action, tier }).then((r) => r.kbs),
 };
 
 /** Subscribe to the daemon's SSE event stream; `onEvent` fires per pushed event. */

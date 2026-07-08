@@ -44,7 +44,7 @@ import { DelegationStore } from './delegations.js';
 import { EvidenceService, type SovereignApprover } from './evidence.js';
 import { OllamaEmbedder, RecallService } from './recall.js';
 import { makeDidcommActionApprover, makeDidcommRulesetSigner } from './kb.js';
-import { buildKbService, KbConfigStore, setKbAssurance, readKbAssurance } from './kb-config.js';
+import { buildKbServices, KbConfigStore, setKbAssurance, readKbAssurance } from './kb-config.js';
 import { makeWardenHandler } from './handler.js';
 
 const sensitivityName = (s: number): SensitivityName => SENSITIVITY_NAMES[s] ?? 'SEALED';
@@ -67,24 +67,24 @@ export async function runWardenControl(
   const delegations = new DelegationStore(handle);
   const kbStore = new KbConfigStore(handle.dataFolder);
 
-  // Build the KB membership + policy view for the console (members = group DIDs; policy = the asset).
-  const kbView = async (): Promise<KbView> => {
-    const kb = await kbStore.read();
-    if (!kb) return { provisioned: false, readers: [], writers: [], policy: { read: 'factor1', write: 'factor1' } };
-    const members = async (group: string): Promise<string[]> => {
-      const g = (await handle.keymaster.getGroup(group).catch(() => null)) as { members?: string[] } | null;
-      return g?.members ?? [];
-    };
-    const policy = await readKbAssurance(handle, kb.policyAsset, kb.governorDid);
-    return {
-      provisioned: true,
-      kbId: kb.kbId,
-      readGroup: kb.readGroup,
-      writeGroup: kb.writeGroup,
-      readers: await members(kb.readGroup),
-      writers: await members(kb.writeGroup),
-      policy,
-    };
+  const members = async (group: string): Promise<string[]> => {
+    const g = (await handle.keymaster.getGroup(group).catch(() => null)) as { members?: string[] } | null;
+    return g?.members ?? [];
+  };
+  // A view of every KB this Warden holds (members = group DIDs; policy = the signed chain).
+  const kbList = async (): Promise<KbView[]> => {
+    const kbs = await kbStore.list();
+    return Promise.all(
+      kbs.map(async (kb) => ({
+        kbId: kb.kbId,
+        readGroup: kb.readGroup,
+        writeGroup: kb.writeGroup,
+        readers: await members(kb.readGroup),
+        writers: await members(kb.writeGroup),
+        policy: await readKbAssurance(handle, kb.policyAsset, kb.governorDid),
+        governed: !!kb.governorDid,
+      })),
+    );
   };
   const embedder = config.indexMode === 'ollama' ? new OllamaEmbedder(config.ollamaUrl, config.embeddingModel) : undefined;
   const service = new WardenService(handle, createClassifier(config), embedder);
@@ -151,36 +151,36 @@ export async function runWardenControl(
         return { result };
       },
 
-      // ── Knowledge Base membership + assurance policy ──
+      // ── Knowledge Base membership + assurance policy (many KBs per Warden) ──
       // NB: KB access is granted to the *member* DID (the one that signs in), never to the relaying
       // Mage/Witness — the Warden authorizes the member, the Mage only carries.
-      'GET /api/kb': async () => ({ kb: await kbView() }),
+      'GET /api/kb': async () => ({ kbs: await kbList() }),
       'POST /api/kb/grant': async ({ body }) => {
-        const { did, scope } = (body ?? {}) as KbGrantRequest;
-        const kb = await kbStore.read();
-        if (!kb) throw new Error('no KB provisioned (run `warden kb-init <kbId>`)');
+        const { kbId, did, scope } = (body ?? {}) as KbGrantRequest;
+        const kb = await kbStore.get(kbId);
+        if (!kb) throw new Error(`unknown KB "${kbId}"`);
         if (!did) throw new Error('did is required');
         if (scope === 'read' || scope === 'both') await grantAuthorization(handle, kb.readGroup, did);
         if (scope === 'write' || scope === 'both') await grantAuthorization(handle, kb.writeGroup, did);
-        const view = await kbView();
-        server.emit('kb-changed', { kb: view });
-        return { kb: view };
+        const kbs = await kbList();
+        server.emit('kb-changed', { kbs });
+        return { kbs };
       },
       'POST /api/kb/revoke': async ({ body }) => {
-        const { did, scope } = (body ?? {}) as KbGrantRequest;
-        const kb = await kbStore.read();
-        if (!kb) throw new Error('no KB provisioned');
+        const { kbId, did, scope } = (body ?? {}) as KbGrantRequest;
+        const kb = await kbStore.get(kbId);
+        if (!kb) throw new Error(`unknown KB "${kbId}"`);
         if (!did) throw new Error('did is required');
         if (scope === 'read' || scope === 'both') await revokeAuthorization(handle, kb.readGroup, did);
         if (scope === 'write' || scope === 'both') await revokeAuthorization(handle, kb.writeGroup, did);
-        const view = await kbView();
-        server.emit('kb-changed', { kb: view });
-        return { kb: view };
+        const kbs = await kbList();
+        server.emit('kb-changed', { kbs });
+        return { kbs };
       },
       'POST /api/kb/policy': async ({ body }) => {
-        const { action, tier } = (body ?? {}) as KbPolicyRequest;
-        const kb = await kbStore.read();
-        if (!kb) throw new Error('no KB provisioned');
+        const { kbId, action, tier } = (body ?? {}) as KbPolicyRequest;
+        const kb = await kbStore.get(kbId);
+        if (!kb) throw new Error(`unknown KB "${kbId}"`);
         if ((action !== 'read' && action !== 'write') || (tier !== 'factor1' && tier !== 'factor2')) {
           throw new Error('action must be read|write and tier factor1|factor2');
         }
@@ -188,10 +188,10 @@ export async function runWardenControl(
         // self-signs. The transport is already live in this daemon.
         const signer = kb.governorDid ? makeDidcommRulesetSigner(transport, kb.governorDid) : selfSigner(handle, id.did);
         const policyAsset = await setKbAssurance(handle, config, kb.kbId, kb.policyAsset, action, tier, signer);
-        await kbStore.save({ ...kb, policyAsset });
-        const view = await kbView();
-        server.emit('kb-changed', { kb: view });
-        return { kb: view };
+        await kbStore.put({ ...kb, policyAsset });
+        const kbs = await kbList();
+        server.emit('kb-changed', { kbs });
+        return { kbs };
       },
     },
     onListening: (p) =>
@@ -220,10 +220,10 @@ export async function runWardenControl(
 
   // Serve a provisioned Knowledge Base over DIDComm too (a public Mage relays to this mailbox).
   // The step-up approver reaches the member's Signet directly (out-of-band from the Mage).
-  const kb = await buildKbService(handle, config, id.did, makeDidcommActionApprover(transport));
+  const kbs = await buildKbServices(handle, config, id.did, makeDidcommActionApprover(transport));
 
   // Wrap the real handler so a stored submission is pushed to connected consoles.
-  const inner = makeWardenHandler(service, delegations, new EvidenceService(handle, config, approver), kb);
+  const inner = makeWardenHandler(service, delegations, new EvidenceService(handle, config, approver), kbs);
   const handler: RequestHandler = async (message, fromDid) => {
     const result = await inner(message, fromDid);
     if (

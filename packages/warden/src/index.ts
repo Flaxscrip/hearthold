@@ -24,7 +24,7 @@ import { DelegationStore } from './delegations.js';
 import { EvidenceService } from './evidence.js';
 import { RecallService, OllamaEmbedder } from './recall.js';
 import { makeDidcommActionApprover, makeDidcommRulesetSigner } from './kb.js';
-import { KbConfigStore, buildKbService, initKbAssurance, setKbAssurance, readKbAssurance } from './kb-config.js';
+import { KbConfigStore, buildKbServices, initKbAssurance, setKbAssurance, readKbAssurance } from './kb-config.js';
 import { makeWardenHandler } from './handler.js';
 
 /** The recall-index embedder from config, or undefined when indexing is off. */
@@ -51,6 +51,19 @@ async function cliRulesetSigner(
   process.stdout.write(`  → requesting the Sovereign's signature at the Signet (${governorDid.slice(0, 20)}…)…\n`);
   return { signer: makeDidcommRulesetSigner(transport, governorDid), done: () => {} };
 }
+
+/** Resolve the target KB for a CLI command: `--kb <kbId>`, else the sole provisioned KB. */
+async function resolveKb(store: KbConfigStore): Promise<import('./kb-config.js').KbConfig> {
+  const ki = process.argv.indexOf('--kb');
+  const kbId = ki > 0 ? process.argv[ki + 1] : undefined;
+  const kb = await store.get(kbId);
+  if (!kb) {
+    const all = await store.list();
+    if (all.length === 0) throw new Error('no KB provisioned — run `warden kb-init <kbId>` first');
+    throw new Error(`ambiguous KB — this Warden holds ${all.length} (${all.map((k) => k.kbId).join(', ')}); pass --kb <kbId>`);
+  }
+  return kb;
+}
 import { runWardenControl } from './control.js';
 
 const HELP = `Hearthold Warden — home Keeper
@@ -65,11 +78,12 @@ Usage:
   warden classify <kind> <text>   Classify text with the local model (test the classifier)
   warden vault             List stored artefacts (metadata only; payloads stay encrypted)
   warden recall <query>    Ask your own vault a question (local RAG; nothing leaves the device)
-  warden kb-init <kbId>    Provision a shared Knowledge Base (read/write access groups)
-  warden kb-grant <did> [read|write|both]   Authorize a Sovereign DID on the KB (default both)
-  warden kb-revoke <did> [read|write|both]  Revoke a Sovereign's KB authorization
-  warden kb-policy <action> <factor1|factor2>   Set required assurance for a KB action (governance)
-  warden kb-status         Show the KB config, members, and assurance policy
+  warden kb-init <kbId> [--governor <did>]  Provision a Knowledge Base (many per Warden)
+  warden kb-govern <sovereignDid> [--kb <kbId>]  Adopt Signet governance on an existing KB
+  warden kb-grant <did> [read|write|both] [--kb <kbId>]   Authorize a member DID on a KB
+  warden kb-revoke <did> [read|write|both] [--kb <kbId>]  Revoke a member's KB authorization
+  warden kb-policy <action> <factor1|factor2> [--kb <kbId>]   Set required assurance (governance)
+  warden kb-status         List all Knowledge Bases: members + assurance policy
   warden help              Show this message
 
 Env:
@@ -189,17 +203,17 @@ async function main(): Promise<void> {
       const id = await ensureIdentity(handle, config);
       const transport = new DidCommTransport(handle, IDENTITY_NAME.warden, config.nodeUrl);
       await transport.ready();
-      const kb = await buildKbService(handle, config, id.did, makeDidcommActionApprover(transport));
+      const kbs = await buildKbServices(handle, config, id.did, makeDidcommActionApprover(transport));
       const handler = makeWardenHandler(
         new WardenService(handle, createClassifier(config), makeEmbedder(config)),
         new DelegationStore(handle),
         new EvidenceService(handle, config),
-        kb,
+        kbs,
       );
       const stop = await transport.serve(handler);
       process.stdout.write(
         `Warden serving over DIDComm\n  did:  ${id.did}\n  node: ${config.nodeUrl}\n` +
-          `  kb:   ${kb ? 'serving a Knowledge Base' : 'none provisioned'}\n` +
+          `  kb:   ${kbs.size ? `serving ${kbs.size} Knowledge Base(s): ${[...kbs.keys()].join(', ')}` : 'none provisioned'}\n` +
           `  (Ctrl-C to stop)\n`,
       );
       const shutdown = (): void => {
@@ -247,26 +261,43 @@ async function main(): Promise<void> {
     }
     case 'kb-init': {
       const kbId = process.argv[3];
-      if (!kbId) throw new Error('usage: warden kb-init <kbId> [--governor <sovereignDid>]');
+      if (!kbId || kbId.startsWith('--')) throw new Error('usage: warden kb-init <kbId> [--governor <sovereignDid>]');
       const gi = process.argv.indexOf('--governor');
       const governorDid = gi > 0 ? process.argv[gi + 1] : config.sovereignDid;
       const id = await ensureIdentity(handle, config);
       const store = new KbConfigStore(handle.dataFolder);
-      if (await store.read()) throw new Error('a KB is already provisioned for this Warden');
+      if (await store.get(kbId)) throw new Error(`KB "${kbId}" is already provisioned (each Warden can hold many KBs — pick a new id)`);
       const readGroup = await createRegistryGroup(handle, `kb-read-${kbId}`, config.registry);
       const writeGroup = await createRegistryGroup(handle, `kb-write-${kbId}`, config.registry);
       // Governance policy — a genesis Ruleset signed by the governor (the Sovereign via the Signet, or
       // the Warden itself if self-governed). Readers pin the governor DID.
       const { signer } = await cliRulesetSigner(handle, config, id.did, governorDid);
       const policyAsset = await initKbAssurance(handle, config, kbId, signer);
-      await store.save({ kbId, readGroup, writeGroup, policyAsset, governorDid });
+      await store.put({ kbId, readGroup, writeGroup, policyAsset, governorDid });
       process.stdout.write(
         `Knowledge Base "${kbId}" provisioned\n` +
           `  read group:  ${readGroup}\n  write group: ${writeGroup}\n  policy:      ${policyAsset}\n` +
           `  governance:  ${governorDid ? `Sovereign ${governorDid.slice(0, 20)}… (signs at the Signet)` : 'self-governed (Warden signs)'}\n` +
-          `  → grant members:  warden kb-grant <sovereignDid>\n` +
-          `  → raise assurance: warden kb-policy write factor2\n` +
+          `  → grant members:  warden kb-grant <sovereignDid> both --kb ${kbId}\n` +
+          `  → raise assurance: warden kb-policy write factor2 --kb ${kbId}\n` +
           `  → serve it:       warden serve   (or warden control)\n`,
+      );
+      break;
+    }
+    case 'kb-govern': {
+      const governorDid = process.argv[3];
+      if (!governorDid || governorDid.startsWith('--')) throw new Error('usage: warden kb-govern <sovereignDid> [--kb <kbId>]');
+      const id = await ensureIdentity(handle, config);
+      const store = new KbConfigStore(handle.dataFolder);
+      const kb = await resolveKb(store);
+      // Adopt Signet governance in place: re-genesis the policy chain under the new governor (the Signet
+      // signs), keeping the existing groups + members. A governor change starts a fresh chain by design.
+      const { signer } = await cliRulesetSigner(handle, config, id.did, governorDid);
+      const policyAsset = await initKbAssurance(handle, config, kb.kbId, signer);
+      await store.put({ ...kb, governorDid, policyAsset });
+      process.stdout.write(
+        `"${kb.kbId}" is now governed by the Sovereign ${governorDid.slice(0, 20)}…\n` +
+          `  (members preserved; assurance reset to factor1 baseline — re-raise with kb-policy)\n  chain: ${policyAsset}\n`,
       );
       break;
     }
@@ -274,27 +305,25 @@ async function main(): Promise<void> {
       const action = process.argv[3];
       const tier = process.argv[4];
       if (!action || (tier !== 'factor1' && tier !== 'factor2')) {
-        throw new Error('usage: warden kb-policy <action> <factor1|factor2>  (e.g. kb-policy write factor2)');
+        throw new Error('usage: warden kb-policy <action> <factor1|factor2> [--kb <kbId>]');
       }
       const id = await ensureIdentity(handle, config);
       const store = new KbConfigStore(handle.dataFolder);
-      const kb = await store.read();
-      if (!kb) throw new Error('no KB provisioned — run `warden kb-init <kbId>` first');
+      const kb = await resolveKb(store);
       // Append a version signed by the KB's governor (the Sovereign at the Signet, or self).
       const { signer } = await cliRulesetSigner(handle, config, id.did, kb.governorDid);
       const policyAsset = await setKbAssurance(handle, config, kb.kbId, kb.policyAsset, action, tier, signer);
-      await store.save({ ...kb, policyAsset });
+      await store.put({ ...kb, policyAsset });
       process.stdout.write(`Policy set (signed by ${kb.governorDid ? 'the Sovereign' : 'the Warden'}): ${action} → ${tier} on "${kb.kbId}"\n  chain: ${policyAsset}\n`);
       break;
     }
     case 'kb-grant':
     case 'kb-revoke': {
       const did = process.argv[3];
-      const scope = (process.argv[4] ?? 'both').toLowerCase();
-      if (!did) throw new Error(`usage: warden ${cmd} <sovereignDid> [read|write|both]`);
+      const scope = (process.argv[4] && !process.argv[4].startsWith('--') ? process.argv[4] : 'both').toLowerCase();
+      if (!did) throw new Error(`usage: warden ${cmd} <sovereignDid> [read|write|both] [--kb <kbId>]`);
       await ensureIdentity(handle, config);
-      const kb = await new KbConfigStore(handle.dataFolder).read();
-      if (!kb) throw new Error('no KB provisioned — run `warden kb-init <kbId>` first');
+      const kb = await resolveKb(new KbConfigStore(handle.dataFolder));
       const groups: string[] = [];
       if (scope === 'read' || scope === 'both') groups.push(kb.readGroup);
       if (scope === 'write' || scope === 'both') groups.push(kb.writeGroup);
@@ -310,8 +339,8 @@ async function main(): Promise<void> {
     }
     case 'kb-status': {
       await ensureIdentity(handle, config);
-      const kb = await new KbConfigStore(handle.dataFolder).read();
-      if (!kb) {
+      const kbs = await new KbConfigStore(handle.dataFolder).list();
+      if (kbs.length === 0) {
         process.stdout.write('No Knowledge Base provisioned. Run `warden kb-init <kbId>`.\n');
         break;
       }
@@ -319,15 +348,17 @@ async function main(): Promise<void> {
         const g = (await handle.keymaster.getGroup(group).catch(() => null)) as { members?: string[] } | null;
         return g?.members ?? [];
       };
-      const readers = await members(kb.readGroup);
-      const writers = await members(kb.writeGroup);
-      const policy = await readKbAssurance(handle, kb.policyAsset, kb.governorDid);
-      process.stdout.write(
-        `Knowledge Base "${kb.kbId}"\n` +
-          `  read group:  ${kb.readGroup}\n    ${readers.length} member(s): ${readers.map((m) => m.slice(0, 20) + '…').join(', ') || '(none)'}\n` +
-          `  write group: ${kb.writeGroup}\n    ${writers.length} member(s): ${writers.map((m) => m.slice(0, 20) + '…').join(', ') || '(none)'}\n` +
-          `  assurance:   read → ${policy.read} · write → ${policy.write}  (signed Ruleset chain)\n`,
-      );
+      for (const kb of kbs) {
+        const readers = await members(kb.readGroup);
+        const writers = await members(kb.writeGroup);
+        const policy = await readKbAssurance(handle, kb.policyAsset, kb.governorDid);
+        process.stdout.write(
+          `Knowledge Base "${kb.kbId}"  (${kb.governorDid ? 'Sovereign-governed' : 'self-governed'})\n` +
+            `  read:  ${readers.length} member(s): ${readers.map((m) => m.slice(0, 20) + '…').join(', ') || '(none)'}\n` +
+            `  write: ${writers.length} member(s): ${writers.map((m) => m.slice(0, 20) + '…').join(', ') || '(none)'}\n` +
+            `  assurance: read → ${policy.read} · write → ${policy.write}\n`,
+        );
+      }
       break;
     }
     default:

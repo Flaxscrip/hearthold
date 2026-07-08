@@ -271,6 +271,8 @@ export interface KbLoginChallengeMessage {
 export interface KbLoginCompleteMessage {
   type: 'hearthold/kb-login-complete';
   version: typeof PROTOCOL_VERSION;
+  /** Which KB this login is for — routes to the KbService that minted the challenge. */
+  kbId: string;
   response: string;
 }
 

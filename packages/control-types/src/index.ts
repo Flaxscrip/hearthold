@@ -87,23 +87,30 @@ export interface RecallRequest {
   k?: number;
 }
 
-/** The Knowledge Base's membership + assurance policy, for the Warden Console KB panel. */
+/** One Knowledge Base's membership + assurance policy, for the Warden Console KB panel. */
 export interface KbView {
-  provisioned: boolean;
-  kbId?: string;
-  readGroup?: string;
-  writeGroup?: string;
+  kbId: string;
+  readGroup: string;
+  writeGroup: string;
   /** DIDs authorized to read (query) / write (contribute). */
   readers: string[];
   writers: string[];
   /** Required assurance per action (governance policy). */
   policy: { read: string; write: string };
+  /** True when the policy chain is signed by a governing Sovereign (not the Warden itself). */
+  governed: boolean;
+}
+/** The Warden's Knowledge Bases (one Warden holds many). */
+export interface KbListView {
+  kbs: KbView[];
 }
 export interface KbGrantRequest {
+  kbId: string;
   did: string;
   scope: 'read' | 'write' | 'both';
 }
 export interface KbPolicyRequest {
+  kbId: string;
   action: 'read' | 'write';
   tier: 'factor1' | 'factor2';
 }
