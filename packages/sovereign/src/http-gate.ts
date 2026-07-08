@@ -60,6 +60,14 @@ export class HttpGate implements ApprovalGate {
         summary: ctx.action.summary,
         receivedAt: new Date().toISOString(),
       };
+    } else if (ctx.governance) {
+      approval = {
+        id,
+        requester: ctx.requester,
+        kind: 'policy-signature',
+        summary: ctx.governance.summary,
+        receivedAt: new Date().toISOString(),
+      };
     } else {
       approval = {
         id,

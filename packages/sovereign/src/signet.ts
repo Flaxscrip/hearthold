@@ -32,6 +32,10 @@ export interface ApprovalContext {
     resource: string;
     summary: string;
   };
+  /** For Ruleset governance: the policy change the Sovereign is asked to sign. */
+  governance?: {
+    summary: string;
+  };
 }
 
 export interface ApprovalGate {
@@ -75,9 +79,11 @@ export class PromptGate implements ApprovalGate {
   async approve(ctx: ApprovalContext): Promise<HumanPresenceAssertion | null> {
     const detail = ctx.disclosure
       ? `   claim:     ${ctx.disclosure.claim}\n   reason:    ${ctx.disclosure.reason}\n`
-      : ctx.action
-        ? `   action:    ${ctx.action.action} on ${ctx.action.resource}\n   detail:    ${ctx.action.summary}\n`
-        : `   challenge: ${(ctx.challengeDid ?? '').slice(0, 40)}…\n`;
+      : ctx.governance
+        ? `   sign law:  ${ctx.governance.summary}\n`
+        : ctx.action
+          ? `   action:    ${ctx.action.action} on ${ctx.action.resource}\n   detail:    ${ctx.action.summary}\n`
+          : `   challenge: ${(ctx.challengeDid ?? '').slice(0, 40)}…\n`;
     process.stdout.write(
       `\n🔑 Signet — a disclosure needs your approval\n` +
         `   from:      ${ctx.requester.slice(0, 40)}…\n` +

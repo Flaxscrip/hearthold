@@ -111,5 +111,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 .approval.evidence .req-label { color: #8fe9f2; }
 .approval.action { border-color: #e0a34d; box-shadow: 0 8px 26px -18px #e0a34d; background: linear-gradient(180deg, #29200f, var(--bg-2)); }
 .approval.action .req-label { color: #f2c88f; }
+.approval.policy { border-color: #b07cf0; box-shadow: 0 8px 26px -18px #b07cf0; background: linear-gradient(180deg, #1e152b, var(--bg-2)); }
+.approval.policy .req-label { color: #cba8f2; }
 .ctx .claim { font-weight: 600; color: var(--ink); font-size: 15px; }
 .ctx .reason { color: var(--ink-dim); font-size: 13px; line-height: 1.5; }

@@ -50,6 +50,7 @@ export interface Ruleset {
 export type SignedRuleset = Ruleset & { proof?: unknown };
 
 const sha256hex = (s: string): string => createHash('sha256').update(s).digest('hex');
+const short = (did: string): string => (did.length > 24 ? `${did.slice(0, 24)}…` : did);
 
 /** Deterministic JSON with recursively sorted keys — so a content id is stable across re-serialization. */
 function stableStringify(v: unknown): string {
@@ -68,6 +69,22 @@ export function rulesetId(signed: SignedRuleset): string {
 /** The Sovereign signs a Ruleset version with their own key. */
 export async function signRuleset(sovereign: KeymasterHandle, ruleset: Ruleset): Promise<SignedRuleset> {
   return (await sovereign.keymaster.addProof(ruleset)) as SignedRuleset;
+}
+
+/**
+ * A source of Ruleset signatures — the governance seam. `governor` is the DID the resulting chain will
+ * be signed by (readers pin it); `sign` returns the signed version, or null if governance declined
+ * (e.g. the Signet denied). Two implementations: `selfSigner` (the Warden self-governs — default /
+ * tests) and a DIDComm signer that routes to a governing Sovereign's Signet (see `warden/kb.ts`).
+ */
+export interface RulesetSigner {
+  readonly governor: string;
+  sign(ruleset: Ruleset, summary: string): Promise<SignedRuleset | null>;
+}
+
+/** Self-signing signer: `handle` signs its own policy (self-governed). Governor = `handle`'s DID. */
+export function selfSigner(handle: KeymasterHandle, governor: string): RulesetSigner {
+  return { governor, sign: (ruleset) => signRuleset(handle, ruleset) };
 }
 
 export interface RulesetCheck {
@@ -93,7 +110,11 @@ export async function verifyRuleset(warden: KeymasterHandle, signed: SignedRules
  * version) is the operative Ruleset; its status says whether the actor is `active` or `revoked`. The
  * Warden must refuse to enforce a chain that fails this.
  */
-export async function verifyRulesetChain(warden: KeymasterHandle, chain: SignedRuleset[]): Promise<RulesetCheck> {
+export async function verifyRulesetChain(
+  warden: KeymasterHandle,
+  chain: SignedRuleset[],
+  opts: { expectedSigner?: string } = {},
+): Promise<RulesetCheck> {
   if (chain.length === 0) return { ok: false, reason: 'empty chain' };
   const ordered = [...chain].sort((a, b) => a.version - b.version);
   const head = ordered[ordered.length - 1] as SignedRuleset;
@@ -116,6 +137,11 @@ export async function verifyRulesetChain(warden: KeymasterHandle, chain: SignedR
       return { ok: false, reason: `v${r.version}: broken previous link` };
     }
   }
+  // Governor pinning: the whole point of Signet governance. A reader that expects a specific governing
+  // Sovereign rejects any chain not signed by them — so a compromised Warden cannot self-sign policy.
+  if (opts.expectedSigner && signer !== opts.expectedSigner) {
+    return { ok: false, reason: `chain not signed by the governing DID (${short(opts.expectedSigner)})` };
+  }
   return { ok: true, reason: `chain valid (head v${head.version}, ${head.status})`, signer };
 }
 
@@ -123,8 +149,12 @@ export async function verifyRulesetChain(warden: KeymasterHandle, chain: SignedR
  * The operative Ruleset for an actor: the verified head if it is `active`, else null (a revoked head or
  * an invalid chain governs nothing — fail closed).
  */
-export async function activeRuleset(warden: KeymasterHandle, chain: SignedRuleset[]): Promise<SignedRuleset | null> {
-  const check = await verifyRulesetChain(warden, chain);
+export async function activeRuleset(
+  warden: KeymasterHandle,
+  chain: SignedRuleset[],
+  opts: { expectedSigner?: string } = {},
+): Promise<SignedRuleset | null> {
+  const check = await verifyRulesetChain(warden, chain, opts);
   if (!check.ok) return null;
   const head = [...chain].sort((a, b) => a.version - b.version).pop() as SignedRuleset;
   return head.status === 'active' ? head : null;
@@ -153,9 +183,14 @@ export interface ActorAuthz {
  * interpreter sandbox contains *computation*; **this is where the Warden contains disclosure**. Fail
  * closed: no active Ruleset (unsigned / revoked / tampered / missing) authorizes nothing.
  */
-export async function authorizeActor(warden: KeymasterHandle, chain: SignedRuleset[], req: ActorRequest): Promise<ActorAuthz> {
-  const head = await activeRuleset(warden, chain);
-  if (!head) return { allowed: false, reason: 'no active Ruleset for this actor (unsigned, revoked, or tampered)' };
+export async function authorizeActor(
+  warden: KeymasterHandle,
+  chain: SignedRuleset[],
+  req: ActorRequest,
+  opts: { expectedSigner?: string } = {},
+): Promise<ActorAuthz> {
+  const head = await activeRuleset(warden, chain, opts);
+  if (!head) return { allowed: false, reason: 'no active Ruleset for this actor (unsigned, revoked, tampered, or not governed by the expected Sovereign)' };
   const caps = head.capabilities;
   if (caps.verbs && !caps.verbs.includes(req.verb)) {
     return { allowed: false, reason: `verb '${req.verb}' is not in the actor's Ruleset` };

@@ -17,6 +17,7 @@
     "./recall": { "types": "./dist/recall.d.ts", "import": "./dist/recall.js" },
     "./index-store": { "types": "./dist/index-store.d.ts", "import": "./dist/index-store.js" },
     "./kb": { "types": "./dist/kb.d.ts", "import": "./dist/kb.js" },
+    "./kb-config": { "types": "./dist/kb-config.d.ts", "import": "./dist/kb-config.js" },
     "./ruleset-store": { "types": "./dist/ruleset-store.d.ts", "import": "./dist/ruleset-store.js" },
     "./classifier": { "types": "./dist/classifier.d.ts", "import": "./dist/classifier.js" }
   },

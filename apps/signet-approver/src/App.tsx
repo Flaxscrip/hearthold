@@ -123,14 +123,28 @@ function ApprovalCard({ approval, onResolved }: { approval: PendingApproval; onR
 
   const isEvidence = approval.kind === 'evidence-approval';
   const isAction = approval.kind === 'kb-action';
-  const label = isEvidence ? 'evidence disclosure' : isAction ? 'action authorization' : 'disclosure request';
+  const isPolicy = approval.kind === 'policy-signature';
+  const label = isEvidence
+    ? 'evidence disclosure'
+    : isAction
+      ? 'action authorization'
+      : isPolicy
+        ? 'sign the law'
+        : 'disclosure request';
   return (
-    <div className={`approval${isEvidence ? ' evidence' : ''}${isAction ? ' action' : ''}`}>
+    <div className={`approval${isEvidence ? ' evidence' : ''}${isAction ? ' action' : ''}${isPolicy ? ' policy' : ''}`}>
       <div className="approval-head">
         <span className="req-label">{label}</span>
         <span className="ago">{new Date(approval.receivedAt).toLocaleTimeString()}</span>
       </div>
-      {isAction ? (
+      {isPolicy ? (
+        <dl className="ctx">
+          <dt>sign policy</dt>
+          <dd className="claim">{approval.summary}</dd>
+          <dt>from Warden</dt>
+          <dd><DidTag did={approval.requester} /></dd>
+        </dl>
+      ) : isAction ? (
         <dl className="ctx">
           <dt>authorize</dt>
           <dd className="claim">

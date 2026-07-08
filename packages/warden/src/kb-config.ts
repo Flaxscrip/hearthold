@@ -4,14 +4,15 @@ import { join } from 'node:path';
 import {
   GroupTrustRegistry,
   RulesetAssurancePolicy,
-  signRuleset,
   rulesetId,
   activeRuleset,
+  selfSigner,
   Sensitivity,
   type KeymasterHandle,
   type HearthholdConfig,
   type Ruleset,
   type SignedRuleset,
+  type RulesetSigner,
   type AssuranceTier,
 } from '@hearthold/core';
 
@@ -24,14 +25,23 @@ export interface KbConfig {
   writeGroup: string;
   /** Ledger asset holding the Sovereign-signed assurance Ruleset chain (governance policy). */
   policyAsset?: string;
+  /** The governing DID that signs the policy chain (readers pin it). Absent = self-governed by Warden. */
+  governorDid?: string;
+}
+
+/** Raised when governance (the Signet) declines / is unreachable — the caller must not proceed. */
+export class GovernanceDeclined extends Error {
+  constructor(what: string) {
+    super(`governance declined: ${what} was not signed by the Sovereign`);
+  }
 }
 
 /**
  * Provision the KB's assurance policy as a signed genesis Ruleset chain (default: everything factor1).
- * Signed by `handle` — the KB's governing authority (self-governed by the KB Warden in this increment;
- * a separate governing Sovereign is the natural hardening). Returns the chain asset DID.
+ * `signer` decides who governs: `selfSigner` (Warden self-governs) or a DIDComm signer routing to the
+ * Sovereign's Signet. The chain is signed by `signer.governor`; readers pin it. Returns the chain asset.
  */
-export async function initKbAssurance(handle: KeymasterHandle, config: HearthholdConfig, kbId: string): Promise<string> {
+export async function initKbAssurance(handle: KeymasterHandle, config: HearthholdConfig, kbId: string, signer: RulesetSigner): Promise<string> {
   const genesis: Ruleset = {
     actor: kbId,
     actorKind: 'kb',
@@ -42,7 +52,8 @@ export async function initKbAssurance(handle: KeymasterHandle, config: Hearthhol
     ceiling: Sensitivity.SEALED,
     status: 'active',
   };
-  const signed = await signRuleset(handle, genesis);
+  const signed = await signer.sign(genesis, `establish the assurance policy for "${kbId}" (read→factor1, write→factor1)`);
+  if (!signed) throw new GovernanceDeclined(`the "${kbId}" genesis policy`);
   return handle.keymaster.createAsset([signed], { registry: config.registry });
 }
 
@@ -54,6 +65,7 @@ export async function setKbAssurance(
   currentChain: string | undefined,
   action: string,
   tier: AssuranceTier,
+  signer: RulesetSigner,
 ): Promise<string> {
   const data = currentChain ? await handle.keymaster.resolveAsset(currentChain).catch(() => null) : null;
   const chain = (Array.isArray(data) ? data : []) as SignedRuleset[];
@@ -68,15 +80,16 @@ export async function setKbAssurance(
     ceiling: Sensitivity.SEALED,
     status: 'active',
   };
-  const signed = await signRuleset(handle, next);
+  const signed = await signer.sign(next, `set assurance for "${action}" on "${kbId}" to ${tier}`);
+  if (!signed) throw new GovernanceDeclined(`the "${kbId}" policy change (${action}→${tier})`);
   return handle.keymaster.createAsset([...chain, signed], { registry: config.registry });
 }
 
-/** Read the current assurance tiers from a policy chain (for display). Verified via the active head. */
-export async function readKbAssurance(handle: KeymasterHandle, chainAsset?: string): Promise<{ read: string; write: string }> {
+/** Read the current assurance tiers from a policy chain (for display). Verified + governor-pinned. */
+export async function readKbAssurance(handle: KeymasterHandle, chainAsset?: string, governorDid?: string): Promise<{ read: string; write: string }> {
   const data = chainAsset ? await handle.keymaster.resolveAsset(chainAsset).catch(() => null) : null;
   const chain = (Array.isArray(data) ? data : []) as SignedRuleset[];
-  const head = chain.length ? await activeRuleset(handle, chain) : null;
+  const head = chain.length ? await activeRuleset(handle, chain, { expectedSigner: governorDid }) : null;
   const a = head?.capabilities.assurance ?? {};
   return { read: a.read ?? 'factor1', write: a.write ?? 'factor1' };
 }
@@ -119,8 +132,9 @@ export async function buildKbService(
   const kb = await new KbConfigStore(handle.dataFolder).read();
   if (!kb) return undefined;
   // Governance policy (required assurance per action) is a Sovereign-signed Ruleset chain on the
-  // ledger; the Warden reads + verifies it (fail-closed on tamper).
-  const policy = kb.policyAsset ? new RulesetAssurancePolicy(handle, kb.policyAsset) : undefined;
+  // ledger; the Warden reads + verifies it, PINNED to the governing DID (fail-closed on tamper or a
+  // forged self-signature — a compromised Warden cannot rewrite policy it doesn't govern).
+  const policy = kb.policyAsset ? new RulesetAssurancePolicy(handle, kb.policyAsset, kb.governorDid) : undefined;
   const registry = new GroupTrustRegistry(
     handle,
     [

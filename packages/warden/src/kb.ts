@@ -28,6 +28,8 @@ import {
   type TrustEvaluator,
   meetsAssurance,
   type Transport,
+  type RulesetSigner,
+  type SignedRuleset,
   type SignedKbRequest,
   type KbChallengeMessage,
   type KbResultMessage,
@@ -67,6 +69,30 @@ export interface KbActionApprover {
     resource: string;
     summary: string;
   }): Promise<boolean>;
+}
+
+/**
+ * A `RulesetSigner` backed by DIDComm: the Warden asks the governing Sovereign's Signet to **sign** a
+ * policy change (a fresh proof-of-human at the Signet). The signature is the Sovereign's, and readers
+ * pin `governor` — so a compromised Warden cannot forge policy. Returns null on decline / timeout.
+ */
+export function makeDidcommRulesetSigner(transport: Transport, governor: string, timeoutMs = 170_000): RulesetSigner {
+  return {
+    governor,
+    async sign(ruleset, summary) {
+      try {
+        const reply = await transport.request(
+          governor,
+          { type: 'hearthold/ruleset-sign-request', version: PROTOCOL_VERSION, ruleset, summary },
+          { timeoutMs },
+        );
+        if (reply.type === 'hearthold/ruleset-sign-response' && reply.approved) return reply.signed as SignedRuleset;
+        return null;
+      } catch {
+        return null; // unreachable Signet / timeout ⇒ not signed (fail closed)
+      }
+    },
+  };
 }
 
 /**

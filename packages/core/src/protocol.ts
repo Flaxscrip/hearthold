@@ -321,6 +321,25 @@ export interface KbApprovalResponseMessage {
   reason?: string;
 }
 
+// ── Ruleset governance: the Warden asks the governing Sovereign's Signet to SIGN a policy change ──
+// A compromised Warden cannot forge policy: the Sovereign signs (proof-of-human at the Signet), and
+// readers pin the Sovereign's DID. Direct Warden↔Sovereign channel — no relay in the governance path.
+
+/** Warden → Sovereign: please sign this Ruleset version (governance). Carries a human-readable summary. */
+export interface RulesetSignRequestMessage {
+  type: 'hearthold/ruleset-sign-request';
+  version: typeof PROTOCOL_VERSION;
+  /** The unsigned Ruleset the Warden constructed (next version, previous link intact). */
+  ruleset: unknown;
+  /** Warden-authored description shown at the Signet (e.g. "raise write on drake-kb to factor2"). */
+  summary: string;
+}
+
+/** Sovereign → Warden: the signed Ruleset (approved), or a decline. */
+export type RulesetSignResponseMessage =
+  | { type: 'hearthold/ruleset-sign-response'; version: typeof PROTOCOL_VERSION; approved: true; signed: unknown }
+  | { type: 'hearthold/ruleset-sign-response'; version: typeof PROTOCOL_VERSION; approved: false; reason: string };
+
 /** Warden → Sovereign (via Mage): the result of an authorized KB request, or a refusal. */
 export type KbResultMessage =
   | {
@@ -368,5 +387,7 @@ export type HearthholdMessage =
   | KbSessionRequestMessage
   | KbApprovalRequestMessage
   | KbApprovalResponseMessage
+  | RulesetSignRequestMessage
+  | RulesetSignResponseMessage
   | KbResultMessage
   | ErrorMessage;

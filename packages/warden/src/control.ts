@@ -15,6 +15,7 @@ import {
   startControlServer,
   grantAuthorization,
   revokeAuthorization,
+  selfSigner,
   PROTOCOL_VERSION,
   type HearthholdConfig,
   type KeymasterHandle,
@@ -42,7 +43,7 @@ import { VaultStore, type Artefact } from './store.js';
 import { DelegationStore } from './delegations.js';
 import { EvidenceService, type SovereignApprover } from './evidence.js';
 import { OllamaEmbedder, RecallService } from './recall.js';
-import { makeDidcommActionApprover } from './kb.js';
+import { makeDidcommActionApprover, makeDidcommRulesetSigner } from './kb.js';
 import { buildKbService, KbConfigStore, setKbAssurance, readKbAssurance } from './kb-config.js';
 import { makeWardenHandler } from './handler.js';
 
@@ -74,7 +75,7 @@ export async function runWardenControl(
       const g = (await handle.keymaster.getGroup(group).catch(() => null)) as { members?: string[] } | null;
       return g?.members ?? [];
     };
-    const policy = await readKbAssurance(handle, kb.policyAsset);
+    const policy = await readKbAssurance(handle, kb.policyAsset, kb.governorDid);
     return {
       provisioned: true,
       kbId: kb.kbId,
@@ -183,7 +184,10 @@ export async function runWardenControl(
         if ((action !== 'read' && action !== 'write') || (tier !== 'factor1' && tier !== 'factor2')) {
           throw new Error('action must be read|write and tier factor1|factor2');
         }
-        const policyAsset = await setKbAssurance(handle, config, kb.kbId, kb.policyAsset, action, tier);
+        // Governance: a governed KB routes the signature to the Sovereign's Signet; else the Warden
+        // self-signs. The transport is already live in this daemon.
+        const signer = kb.governorDid ? makeDidcommRulesetSigner(transport, kb.governorDid) : selfSigner(handle, id.did);
+        const policyAsset = await setKbAssurance(handle, config, kb.kbId, kb.policyAsset, action, tier, signer);
         await kbStore.save({ ...kb, policyAsset });
         const view = await kbView();
         server.emit('kb-changed', { kb: view });

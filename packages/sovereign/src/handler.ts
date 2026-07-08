@@ -3,10 +3,13 @@ import {
   presentProof,
   signEvidenceApproval,
   type RequestHandler,
+  signRuleset,
   type ProofRequestMessage,
   type ApprovalRequestMessage,
   type KbApprovalRequestMessage,
+  type RulesetSignRequestMessage,
   type EvidenceApprovalStatement,
+  type Ruleset,
   type KeymasterHandle,
 } from '@hearthold/core';
 
@@ -66,6 +69,22 @@ export function makeSovereignHandler(sovereign: KeymasterHandle, gate: ApprovalG
       };
       const approval = await signEvidenceApproval(sovereign, statement);
       return { type: 'hearthold/approval-response', version: PROTOCOL_VERSION, approved: true, approval };
+    }
+
+    // Ruleset governance: the Warden asks this Sovereign to SIGN a policy change. Gated by a fresh
+    // proof-of-human at the Signet, then signed with the Sovereign's key — so a compromised Warden
+    // cannot forge policy (readers pin this Sovereign's DID).
+    if (message.type === 'hearthold/ruleset-sign-request') {
+      const m = message as RulesetSignRequestMessage;
+      const humanProof = await gate.approve({
+        requester: fromDid,
+        governance: { summary: m.summary },
+      });
+      if (!humanProof) {
+        return { type: 'hearthold/ruleset-sign-response', version: PROTOCOL_VERSION, approved: false, reason: 'declined by the Sovereign' };
+      }
+      const signed = await signRuleset(sovereign, m.ruleset as Ruleset);
+      return { type: 'hearthold/ruleset-sign-response', version: PROTOCOL_VERSION, approved: true, signed };
     }
 
     // KB assurance step-up: the Warden asks the member (this Sovereign) to authorize a factor2 action,

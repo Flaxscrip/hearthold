@@ -153,8 +153,9 @@ export interface PendingApproval {
    * `proof-request` — present a held credential to a verifier.
    * `evidence-approval` — co-sign the Warden's disclosure of derived, witnessed data.
    * `kb-action` — authorize a factor-2 Knowledge Base action (the Warden's out-of-band step-up).
+   * `policy-signature` — sign a Warden policy change (Ruleset governance).
    */
-  kind: 'proof-request' | 'evidence-approval' | 'kb-action';
+  kind: 'proof-request' | 'evidence-approval' | 'kb-action' | 'policy-signature';
   /** Proof-request: the challenge being answered. */
   challengeDid?: string;
   schema?: string;

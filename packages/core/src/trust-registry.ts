@@ -184,14 +184,17 @@ export class RulesetAssurancePolicy implements AssurancePolicySource {
   constructor(
     private readonly handle: KeymasterHandle,
     private readonly policyChain: string,
+    /** The governing DID the chain must be signed by (Signet governance). Omit to accept any signer. */
+    private readonly expectedSigner?: string,
   ) {}
 
   async requiredAssurance(action: string): Promise<AssuranceTier> {
     const data = await this.handle.keymaster.resolveAsset(this.policyChain).catch(() => null);
     const chain = Array.isArray(data) ? (data as SignedRuleset[]) : [];
     if (chain.length === 0) return 'factor1'; // no policy → base tier
-    if (!(await verifyRulesetChain(this.handle, chain)).ok) return 'factor2'; // tampered/broken → fail closed
-    const head = await activeRuleset(this.handle, chain); // null when the head is revoked
+    const opts = { expectedSigner: this.expectedSigner };
+    if (!(await verifyRulesetChain(this.handle, chain, opts)).ok) return 'factor2'; // tampered/broken/wrong-signer → fail closed
+    const head = await activeRuleset(this.handle, chain, opts); // null when the head is revoked
     return head?.capabilities.assurance?.[action] ?? 'factor1';
   }
 }
