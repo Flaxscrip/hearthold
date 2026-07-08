@@ -15,7 +15,6 @@ import {
   startControlServer,
   grantAuthorization,
   revokeAuthorization,
-  createAssurancePolicy,
   PROTOCOL_VERSION,
   type HearthholdConfig,
   type KeymasterHandle,
@@ -44,7 +43,7 @@ import { DelegationStore } from './delegations.js';
 import { EvidenceService, type SovereignApprover } from './evidence.js';
 import { OllamaEmbedder, RecallService } from './recall.js';
 import { makeDidcommActionApprover } from './kb.js';
-import { buildKbService, KbConfigStore } from './kb-config.js';
+import { buildKbService, KbConfigStore, setKbAssurance, readKbAssurance } from './kb-config.js';
 import { makeWardenHandler } from './handler.js';
 
 const sensitivityName = (s: number): SensitivityName => SENSITIVITY_NAMES[s] ?? 'SEALED';
@@ -75,7 +74,7 @@ export async function runWardenControl(
       const g = (await handle.keymaster.getGroup(group).catch(() => null)) as { members?: string[] } | null;
       return g?.members ?? [];
     };
-    const policy = (kb.policyAsset ? await handle.keymaster.resolveAsset(kb.policyAsset).catch(() => ({})) : {}) as Record<string, string>;
+    const policy = await readKbAssurance(handle, kb.policyAsset);
     return {
       provisioned: true,
       kbId: kb.kbId,
@@ -83,7 +82,7 @@ export async function runWardenControl(
       writeGroup: kb.writeGroup,
       readers: await members(kb.readGroup),
       writers: await members(kb.writeGroup),
-      policy: { read: policy.read ?? 'factor1', write: policy.write ?? 'factor1' },
+      policy,
     };
   };
   const embedder = config.indexMode === 'ollama' ? new OllamaEmbedder(config.ollamaUrl, config.embeddingModel) : undefined;
@@ -184,8 +183,7 @@ export async function runWardenControl(
         if ((action !== 'read' && action !== 'write') || (tier !== 'factor1' && tier !== 'factor2')) {
           throw new Error('action must be read|write and tier factor1|factor2');
         }
-        const current = (kb.policyAsset ? await handle.keymaster.resolveAsset(kb.policyAsset).catch(() => ({})) : {}) as Record<string, 'factor1' | 'factor2'>;
-        const policyAsset = await createAssurancePolicy(handle, { ...current, [action]: tier }, config.registry);
+        const policyAsset = await setKbAssurance(handle, config, kb.kbId, kb.policyAsset, action, tier);
         await kbStore.save({ ...kb, policyAsset });
         const view = await kbView();
         server.emit('kb-changed', { kb: view });

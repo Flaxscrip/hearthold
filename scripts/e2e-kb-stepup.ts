@@ -14,11 +14,13 @@ import {
   openKeymaster,
   ensureIdentity,
   createRegistryGroup,
-  createAssurancePolicy,
   grantAuthorization,
   GroupTrustRegistry,
-  LedgerAssurancePolicy,
+  RulesetAssurancePolicy,
+  signRuleset,
+  Sensitivity,
   PROTOCOL_VERSION,
+  type Ruleset,
   type KbSessionRequestMessage,
 } from '@hearthold/core';
 import { KbService, type KbActionApprover } from '@hearthold/warden/kb';
@@ -44,12 +46,27 @@ async function main(): Promise<void> {
   await grantAuthorization(warden, writeGroup, aliceId.did);
 
   // Governance policy: writes require factor2, reads factor1.
-  const policyAsset = await createAssurancePolicy(warden, { read: 'factor1', write: 'factor2' }, config.registry);
+  // A Sovereign-signed assurance Ruleset chain (converged mechanism), signed by the KB Warden.
+  const buildPolicy = async (assurance: Record<string, 'factor1' | 'factor2'>): Promise<string> => {
+    const ruleset: Ruleset = {
+      actor: kbId,
+      actorKind: 'kb',
+      resource: kbId,
+      version: 1,
+      previous: null,
+      capabilities: { assurance },
+      ceiling: Sensitivity.SEALED,
+      status: 'active',
+    };
+    const signed = await signRuleset(warden, ruleset);
+    return warden.keymaster.createAsset([signed], { registry: config.registry });
+  };
+  const policyAsset = await buildPolicy({ read: 'factor1', write: 'factor2' });
   const bindings = [
     { action: 'read', resource: kbId, group: readGroup },
     { action: 'write', resource: kbId, group: writeGroup },
   ];
-  const registry = new GroupTrustRegistry(warden, bindings, wardenId.did, new LedgerAssurancePolicy(warden, policyAsset));
+  const registry = new GroupTrustRegistry(warden, bindings, wardenId.did, new RulesetAssurancePolicy(warden, policyAsset));
 
   // Approver double stands in for the direct Warden→Signet channel; records calls, returns `verdict`.
   const calls: { action: string; summary: string }[] = [];
@@ -99,11 +116,11 @@ async function main(): Promise<void> {
   assert(calls.length === 1, 'the step-up was asked before being declined');
 
   process.stdout.write('\n▸ Policy (not code) governs: a factor1 write policy takes no step-up\n');
-  const policy1 = await createAssurancePolicy(warden, { read: 'factor1', write: 'factor1' }, config.registry);
+  const policy1 = await buildPolicy({ read: 'factor1', write: 'factor1' });
   const kb1 = new KbService(warden, config, {
     kbId,
     wardenDid: wardenId.did,
-    registry: new GroupTrustRegistry(warden, bindings, wardenId.did, new LedgerAssurancePolicy(warden, policy1)),
+    registry: new GroupTrustRegistry(warden, bindings, wardenId.did, new RulesetAssurancePolicy(warden, policy1)),
     approver,
   });
   const c2 = await kb1.startLogin(kbId, 'https://mage.example/cb');

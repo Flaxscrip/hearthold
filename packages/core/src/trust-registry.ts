@@ -18,6 +18,8 @@
  */
 
 import type { KeymasterHandle } from './keymaster.js';
+import { verifyRulesetChain, activeRuleset } from './ruleset.js';
+import type { SignedRuleset } from './ruleset.js';
 
 /** TRQP standard actions. `issue` is the outward case; `present` carries the inward Witness case. */
 export type TrqpAction = 'issue' | 'verify' | 'hold' | 'present' | 'revoke';
@@ -169,35 +171,32 @@ export class GroupTrustRegistry implements TrustEvaluator {
   }
 }
 
-/** A ledger asset mapping actions → required assurance (e.g. `{ read: 'factor1', write: 'factor2' }`). */
-export type AssurancePolicyDoc = Partial<Record<string, AssuranceTier>>;
-
 /**
- * Reads the required-assurance policy from a ledger asset owned by the registry authority. Governance-
- * controlled and auditable; the Warden only reads it. Absent/unknown actions default to `factor1`.
+ * Reads the required-assurance policy from a **Sovereign-signed Ruleset chain** (a ledger asset holding
+ * `SignedRuleset[]`) — the converged mechanism: one signed, versioned, auditable policy instead of a
+ * bare mutable asset. Governance-controlled; the Warden only reads + verifies.
+ *
+ * Fail-closed: a tampered or broken chain must never silently *downgrade* the requirement, so it
+ * resolves to the strongest tier (`factor2`). A revoked head, or no policy at all, means base
+ * (`factor1`) — the action still passes group authorization; there is simply no step-up.
  */
-export class LedgerAssurancePolicy implements AssurancePolicySource {
+export class RulesetAssurancePolicy implements AssurancePolicySource {
   constructor(
     private readonly handle: KeymasterHandle,
-    private readonly policyAsset: string,
+    private readonly policyChain: string,
   ) {}
 
   async requiredAssurance(action: string): Promise<AssuranceTier> {
-    const doc = (await this.handle.keymaster.resolveAsset(this.policyAsset).catch(() => ({}))) as AssurancePolicyDoc;
-    return doc[action] ?? 'factor1';
+    const data = await this.handle.keymaster.resolveAsset(this.policyChain).catch(() => null);
+    const chain = Array.isArray(data) ? (data as SignedRuleset[]) : [];
+    if (chain.length === 0) return 'factor1'; // no policy → base tier
+    if (!(await verifyRulesetChain(this.handle, chain)).ok) return 'factor2'; // tampered/broken → fail closed
+    const head = await activeRuleset(this.handle, chain); // null when the head is revoked
+    return head?.capabilities.assurance?.[action] ?? 'factor1';
   }
 }
 
 // ── Provisioning (the registry owner's side) ──────────────────────────────────
-
-/** Create the governance policy asset declaring required assurance per action. Owner-only. */
-export async function createAssurancePolicy(
-  owner: KeymasterHandle,
-  policy: AssurancePolicyDoc,
-  registry: string,
-): Promise<string> {
-  return owner.keymaster.createAsset(policy, { registry });
-}
 
 /** Create an Archon group to hold the entities authorized for some `(action, resource)`. */
 export async function createRegistryGroup(

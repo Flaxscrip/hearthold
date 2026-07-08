@@ -6,7 +6,6 @@ import {
   ensureDelegationSchema,
   issueDelegation,
   createRegistryGroup,
-  createAssurancePolicy,
   grantAuthorization,
   revokeAuthorization,
   DidCommTransport,
@@ -23,7 +22,7 @@ import { DelegationStore } from './delegations.js';
 import { EvidenceService } from './evidence.js';
 import { RecallService, OllamaEmbedder } from './recall.js';
 import { makeDidcommActionApprover } from './kb.js';
-import { KbConfigStore, buildKbService } from './kb-config.js';
+import { KbConfigStore, buildKbService, initKbAssurance, setKbAssurance, readKbAssurance } from './kb-config.js';
 import { makeWardenHandler } from './handler.js';
 
 /** The recall-index embedder from config, or undefined when indexing is off. */
@@ -234,8 +233,8 @@ async function main(): Promise<void> {
       if (await store.read()) throw new Error('a KB is already provisioned for this Warden');
       const readGroup = await createRegistryGroup(handle, `kb-read-${kbId}`, config.registry);
       const writeGroup = await createRegistryGroup(handle, `kb-write-${kbId}`, config.registry);
-      // Governance policy asset — default: everything factor1 (raise per action with `kb-policy`).
-      const policyAsset = await createAssurancePolicy(handle, { read: 'factor1', write: 'factor1' }, config.registry);
+      // Governance policy — a signed genesis Ruleset chain (default: everything factor1).
+      const policyAsset = await initKbAssurance(handle, config, kbId);
       await store.save({ kbId, readGroup, writeGroup, policyAsset });
       process.stdout.write(
         `Knowledge Base "${kbId}" provisioned\n` +
@@ -256,15 +255,10 @@ async function main(): Promise<void> {
       const store = new KbConfigStore(handle.dataFolder);
       const kb = await store.read();
       if (!kb) throw new Error('no KB provisioned — run `warden kb-init <kbId>` first');
-      // Read the current policy, apply the change, and re-anchor it on the ledger (owner-controlled).
-      const current = (kb.policyAsset ? await handle.keymaster.resolveAsset(kb.policyAsset).catch(() => ({})) : {}) as Record<
-        string,
-        'factor1' | 'factor2'
-      >;
-      const next: Record<string, 'factor1' | 'factor2'> = { ...current, [action]: tier };
-      const policyAsset = await createAssurancePolicy(handle, next, config.registry);
+      // Append a Sovereign-signed Ruleset version raising/lowering the tier; re-anchor the chain.
+      const policyAsset = await setKbAssurance(handle, config, kb.kbId, kb.policyAsset, action, tier);
       await store.save({ ...kb, policyAsset });
-      process.stdout.write(`Policy set: ${action} → ${tier} on "${kb.kbId}"\n  policy: ${policyAsset}\n`);
+      process.stdout.write(`Policy set (signed): ${action} → ${tier} on "${kb.kbId}"\n  chain: ${policyAsset}\n`);
       break;
     }
     case 'kb-grant':
@@ -301,12 +295,12 @@ async function main(): Promise<void> {
       };
       const readers = await members(kb.readGroup);
       const writers = await members(kb.writeGroup);
-      const policy = (kb.policyAsset ? await handle.keymaster.resolveAsset(kb.policyAsset).catch(() => ({})) : {}) as Record<string, string>;
+      const policy = await readKbAssurance(handle, kb.policyAsset);
       process.stdout.write(
         `Knowledge Base "${kb.kbId}"\n` +
           `  read group:  ${kb.readGroup}\n    ${readers.length} member(s): ${readers.map((m) => m.slice(0, 20) + '…').join(', ') || '(none)'}\n` +
           `  write group: ${kb.writeGroup}\n    ${writers.length} member(s): ${writers.map((m) => m.slice(0, 20) + '…').join(', ') || '(none)'}\n` +
-          `  assurance:   read → ${policy.read ?? 'factor1'} · write → ${policy.write ?? 'factor1'}\n`,
+          `  assurance:   read → ${policy.read} · write → ${policy.write}  (signed Ruleset chain)\n`,
       );
       break;
     }

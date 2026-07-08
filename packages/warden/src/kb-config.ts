@@ -3,20 +3,82 @@ import { join } from 'node:path';
 
 import {
   GroupTrustRegistry,
-  LedgerAssurancePolicy,
+  RulesetAssurancePolicy,
+  signRuleset,
+  rulesetId,
+  activeRuleset,
+  Sensitivity,
   type KeymasterHandle,
   type HearthholdConfig,
+  type Ruleset,
+  type SignedRuleset,
+  type AssuranceTier,
 } from '@hearthold/core';
 
 import { KbService, type KbActionApprover } from './kb.js';
 
-/** Persisted KB provisioning for a Warden: the resource, its access groups, and its policy asset. */
+/** Persisted KB provisioning for a Warden: the resource, its access groups, and its policy chain. */
 export interface KbConfig {
   kbId: string;
   readGroup: string;
   writeGroup: string;
-  /** Ledger asset declaring required assurance per action (governance policy). */
+  /** Ledger asset holding the Sovereign-signed assurance Ruleset chain (governance policy). */
   policyAsset?: string;
+}
+
+/**
+ * Provision the KB's assurance policy as a signed genesis Ruleset chain (default: everything factor1).
+ * Signed by `handle` — the KB's governing authority (self-governed by the KB Warden in this increment;
+ * a separate governing Sovereign is the natural hardening). Returns the chain asset DID.
+ */
+export async function initKbAssurance(handle: KeymasterHandle, config: HearthholdConfig, kbId: string): Promise<string> {
+  const genesis: Ruleset = {
+    actor: kbId,
+    actorKind: 'kb',
+    resource: kbId,
+    version: 1,
+    previous: null,
+    capabilities: { assurance: { read: 'factor1', write: 'factor1' } },
+    ceiling: Sensitivity.SEALED,
+    status: 'active',
+  };
+  const signed = await signRuleset(handle, genesis);
+  return handle.keymaster.createAsset([signed], { registry: config.registry });
+}
+
+/** Append a signed version raising/lowering the assurance for one action; re-anchor the chain. */
+export async function setKbAssurance(
+  handle: KeymasterHandle,
+  config: HearthholdConfig,
+  kbId: string,
+  currentChain: string | undefined,
+  action: string,
+  tier: AssuranceTier,
+): Promise<string> {
+  const data = currentChain ? await handle.keymaster.resolveAsset(currentChain).catch(() => null) : null;
+  const chain = (Array.isArray(data) ? data : []) as SignedRuleset[];
+  const prev = chain.length ? (chain[chain.length - 1] as SignedRuleset) : null;
+  const next: Ruleset = {
+    actor: kbId,
+    actorKind: 'kb',
+    resource: kbId,
+    version: (prev?.version ?? 0) + 1,
+    previous: prev ? rulesetId(prev) : null,
+    capabilities: { assurance: { ...(prev?.capabilities.assurance ?? {}), [action]: tier } },
+    ceiling: Sensitivity.SEALED,
+    status: 'active',
+  };
+  const signed = await signRuleset(handle, next);
+  return handle.keymaster.createAsset([...chain, signed], { registry: config.registry });
+}
+
+/** Read the current assurance tiers from a policy chain (for display). Verified via the active head. */
+export async function readKbAssurance(handle: KeymasterHandle, chainAsset?: string): Promise<{ read: string; write: string }> {
+  const data = chainAsset ? await handle.keymaster.resolveAsset(chainAsset).catch(() => null) : null;
+  const chain = (Array.isArray(data) ? data : []) as SignedRuleset[];
+  const head = chain.length ? await activeRuleset(handle, chain) : null;
+  const a = head?.capabilities.assurance ?? {};
+  return { read: a.read ?? 'factor1', write: a.write ?? 'factor1' };
 }
 
 /**
@@ -56,8 +118,9 @@ export async function buildKbService(
 ): Promise<KbService | undefined> {
   const kb = await new KbConfigStore(handle.dataFolder).read();
   if (!kb) return undefined;
-  // Governance policy (required assurance per action) lives on the ledger; the Warden only reads it.
-  const policy = kb.policyAsset ? new LedgerAssurancePolicy(handle, kb.policyAsset) : undefined;
+  // Governance policy (required assurance per action) is a Sovereign-signed Ruleset chain on the
+  // ledger; the Warden reads + verifies it (fail-closed on tamper).
+  const policy = kb.policyAsset ? new RulesetAssurancePolicy(handle, kb.policyAsset) : undefined;
   const registry = new GroupTrustRegistry(
     handle,
     [
