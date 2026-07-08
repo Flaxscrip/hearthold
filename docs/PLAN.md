@@ -215,6 +215,10 @@ only — **never** private 7th Capital (that stays in a personal Warden).
   Sovereign and for AI-agent authorization (human-in-the-loop = registry policy + out-of-band approval).
   e2e: `kb-stepup` (enforcement) + `kb-stepup-didcomm` (live channel). Builds toward
   [[project-witness-modules]] — the `auth` module's assurance step-up.
+- **✅ VALIDATED LIVE END-TO-END (2026-07-07):** real Archon react-native wallet → QR challenge/response
+  login (no keys in browser) → wrote a public event → registry required **factor2** → Signet PIN
+  confirmation (out-of-band) → sealed+indexed → local Ollama **recall answered correctly**. Every layer
+  together, first-time success. The whole Knowledge Portal is proven.
 - **DEPLOY** (next, per plan): to **archon.social** — build the static portal, serve behind its web
   server, provision a fresh KB Warden + Mage + KB group (the new KB database + identities); on
   archon.social the member wallet is already in `localStorage['archon-keymaster']` (effectively SSO).
