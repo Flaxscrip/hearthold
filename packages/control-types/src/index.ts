@@ -131,6 +131,43 @@ export interface RecallResponse {
   result: RecallResultView;
 }
 
+// ── Card-face hydration (Sevenfold Table) ──────────────────────────────────────
+// Render one card's real face. Every call crosses the Warden's release decision; a refused face is a
+// FIRST-CLASS outcome (the Table renders it obsidian), NOT an error. The face is unsealed transiently
+// for the response only — never cached, never written to disk outside the vault (G2).
+
+export interface CardFaceRequest {
+  artefactId: string;
+  /**
+   * The authorization tier the caller's session has satisfied (AuthzTier: 1=STANDING, 2=CHALLENGE,
+   * 3=HUMAN, 4=MULTIFACTOR). Default STANDING. The ladder applies unreduced — SEALED needs MULTIFACTOR.
+   */
+  tier?: number;
+}
+
+/** Granted → the face; refused → obsidian (still a success envelope). Real failures come back as ApiError. */
+export type CardFace =
+  | {
+      artefactId: string;
+      granted: true;
+      /** base64-encoded face bytes, held in memory for render only. */
+      face: string;
+      mimeType: string;
+      sensitivity: number;
+      sensitivityName: SensitivityName;
+    }
+  | {
+      artefactId: string;
+      granted: false;
+      /** Why the ladder refused — the Table shows obsidian, never this as an error. */
+      reason: string;
+      sensitivity: number;
+      sensitivityName: SensitivityName;
+    };
+export interface CardFaceResponse {
+  card: CardFace;
+}
+
 /** Test the classifier on some text (does not store anything). */
 export interface ClassifyRequest {
   kind: string;

@@ -16,6 +16,7 @@ import {
   grantAuthorization,
   revokeAuthorization,
   selfSigner,
+  AuthzTier,
   PROTOCOL_VERSION,
   type HearthholdConfig,
   type KeymasterHandle,
@@ -32,6 +33,7 @@ import {
   type DelegateRequest,
   type ClassifyRequest,
   type RecallRequest,
+  type CardFaceRequest,
   type KbView,
   type KbGrantRequest,
   type KbPolicyRequest,
@@ -44,6 +46,7 @@ import { DelegationStore } from './delegations.js';
 import { EvidenceService, type SovereignApprover } from './evidence.js';
 import { OllamaEmbedder, RecallService } from './recall.js';
 import { makeDidcommActionApprover, makeDidcommRulesetSigner } from './kb.js';
+import { hydrateCardFace } from './face.js';
 import { buildKbServices, KbConfigStore, setKbAssurance, readKbAssurance } from './kb-config.js';
 import { makeWardenHandler } from './handler.js';
 
@@ -149,6 +152,15 @@ export async function runWardenControl(
         // Private RAG over the vault — the query, retrieval, and answer all stay on this device.
         const result = await RecallService.forWarden(handle, config).recall(query, k ? { k } : {});
         return { result };
+      },
+      // Card-face hydration for the Sevenfold Table — crosses decideRelease; a refusal is `granted:false`
+      // (obsidian), not an error. The face is unsealed transiently and never cached (G2).
+      'POST /api/card/face': async ({ body }) => {
+        const { artefactId, tier } = (body ?? {}) as CardFaceRequest;
+        if (!artefactId) throw new Error('artefactId is required');
+        const t = (tier ?? AuthzTier.STANDING) as AuthzTier;
+        const card = await hydrateCardFace(handle, { artefactId, tier: t });
+        return { card };
       },
 
       // ── Knowledge Base membership + assurance policy (many KBs per Warden) ──

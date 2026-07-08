@@ -71,6 +71,12 @@ export const DisclosureMode = {
   FULL: 'FULL',
   /** Predicate proof over data the Warden did not issue (e.g. ZK). Optional. */
   PREDICATE: 'PREDICATE',
+  /**
+   * Render an artefact's face to the Sovereign's OWN local screen (the Table). Distinct from FULL: the
+   * bytes never leave the house or get issued as a VC — they're unsealed transiently for one render and
+   * dropped. Still gated by the sensitivity/tier ladder (SEALED needs MULTIFACTOR).
+   */
+  LOCAL_RENDER: 'LOCAL_RENDER',
 } as const;
 export type DisclosureMode = (typeof DisclosureMode)[keyof typeof DisclosureMode];
 
