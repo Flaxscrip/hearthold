@@ -129,3 +129,42 @@ export async function activeRuleset(warden: KeymasterHandle, chain: SignedRulese
   const head = [...chain].sort((a, b) => a.version - b.version).pop() as SignedRuleset;
   return head.status === 'active' ? head : null;
 }
+
+/** A single thing a contained actor (a cantrip, a composition, …) wants to do. */
+export interface ActorRequest {
+  /** 'read' | 'query' | 'propose' | 'send' | 'write' | … */
+  verb: string;
+  /** The artefact kind touched, if any. */
+  kind?: string;
+  /** The sensitivity the request would reach — checked against the actor's ceiling. */
+  sensitivity?: number;
+}
+
+export interface ActorAuthz {
+  allowed: boolean;
+  reason: string;
+  /** The assurance the verb requires, if the Ruleset declares one (step-up, as with the KB). */
+  requiredAssurance?: AssuranceTier;
+}
+
+/**
+ * Authorize a contained actor's request against its active Ruleset — the generalized inward-registry
+ * check: the same primitive that grades a Witness's autonomy now bounds a cantrip (or any actor). The
+ * interpreter sandbox contains *computation*; **this is where the Warden contains disclosure**. Fail
+ * closed: no active Ruleset (unsigned / revoked / tampered / missing) authorizes nothing.
+ */
+export async function authorizeActor(warden: KeymasterHandle, chain: SignedRuleset[], req: ActorRequest): Promise<ActorAuthz> {
+  const head = await activeRuleset(warden, chain);
+  if (!head) return { allowed: false, reason: 'no active Ruleset for this actor (unsigned, revoked, or tampered)' };
+  const caps = head.capabilities;
+  if (caps.verbs && !caps.verbs.includes(req.verb)) {
+    return { allowed: false, reason: `verb '${req.verb}' is not in the actor's Ruleset` };
+  }
+  if (req.kind && caps.kinds && !caps.kinds.includes(req.kind)) {
+    return { allowed: false, reason: `kind '${req.kind}' is not in the actor's Ruleset` };
+  }
+  if (req.sensitivity !== undefined && req.sensitivity > head.ceiling) {
+    return { allowed: false, reason: `sensitivity ${req.sensitivity} exceeds the actor's ceiling ${head.ceiling}` };
+  }
+  return { allowed: true, reason: "within the actor's active Ruleset", requiredAssurance: caps.assurance?.[req.verb] };
+}
