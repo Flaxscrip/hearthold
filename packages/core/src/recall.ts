@@ -22,6 +22,8 @@ export interface IndexEntry {
   observedAt: string;
   sensitivity: number;
   embedding: number[];
+  /** Which Knowledge Base this entry belongs to; absent = the Warden's own (personal) vault. */
+  kb?: string;
 }
 
 /** Cosine similarity of two equal-length vectors (0 if either is degenerate). */
@@ -47,18 +49,24 @@ export interface ScoredEntry {
 }
 
 /**
- * Rank index entries against a query embedding, most-similar first. `maxSensitivity` (optional) drops
- * anything above a sensitivity ceiling so recall can be scoped (e.g. exclude SEALED from a casual ask).
+ * Rank index entries against a query embedding, most-similar first. `maxSensitivity` drops anything
+ * above a ceiling; `kb` scopes to a single Knowledge Base (or, when `null`, to the personal vault only)
+ * — this is what keeps one KB's content from surfacing in another KB's query on a multi-KB Warden.
  */
 export function rankByQuery(
   queryEmbedding: number[],
   entries: IndexEntry[],
-  opts: { k?: number; maxSensitivity?: number } = {},
+  opts: { k?: number; maxSensitivity?: number; kb?: string | null } = {},
 ): ScoredEntry[] {
   const k = opts.k ?? 5;
   const ceiling = opts.maxSensitivity ?? Number.POSITIVE_INFINITY;
+  const kbMatch = (e: IndexEntry): boolean => {
+    if (opts.kb === undefined) return true; // no scope → all entries
+    if (opts.kb === null) return e.kb === undefined; // personal vault only
+    return e.kb === opts.kb; // exactly this KB
+  };
   return entries
-    .filter((e) => e.sensitivity <= ceiling)
+    .filter((e) => e.sensitivity <= ceiling && kbMatch(e))
     .map((entry) => ({ entry, score: cosineSimilarity(queryEmbedding, entry.embedding) }))
     .sort((a, b) => b.score - a.score)
     .slice(0, k);

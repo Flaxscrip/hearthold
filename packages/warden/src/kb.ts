@@ -234,7 +234,9 @@ export class KbService {
       // answer; nothing about *who asked what, when* is persisted or logged. Retaining it would let the
       // host reconstruct a member's interest graph (PVM Reconstruction Ceiling, R<1). Any future ops
       // metrics MUST be aggregate and non-attributable. Do not add query/requester logging here.
-      const result = await RecallService.forWarden(this.warden, this.config).recall(req.query, req.k ? { k: req.k } : {});
+      // Scope recall to THIS KB — one Warden holds many KBs in one index; a query must never surface
+      // another KB's content.
+      const result = await RecallService.forWarden(this.warden, this.config).recall(req.query, { k: req.k, kb: this.opts.kbId });
       return { type: 'hearthold/kb-result', version: PROTOCOL_VERSION, action: 'query', answer: result.answer, citations: result.citations };
     }
 
@@ -257,7 +259,7 @@ export class KbService {
     await this.store.put(artefact);
     try {
       const embedding = await this.embedder.embed(req.text);
-      await this.index.put({ artefactId: id, kind: artefact.kind, observedAt: artefact.observedAt, sensitivity: artefact.sensitivity, embedding });
+      await this.index.put({ artefactId: id, kind: artefact.kind, observedAt: artefact.observedAt, sensitivity: artefact.sensitivity, embedding, kb: this.opts.kbId });
     } catch {
       /* index is best-effort */
     }

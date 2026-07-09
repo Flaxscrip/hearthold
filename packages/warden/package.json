@@ -18,6 +18,7 @@
     "./index-store": { "types": "./dist/index-store.d.ts", "import": "./dist/index-store.js" },
     "./kb": { "types": "./dist/kb.d.ts", "import": "./dist/kb.js" },
     "./kb-config": { "types": "./dist/kb-config.d.ts", "import": "./dist/kb-config.js" },
+    "./kb-seed": { "types": "./dist/kb-seed.d.ts", "import": "./dist/kb-seed.js" },
     "./face": { "types": "./dist/face.d.ts", "import": "./dist/face.js" },
     "./triage": { "types": "./dist/triage.d.ts", "import": "./dist/triage.js" },
     "./marks": { "types": "./dist/marks.d.ts", "import": "./dist/marks.js" },

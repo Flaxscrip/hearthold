@@ -38,4 +38,12 @@ export class IndexStore {
   async has(artefactId: string): Promise<boolean> {
     return (await this.readAll()).some((e) => e.artefactId === artefactId);
   }
+
+  /** Remove index entries by artefactId. */
+  async remove(artefactIds: string[]): Promise<void> {
+    const drop = new Set(artefactIds);
+    const kept = (await this.readAll()).filter((e) => !drop.has(e.artefactId));
+    await mkdir(join(this.file, '..'), { recursive: true });
+    await writeFile(this.file, JSON.stringify(kept, null, 2), 'utf8');
+  }
 }

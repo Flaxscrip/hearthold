@@ -80,6 +80,8 @@ export interface RecallOptions {
   k?: number;
   /** Drop artefacts above this sensitivity from recall (e.g. exclude SEALED). */
   maxSensitivity?: number;
+  /** Scope to one Knowledge Base (kbId), or `null` for the personal vault only. Omit = all. */
+  kb?: string | null;
 }
 
 export class RecallService {
@@ -127,7 +129,7 @@ export class RecallService {
       return { query, answer: 'Nothing has been indexed yet.', citations: [], descriptionSource: 'machine-derived' };
     }
     const queryEmbedding = await this.embedder.embed(query);
-    const ranked = rankByQuery(queryEmbedding, entries, { k: opts.k ?? 5, maxSensitivity: opts.maxSensitivity });
+    const ranked = rankByQuery(queryEmbedding, entries, { k: opts.k ?? 5, maxSensitivity: opts.maxSensitivity, kb: opts.kb });
 
     const passages: { observedAt: string; text: string }[] = [];
     const citations: RecallCitation[] = [];

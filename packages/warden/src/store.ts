@@ -49,4 +49,14 @@ export class VaultStore {
   async list(): Promise<Artefact[]> {
     return this.readAll();
   }
+
+  /** Remove artefacts by id. Returns how many were removed. */
+  async remove(ids: string[]): Promise<number> {
+    const drop = new Set(ids);
+    const all = await this.readAll();
+    const kept = all.filter((a) => !drop.has(a.id));
+    await mkdir(this.dataFolder, { recursive: true });
+    await writeFile(this.file, JSON.stringify(kept, null, 2), 'utf8');
+    return all.length - kept.length;
+  }
 }

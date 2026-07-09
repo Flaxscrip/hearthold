@@ -25,6 +25,7 @@ import { EvidenceService } from './evidence.js';
 import { RecallService, OllamaEmbedder } from './recall.js';
 import { makeDidcommActionApprover, makeDidcommRulesetSigner } from './kb.js';
 import { KbConfigStore, buildKbServices, initKbAssurance, setKbAssurance, readKbAssurance } from './kb-config.js';
+import { seedKb, resetKb, DEMO_SETS, DEFAULT_DEMO_SET } from './kb-seed.js';
 import { makeWardenHandler } from './handler.js';
 
 /** The recall-index embedder from config, or undefined when indexing is off. */
@@ -84,6 +85,8 @@ Usage:
   warden kb-revoke <did> [read|write|both] [--kb <kbId>]  Revoke a member's KB authorization
   warden kb-policy <action> <factor1|factor2> [--kb <kbId>]   Set required assurance (governance)
   warden kb-status         List all Knowledge Bases: members + assurance policy
+  warden kb-seed [--kb <kbId>] [--set <name>]   Load curated demo data into a KB
+  warden kb-reset [--kb <kbId>]                 Remove a KB's data (identity/groups/policy kept)
   warden help              Show this message
 
 Env:
@@ -359,6 +362,23 @@ async function main(): Promise<void> {
             `  assurance: read → ${policy.read} · write → ${policy.write}\n`,
         );
       }
+      break;
+    }
+    case 'kb-seed': {
+      const si = process.argv.indexOf('--set');
+      const setName = si > 0 ? (process.argv[si + 1] as string) : DEFAULT_DEMO_SET;
+      if (!DEMO_SETS[setName]) throw new Error(`unknown demo set "${setName}" (have: ${Object.keys(DEMO_SETS).join(', ')})`);
+      const id = await ensureIdentity(handle, config);
+      const kb = await resolveKb(new KbConfigStore(handle.dataFolder));
+      const { loaded, set } = await seedKb(handle, config, id.did, kb.kbId, setName);
+      process.stdout.write(`Loaded ${loaded} demo card(s) from the "${set}" set into "${kb.kbId}".\n  → ask the portal something, then \`warden kb-reset --kb ${kb.kbId}\` to start fresh.\n`);
+      break;
+    }
+    case 'kb-reset': {
+      await ensureIdentity(handle, config);
+      const kb = await resolveKb(new KbConfigStore(handle.dataFolder));
+      const { removed } = await resetKb(handle, kb.kbId);
+      process.stdout.write(`Reset "${kb.kbId}": removed ${removed} artefact(s) + index entries. Identity, access groups, and policy are untouched.\n`);
       break;
     }
     default:
