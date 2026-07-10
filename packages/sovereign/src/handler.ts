@@ -19,7 +19,7 @@ import type { ApprovalGate } from './signet.js';
  * The Sovereign's inbound handler. Two disclosures, both gated by the Signet's `ApprovalGate` (a
  * fresh proof-of-human), never automatic:
  *
- *  - `proof-request` (from a verifier or the Witness projector): present a held credential.
+ *  - `proof-request` (from a verifier or the Emissary projector): present a held credential.
  *  - `approval-request` (from the **Warden**, on the direct control-plane channel): co-sign a
  *    sensitive evidence disclosure. The Warden authored the description; the Signet shows the
  *    Sovereign the Warden's words (never the requesting agent's), and on approval the Sovereign

@@ -44,7 +44,7 @@ const DID = {
 const ROOTS: Record<Game42Axis, { name: string; role: string; detail: string; did: string }> = {
   compute: { name: 'The Classifier', role: 'the learning mage', detail: 'Labels your history on-device', did: DID.genitrix },
   connection: { name: 'The Herald', role: 'the network mage', detail: 'DIDComm v2 + the trust registry', did: DID.herald },
-  delegation: { name: 'The Witness', role: 'the agency mage', detail: 'Soulbae — projects proofs for you', did: DID.witness },
+  delegation: { name: 'The Emissary', role: 'the agency mage', detail: 'Soulbae — projects proofs for you', did: DID.witness },
   protection: { name: 'The Warden', role: 'the privacy mage', detail: 'Soulbis — guards the sealed vault', did: DID.warden },
   memory: { name: 'The Chronicle', role: 'the continuity mage', detail: 'Your 7th Capital, kept over time', did: DID.flaxscrip },
   value: { name: 'The Sovereign', role: 'the trust mage', detail: 'Holds and signs at the Signet', did: DID.sovereign },

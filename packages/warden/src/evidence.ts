@@ -5,7 +5,7 @@
  * Selects the artefacts that back the claim, runs the release decision over their sensitivity, and
  * either mints the graph (trust class `witnessed`) or steps up. STANDING clears ≤LOW directly; for
  * MEDIUM/HIGH/SEALED the Warden obtains the Sovereign's signed proof-of-human approval on a **direct
- * Warden↔Sovereign channel** (the Witness is never in the authorization path — §7.7). Without a
+ * Warden↔Sovereign channel** (the Emissary is never in the authorization path — §7.7). Without a
  * Sovereign channel wired, a sensitive claim is denied.
  */
 
@@ -36,7 +36,7 @@ import { VaultStore, type Artefact } from './store.js';
 
 /**
  * The Warden's direct channel to the Sovereign for a step-up. Implemented over DIDComm in the control
- * daemon (`transport.request(sovereignDid, …)`); an in-process function in tests. The Witness is not
+ * daemon (`transport.request(sovereignDid, …)`); an in-process function in tests. The Emissary is not
  * involved — this is the control plane, owned by the Warden.
  */
 export interface SovereignApprover {
@@ -172,7 +172,7 @@ export class EvidenceService {
     // Sensitive (MEDIUM/HIGH/SEALED): the disclosure needs the Sovereign's proof-of-human approval.
     const requiredLevel = requiredLevelFor(sensitivity);
 
-    // Primary path: the WARDEN obtains the approval directly from the Sovereign (Witness not involved).
+    // Primary path: the WARDEN obtains the approval directly from the Sovereign (Emissary not involved).
     if (this.approver) {
       const txn = randomUUID();
       const ares = await this.approver.requestApproval({

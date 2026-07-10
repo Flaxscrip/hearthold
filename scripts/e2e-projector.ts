@@ -1,14 +1,14 @@
 /**
- * End-to-end test of the **Witness-as-projector** path (milestone W).
+ * End-to-end test of the **Emissary-as-projector** path (milestone W).
  *
  *   Guild issues "Raid-Lead" (with schema) ──► Sovereign accepts
  *   Sovereign serves over DIDComm (Signet PIN gates each disclosure)
- *   Witness serves over DIDComm as the world-facing projector — relays proof-requests to the Sovereign
- *   Verifier: requestProof → send proof-request to the WITNESS → Witness relays to Sovereign →
- *             Signet approves + presents → Witness carries the proof-presentation back → verifyProof
+ *   Emissary serves over DIDComm as the world-facing projector — relays proof-requests to the Sovereign
+ *   Verifier: requestProof → send proof-request to the WITNESS → Emissary relays to Sovereign →
+ *             Signet approves + presents → Emissary carries the proof-presentation back → verifyProof
  *
- * The verifier never addresses the Sovereign directly: it talks to the Witness (the Mage that
- * projects), and the Witness relays to the Signet (the First Person that approves). Four real
+ * The verifier never addresses the Sovereign directly: it talks to the Emissary (the Mage that
+ * projects), and the Emissary relays to the Signet (the First Person that approves). Four real
  * identities: guild = warden, holder/approver = sovereign, projector = witness, relying party = verifier.
  *
  * Run:  npm run e2e:projector
@@ -33,7 +33,7 @@ import {
 } from '@hearthold/core';
 import { makeSovereignHandler } from '@hearthold/sovereign/handler';
 import { PinGate } from '@hearthold/sovereign/signet';
-import { makeWitnessProjectorHandler } from '@hearthold/witness/handler';
+import { makeEmissaryProjectorHandler } from '@hearthold/emissary/handler';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const DATA_ROOT = join(here, '..', '.hearthold-e2e');
@@ -56,12 +56,12 @@ const GUILD_SCHEMA = {
 
 async function main(): Promise<void> {
   const config = { ...loadConfig(), dataRoot: DATA_ROOT };
-  process.stdout.write(`Hearthold Witness-as-projector e2e\n  node: ${config.nodeUrl}\n  data: ${DATA_ROOT}\n`);
+  process.stdout.write(`Hearthold Emissary-as-projector e2e\n  node: ${config.nodeUrl}\n  data: ${DATA_ROOT}\n`);
 
   step('Provision guild (issuer), sovereign (holder/approver), witness (projector), verifier');
   const guild: KeymasterHandle = await openKeymaster('warden', config, PASSPHRASE);
   const sovereign: KeymasterHandle = await openKeymaster('sovereign', config, PASSPHRASE);
-  const witness: KeymasterHandle = await openKeymaster('witness', config, PASSPHRASE);
+  const witness: KeymasterHandle = await openKeymaster('emissary', config, PASSPHRASE);
   const verifier: KeymasterHandle = await openKeymaster('verifier', config, PASSPHRASE);
   const guildId = await ensureIdentity(guild, config);
   const sovereignId = await ensureIdentity(sovereign, config);
@@ -83,7 +83,7 @@ async function main(): Promise<void> {
   // Publish each participant's endpoint up front.
   const verifierTransport = new DidCommTransport(verifier, IDENTITY_NAME.verifier, config.nodeUrl);
   await verifierTransport.ready();
-  await new DidCommTransport(witness, IDENTITY_NAME.witness, config.nodeUrl).ready();
+  await new DidCommTransport(witness, IDENTITY_NAME.emissary, config.nodeUrl).ready();
   await new DidCommTransport(sovereign, IDENTITY_NAME.sovereign, config.nodeUrl).ready();
 
   // The verifier asks the WITNESS (projector), never the Sovereign directly.
@@ -96,15 +96,15 @@ async function main(): Promise<void> {
     );
   };
 
-  step('Approve case: verifier → Witness relays → Signet PIN approves → present → verify');
+  step('Approve case: verifier → Emissary relays → Signet PIN approves → present → verify');
   {
     const sovT = new DidCommTransport(sovereign, IDENTITY_NAME.sovereign, config.nodeUrl);
-    const witT = new DidCommTransport(witness, IDENTITY_NAME.witness, config.nodeUrl);
+    const witT = new DidCommTransport(witness, IDENTITY_NAME.emissary, config.nodeUrl);
     const stopSov = await sovT.serve(makeSovereignHandler(sovereign, new PinGate(PIN, PIN)), { pollMs: 1000 });
-    const stopWit = await witT.serve(makeWitnessProjectorHandler(witT, sovereignId.did), { pollMs: 1000 });
+    const stopWit = await witT.serve(makeEmissaryProjectorHandler(witT, sovereignId.did), { pollMs: 1000 });
     try {
       const reply = await askProof();
-      check('got a proof-presentation (carried by the Witness)', reply.type === 'hearthold/proof-presentation');
+      check('got a proof-presentation (carried by the Emissary)', reply.type === 'hearthold/proof-presentation');
       const pres = reply.type === 'hearthold/proof-presentation' ? (reply as ProofPresentationMessage) : null;
       check('carries the Signet proof-of-human (pin, level 1)', pres?.humanProof?.method === 'pin' && pres?.humanProof?.level === 1);
       const result = await verifyProof(verifier, pres?.responseDid ?? '', {
@@ -119,12 +119,12 @@ async function main(): Promise<void> {
     }
   }
 
-  step('Deny case: Signet declines (wrong PIN) → Witness carries the decline back');
+  step('Deny case: Signet declines (wrong PIN) → Emissary carries the decline back');
   {
     const sovT = new DidCommTransport(sovereign, IDENTITY_NAME.sovereign, config.nodeUrl);
-    const witT = new DidCommTransport(witness, IDENTITY_NAME.witness, config.nodeUrl);
+    const witT = new DidCommTransport(witness, IDENTITY_NAME.emissary, config.nodeUrl);
     const stopSov = await sovT.serve(makeSovereignHandler(sovereign, new PinGate(PIN, 'wrong')), { pollMs: 1000 });
-    const stopWit = await witT.serve(makeWitnessProjectorHandler(witT, sovereignId.did), { pollMs: 1000 });
+    const stopWit = await witT.serve(makeEmissaryProjectorHandler(witT, sovereignId.did), { pollMs: 1000 });
     try {
       const reply = await askProof();
       check('disclosure is declined (error carried back)', reply.type === 'hearthold/error');

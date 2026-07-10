@@ -24,7 +24,7 @@ human confirmation. Sensitivity is never silently raised-then-lowered without an
 
 ## 2. Authorization tiers (per request)
 
-What the Witness must satisfy to obtain a release. Each tier *clears* up to a maximum sensitivity.
+What the Emissary must satisfy to obtain a release. Each tier *clears* up to a maximum sensitivity.
 
 | Tier | Ord | What it requires | Clears up to |
 |---|---|---|---|
@@ -84,7 +84,7 @@ Authorization is **dynamic per request**, carried over the private HTTP channel:
 - Opening a session (a verified delegation challenge/response) establishes the baseline
   `STANDING` tier — enough to release `LOW` content and to submit observations.
 - When a request touches `MEDIUM+` content, the Warden replies `step-up-required` with the
-  `requiredTier` and the methods it will accept (`challenge`, `pin`, `passphrase`). The Witness
+  `requiredTier` and the methods it will accept (`challenge`, `pin`, `passphrase`). The Emissary
   satisfies one and retries; the Warden re-runs the release decision at the elevated tier.
 
 **External disclosure always requires the Sovereign's approval.** Internal-access sensitivity is
@@ -97,7 +97,7 @@ decouples "who/what may read the vault internally" (the tier ladder) from "the S
 what leaves, to whom" (external disclosure).
 
 The `pin` / `passphrase` methods exist to address a problem the delegation alone cannot: a valid
-session proves the *Witness device* is authorized, but **not that the Sovereign is the one holding
+session proves the *Emissary device* is authorized, but **not that the Sovereign is the one holding
 it**. Possession of the device ≠ presence of the person. A per-request secret the Sovereign must
 supply re-binds the action to the human for sensitive disclosures. This never fully solves the
 problem (a coerced or shoulder-surfed secret still leaks), but it raises the bar from "whoever

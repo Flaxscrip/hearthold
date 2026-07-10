@@ -1,6 +1,6 @@
 /**
  * Seed a data root for the evidence step-up smoke: provision warden/witness/sovereign, delegate the
- * Witness, and store some MEDIUM 'location' observations. Prints the DIDs the daemons + requester use.
+ * Emissary, and store some MEDIUM 'location' observations. Prints the DIDs the daemons + requester use.
  *
  * Passphrases (throwaway): warden=demo-warden, sovereign=demo-sov, witness=demo-witness.
  * Run:  HEARTHOLD_DATA_ROOT=... node --experimental-strip-types scripts/seed-evidence-demo.ts
@@ -23,7 +23,7 @@ const hex = (s: string): string => createHash('sha256').update(s).digest('hex');
 async function main(): Promise<void> {
   const config = loadConfig();
   const warden = await openKeymaster('warden', config, 'demo-warden');
-  const witness = await openKeymaster('witness', config, 'demo-witness');
+  const witness = await openKeymaster('emissary', config, 'demo-witness');
   const sovereign = await openKeymaster('sovereign', config, 'demo-sov');
   const wardenId = await ensureIdentity(warden, config);
   const witnessId = await ensureIdentity(witness, config);

@@ -73,7 +73,7 @@ Usage:
   warden init              Provision the Warden identity + publish its DIDComm endpoint
   warden status            Show identity, vault size, and config
   warden publish           (Re)publish the Warden's DIDComm endpoint
-  warden delegate <did>    Issue a delegation credential to a Witness DID
+  warden delegate <did>    Issue a delegation credential to an Emissary DID
   warden serve             Serve over DIDComm (poll mailbox, store submissions, reply)
   warden control [port]    Serve DIDComm + a localhost control API for the Warden Console (default 4310)
   warden classify <kind> <text>   Classify text with the local model (test the classifier)
@@ -185,20 +185,20 @@ async function main(): Promise<void> {
       break;
     }
     case 'delegate': {
-      const witnessDid = process.argv[3];
-      if (!witnessDid) throw new Error('usage: warden delegate <witnessDid>');
+      const emissaryDid = process.argv[3];
+      if (!emissaryDid) throw new Error('usage: warden delegate <emissaryDid>');
       await ensureIdentity(handle, config);
       const schemaDid = await ensureDelegationSchema(handle);
       const validUntil = new Date(Date.now() + 1000 * 60 * 60 * 24 * 365).toISOString();
-      const credentialDid = await issueDelegation(handle, witnessDid, schemaDid, {
+      const credentialDid = await issueDelegation(handle, emissaryDid, schemaDid, {
         kinds: ['event', 'location', 'activity', 'browsing', 'document'],
         validUntil,
       });
-      await new DelegationStore(handle).record(witnessDid, credentialDid);
+      await new DelegationStore(handle).record(emissaryDid, credentialDid);
       process.stdout.write(
-        `Delegation issued to ${witnessDid.slice(0, 28)}…\n` +
+        `Delegation issued to ${emissaryDid.slice(0, 28)}…\n` +
           `  credential: ${credentialDid}\n` +
-          `  → optionally run on the Witness:  witness accept ${credentialDid}\n`,
+          `  → optionally run on the Emissary:  emissary accept ${credentialDid}\n`,
       );
       break;
     }

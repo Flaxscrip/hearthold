@@ -56,7 +56,7 @@ async function main(): Promise<void> {
   step('Provision guild (issuer), sovereign (holder), verifier');
   const guild: KeymasterHandle = await openKeymaster('warden', config, PASSPHRASE);
   const sovereign: KeymasterHandle = await openKeymaster('sovereign', config, PASSPHRASE);
-  const verifier: KeymasterHandle = await openKeymaster('witness', config, PASSPHRASE);
+  const verifier: KeymasterHandle = await openKeymaster('emissary', config, PASSPHRASE);
   const guildId = await ensureIdentity(guild, config);
   const sovereignId = await ensureIdentity(sovereign, config);
   await ensureIdentity(verifier, config);
@@ -73,7 +73,7 @@ async function main(): Promise<void> {
   check('sovereign holds the credential', credDid.startsWith('did:'));
 
   const PIN = '1234';
-  const verifierTransport = new DidCommTransport(verifier, IDENTITY_NAME.witness, config.nodeUrl);
+  const verifierTransport = new DidCommTransport(verifier, IDENTITY_NAME.emissary, config.nodeUrl);
   await verifierTransport.ready();
   await new DidCommTransport(sovereign, IDENTITY_NAME.sovereign, config.nodeUrl).ready();
 

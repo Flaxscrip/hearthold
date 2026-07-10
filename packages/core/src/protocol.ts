@@ -1,5 +1,5 @@
 /**
- * Hearthold wire protocol — the messages exchanged between Witness and Warden. They are carried as
+ * Hearthold wire protocol — the messages exchanged between Emissary and Warden. They are carried as
  * DIDComm v2 message bodies (see transport.ts); payloads are sealed in-band as bare ciphertext
  * (see payload.ts), so nothing is anchored on a registry and the relationship is not observable.
  * The messages are transport-agnostic: the same shapes would ride any request/reply transport.
@@ -9,10 +9,10 @@ import type { Sensitivity, DisclosureMode } from './security.js';
 
 export const PROTOCOL_VERSION = '0.4.0' as const;
 
-/** Kinds of observation the Witness can submit. Extended over time. */
+/** Kinds of observation the Emissary can submit. Extended over time. */
 export type WitnessKind = 'event' | 'location' | 'activity' | 'browsing' | 'document';
 
-// ── Witness → Warden: submission ──────────────────────────────────────────────
+// ── Emissary → Warden: submission ──────────────────────────────────────────────
 
 /** An encrypted observation to add to the vault. */
 export interface WitnessSubmission {
@@ -23,11 +23,11 @@ export interface WitnessSubmission {
   observedAt: string;
   /** Payload sealed to the Warden's key (bare ciphertext, not anchored). */
   ciphertext: string;
-  /** Optional sensitivity the Witness proposes; the Warden's classifier decides authoritatively. */
+  /** Optional sensitivity the Emissary proposes; the Warden's classifier decides authoritatively. */
   proposedSensitivity?: Sensitivity;
 }
 
-/** Warden → Witness: acknowledgement of a stored submission. */
+/** Warden → Emissary: acknowledgement of a stored submission. */
 export interface SubmissionReceipt {
   type: 'hearthold/submission-receipt';
   version: typeof PROTOCOL_VERSION;
@@ -38,7 +38,7 @@ export interface SubmissionReceipt {
   storedAt: string;
 }
 
-// ── Witness → Warden: evidence (with per-request step-up) ──────────────────────
+// ── Emissary → Warden: evidence (with per-request step-up) ──────────────────────
 
 /** Which vault artefacts back a claim — the Warden selects and summarizes them into provenance. */
 export interface EvidenceClaimSpec {
@@ -96,7 +96,7 @@ export interface EvidenceGraphSummary {
   trustClass: 'witnessed' | 'composite';
 }
 
-/** Warden → Witness: either the granted evidence graph, or a denial. */
+/** Warden → Emissary: either the granted evidence graph, or a denial. */
 export type EvidenceResponse =
   | {
       type: 'hearthold/evidence-response';
@@ -125,7 +125,7 @@ export interface ProofRequestMessage {
   challengeDid: string;
   /**
    * The (public) schema DID the challenge concerns. Lets the holder side apply its own disclosure
-   * policy — e.g. the Witness projector maps schema → sensitivity to decide act-alone vs relay. The
+   * policy — e.g. the Emissary projector maps schema → sensitivity to decide act-alone vs relay. The
    * sensitivity itself is never taken from the verifier.
    */
   schema?: string;
@@ -150,7 +150,7 @@ export interface ProofPresentationMessage {
 
 // ── Warden ↔ Sovereign: the direct approval channel (control plane) ───────────
 //
-// A sensitive disclosure is approved on a channel the WARDEN owns — the Witness (the world-facing
+// A sensitive disclosure is approved on a channel the WARDEN owns — the Emissary (the world-facing
 // agent) is never in the authorization path (§7.7 / control-vs-data-plane separation). The Warden
 // authors the description; the Sovereign approves it through the Signet.
 
@@ -202,7 +202,7 @@ export type ApprovalResponseMessage =
 
 // ── Knowledge Base — the public Mage portal to a private Warden ───────────────
 //
-// An authorized Sovereign queries/updates a shared KB. The public Mage (Witness) relays; the private
+// An authorized Sovereign queries/updates a shared KB. The public Mage (Emissary) relays; the private
 // Warden authenticates (DID control) + authorizes (trust-registry group) + serves. Authentication is
 // end-to-end: the Sovereign signs the request over a Warden-issued nonce, so the relaying Mage cannot
 // forge the requester's identity. This is challenge/response semantics (Warden nonce = freshness).
@@ -363,7 +363,7 @@ export type KbResultMessage =
       reason: string;
     };
 
-/** Warden → Witness: a request was refused (e.g. not authorized). */
+/** Warden → Emissary: a request was refused (e.g. not authorized). */
 export interface ErrorMessage {
   type: 'hearthold/error';
   version: typeof PROTOCOL_VERSION;

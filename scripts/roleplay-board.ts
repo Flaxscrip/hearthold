@@ -7,7 +7,7 @@
  *   - issues the Sovereign a VMC (membership) + VEC (role) from the board community
  *   - issues a VWC (Warden as fair witness) attesting the form-up, digesting the VMC
  *   - grants the Sovereign into the board group
- *   - issues the Witness a scoped delegation
+ *   - issues the Emissary a scoped delegation
  * Prints every artifact DID + the accept commands the world-side runs next.
  *
  * Run:  SOVEREIGN_DID=… WITNESS_DID=… HEARTHOLD_DATA_ROOT=… node --experimental-strip-types scripts/roleplay-board.ts
@@ -67,7 +67,7 @@ async function main(): Promise<void> {
     validUntil,
   );
 
-  // 3) Witness the form-up — VWC by the Warden acting as the board's fair witness, digesting the VMC.
+  // 3) Emissary the form-up — VWC by the Warden acting as the board's fair witness, digesting the VMC.
   const vwc = await issueVwc(warden, SOVEREIGN_DID, schema, {
     witnessedVrc: vmcVc,
     witnessContext: { event: `${BOARD} form-up`, sessionId: SESSION, method: 'virtual-realtime' },
@@ -77,7 +77,7 @@ async function main(): Promise<void> {
   // 4) Grant the Sovereign into the board group (registry-side membership).
   await grantAuthorization(registry, boardGroup, SOVEREIGN_DID);
 
-  // 5) Delegate to the Witness so it can act for the Sovereign.
+  // 5) Delegate to the Emissary so it can act for the Sovereign.
   const delegationSchema = await ensureDelegationSchema(warden);
   const delegation = await issueDelegation(warden, WITNESS_DID, delegationSchema, {
     kinds: ['event', 'activity'],
@@ -97,7 +97,7 @@ async function main(): Promise<void> {
   line(`    VMC membership:  ${vmc}`);
   line(`    VEC role:        ${vec}   (Raid Leadership · expert)`);
   line(`    VWC form-up:     ${vwc}   (witnessed by the Warden)`);
-  line(`    delegation→Witness: ${delegation}   (kinds: event, activity)`);
+  line(`    delegation→Emissary: ${delegation}   (kinds: event, activity)`);
   line();
   line('  WORLD-SIDE, run next:');
   line(`    npm run -s sovereign -- accept ${vmc}`);

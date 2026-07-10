@@ -36,7 +36,7 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 export const api = {
   base: BASE,
   snapshot: () => get<WardenSnapshot>('/api/snapshot'),
-  delegate: (witnessDid: string) => post<DelegateResponse>('/api/delegate', { witnessDid }),
+  delegate: (emissaryDid: string) => post<DelegateResponse>('/api/delegate', { emissaryDid }),
   classify: (kind: string, text: string) => post<ClassifyResponse>('/api/classify', { kind, text }),
   recall: (query: string) => post<RecallResponse>('/api/recall', { query }),
   kb: () => get<{ kbs: KbView[] }>('/api/kb').then((r) => r.kbs),

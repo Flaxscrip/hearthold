@@ -20,16 +20,16 @@ const SENSITIVITY_NAME: Record<number, string> = {
 };
 
 /**
- * Standing-delegation autonomy for the projector. When supplied, the Witness consults the Sovereign's
+ * Standing-delegation autonomy for the projector. When supplied, the Emissary consults the Sovereign's
  * **inward** trust registry to decide whether it may present *on its own* for a given disclosure.
  */
 export interface ProjectorAutonomy {
-  /** The Sovereign's registry of its Witnesses (TRQP over Archon groups). */
+  /** The Sovereign's registry of its Emissaries (TRQP over Archon groups). */
   registry: TrustEvaluator;
-  /** The Witness's own keymaster handle — used to present autonomously when cleared. */
+  /** The Emissary's own keymaster handle — used to present autonomously when cleared. */
   witness: KeymasterHandle;
-  /** This Witness's DID — the entity evaluated against the registry. */
-  witnessDid: string;
+  /** This Emissary's DID — the entity evaluated against the registry. */
+  emissaryDid: string;
   /** Local policy mapping the (public) requested schema to its disclosure sensitivity. */
   sensitivityFor: (schema?: string) => Sensitivity;
 }
@@ -39,20 +39,20 @@ function errorMsg(reason: string): HearthholdMessage {
 }
 
 /**
- * The Witness as projector (PVM *Mage*): the world-facing emissary.
+ * The Emissary as projector — the world-facing agent (themed as the PVM "Mage").
  *
- * Without `autonomy`, the Witness holds no deciding secret and never approves a disclosure itself — it
+ * Without `autonomy`, the Emissary holds no deciding secret and never approves a disclosure itself — it
  * **relays** every proof-request to the Sovereign's Signet, which approves with proof-of-human and
- * presents, and the Witness carries the result back (§7.7).
+ * presents, and the Emissary carries the result back (§7.7).
  *
- * With `autonomy`, a **standing-delegation fast path** is added: the Witness asks the Sovereign's
+ * With `autonomy`, a **standing-delegation fast path** is added: the Emissary asks the Sovereign's
  * inward registry "am I cleared to present at this sensitivity?" (`present` + the level). If yes, the
- * Witness presents a credential it holds *on its own* — no Signet round-trip — which is the standing
+ * Emissary presents a credential it holds *on its own* — no Signet round-trip — which is the standing
  * envelope made concrete. If the disclosure is above its cleared ceiling, it falls back to relaying to
  * the Signet. The sensitivity is derived locally from the requested schema; it is never taken from the
  * verifier.
  */
-export function makeWitnessProjectorHandler(
+export function makeEmissaryProjectorHandler(
   transport: Transport,
   sovereignDid: string,
   autonomy?: ProjectorAutonomy,
@@ -65,7 +65,7 @@ export function makeWitnessProjectorHandler(
       const sensitivity = autonomy.sensitivityFor(req.schema);
       const resource = SENSITIVITY_NAME[sensitivity] ?? 'SEALED';
       const auth = await autonomy.registry
-        .authorize({ entity_id: autonomy.witnessDid, action: 'present', resource })
+        .authorize({ entity_id: autonomy.emissaryDid, action: 'present', resource })
         .catch(() => ({ authorized: false, message: 'registry error' }));
       if (auth.authorized) {
         // Cleared by standing delegation — present on our own, no Signet. No humanProof is attached
@@ -81,11 +81,11 @@ export function makeWitnessProjectorHandler(
     }
 
     // Relay: carry the verifier's request to the Sovereign and return whatever the Signet decides
-    // (a proof-presentation when approved, or an error when declined). The Witness only carries.
+    // (a proof-presentation when approved, or an error when declined). The Emissary only carries.
     try {
       return await transport.request(sovereignDid, message, { timeoutMs: 120_000 });
     } catch (err) {
-      return errorMsg(`Witness could not reach the Sovereign: ${err instanceof Error ? err.message : String(err)}`);
+      return errorMsg(`Emissary could not reach the Sovereign: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 }

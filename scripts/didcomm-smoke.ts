@@ -3,9 +3,9 @@
  * profile). Validates the raw send → poll → receive → reply(thid) flow BEFORE we refactor
  * Hearthold's transport onto it.
  *
- *   Warden + Witness identities → publishDidComm (advertise endpoint) →
- *   Witness sendDidComm(req) → Warden polls receiveDidComm → Warden replies with thid →
- *   Witness polls receiveDidComm → correlates the reply by thid.
+ *   Warden + Emissary identities → publishDidComm (advertise endpoint) →
+ *   Emissary sendDidComm(req) → Warden polls receiveDidComm → Warden replies with thid →
+ *   Emissary polls receiveDidComm → correlates the reply by thid.
  *
  * NODE URL: DIDComm routes through Drawbridge's `/didcomm` mount, so point the keymaster at the
  * Drawbridge URL (default :4222), not the raw Gatekeeper (:4224). Confirm/adjust live — if identity
@@ -69,7 +69,7 @@ async function main(): Promise<void> {
 
   step('Provision identities + advertise DIDComm endpoints');
   const warden = await openKeymaster('warden', config, PASSPHRASE);
-  const witness = await openKeymaster('witness', config, PASSPHRASE);
+  const witness = await openKeymaster('emissary', config, PASSPHRASE);
   const wardenId = await ensureIdentity(warden, config);
   const witnessId = await ensureIdentity(witness, config);
   // Auto-discovery via the Drawbridge root mis-derives the URL and publishes key-only; fetch the
@@ -79,18 +79,18 @@ async function main(): Promise<void> {
     .then((j: any) => j.endpoint as string);
   process.stdout.write(`  didcomm endpoint: ${endpoint}\n`);
   await warden.keymaster.publishDidComm(endpoint, IDENTITY_NAME.warden);
-  await witness.keymaster.publishDidComm(endpoint, IDENTITY_NAME.witness);
+  await witness.keymaster.publishDidComm(endpoint, IDENTITY_NAME.emissary);
   // Wait for each side to see the other's published endpoint before sending.
   const wOk = await waitForEndpoint(witness, wardenId.did);
   const aOk = await waitForEndpoint(warden, witnessId.did);
   check('both DIDComm endpoints resolvable', wOk && aOk);
 
-  step('Witness → Warden: send a request');
+  step('Emissary → Warden: send a request');
   const reqThid = `hearthold-smoke-${witnessId.did.slice(-8)}`;
   await witness.keymaster.sendDidComm(
     { type: 'https://hearthold.dev/smoke/1', thid: reqThid, body: { text: 'hello warden', n: 7 } },
     wardenId.did,
-    { name: IDENTITY_NAME.witness },
+    { name: IDENTITY_NAME.emissary },
   );
   check('send accepted by relay', true);
 
@@ -100,16 +100,16 @@ async function main(): Promise<void> {
   check('warden received the request', req != null);
   process.stdout.write(`  metadata: ${JSON.stringify(req?.metadata)}\n`);
   const reqSender = String(req?.metadata?.sender ?? '').split('#')[0];
-  check('sender authenticated as the Witness', reqSender === witnessId.did && req?.metadata?.authenticated === true);
+  check('sender authenticated as the Emissary', reqSender === witnessId.did && req?.metadata?.authenticated === true);
   check('body intact', req?.message?.body?.text === 'hello warden');
 
-  step('Warden → Witness: reply correlated by thid');
+  step('Warden → Emissary: reply correlated by thid');
   await warden.keymaster.sendDidComm(
     { type: 'https://hearthold.dev/smoke-reply/1', thid: reqThid, body: { ok: true } },
     witnessId.did,
     { name: IDENTITY_NAME.warden },
   );
-  const replies = await poll(witness, IDENTITY_NAME.witness);
+  const replies = await poll(witness, IDENTITY_NAME.emissary);
   const reply = replies.find((m) => m.message?.thid === reqThid);
   check('witness received the correlated reply', reply != null);
   const replySender = String(reply?.metadata?.sender ?? '').split('#')[0];

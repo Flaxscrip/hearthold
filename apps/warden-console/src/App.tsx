@@ -103,7 +103,7 @@ function VaultPanel({ vault }: { vault: VaultItem[] }) {
   return (
     <Card title="Vault" right={<span className="count">{vault.length}</span>}>
       {vault.length === 0 ? (
-        <Empty>No artefacts yet. Submit one from the Witness app — it will appear here live.</Empty>
+        <Empty>No artefacts yet. Submit one from the Emissary app — it will appear here live.</Empty>
       ) : (
         <ul className="rows">
           {vault.map((v) => (
@@ -142,10 +142,10 @@ function DelegatePanel({ onDone }: { onDone: () => void }) {
   };
 
   return (
-    <Card title="Delegate a Witness">
+    <Card title="Delegate a Emissary">
       <div className="form">
         <input
-          placeholder="did:cid:… of the Witness"
+          placeholder="did:cid:… of the Emissary"
           value={did}
           onChange={(e) => setDid(e.target.value)}
           spellCheck={false}
@@ -275,7 +275,7 @@ function RecallPanel() {
               ))}
             </ul>
           )}
-          <p className="note dim">machine-derived from your vault · local only · to prove a fact, use the Witness prove flow</p>
+          <p className="note dim">machine-derived from your vault · local only · to prove a fact, use the Emissary prove flow</p>
         </div>
       )}
       {err && <p className="note">✗ {err}</p>}

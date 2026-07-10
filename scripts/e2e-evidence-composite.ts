@@ -49,7 +49,7 @@ async function main(): Promise<void> {
   const warden = await openKeymaster('warden', config, pass);
   const sovereign = await openKeymaster('sovereign', config, pass);
   const verifier = await openKeymaster('verifier', config, pass);
-  const witness = await openKeymaster('witness', config, pass);
+  const witness = await openKeymaster('emissary', config, pass);
   const landlord = await openKeymaster('registry', config, pass); // an external issuer (wallet slot)
   const wardenId = await ensureIdentity(warden, config);
   const sovId = await ensureIdentity(sovereign, config);
@@ -71,7 +71,7 @@ async function main(): Promise<void> {
   await recordIssuedCredential(sovereign, leaseDid, warden.dataFolder); // recorded into the Warden's vault
   process.stdout.write(`landlord issued a ResidenceLease; recorded as an issued leaf\n`);
 
-  // Witnessed side: delegate the Witness, seed MEDIUM location pings.
+  // Witnessed side: delegate the Emissary, seed MEDIUM location pings.
   const delSchema = await ensureDelegationSchema(warden);
   const delCred = await issueDelegation(warden, witnessId.did, delSchema, { kinds: ['location'], validUntil: oneYear });
   await new DelegationStore(warden).record(witnessId.did, delCred);

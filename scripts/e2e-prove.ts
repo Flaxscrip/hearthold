@@ -51,7 +51,7 @@ async function main(): Promise<void> {
   step('Provision guild (issuer), sovereign (holder), verifier');
   const guild: KeymasterHandle = await openKeymaster('warden', config, PASSPHRASE);
   const sovereign: KeymasterHandle = await openKeymaster('sovereign', config, PASSPHRASE);
-  const verifier: KeymasterHandle = await openKeymaster('witness', config, PASSPHRASE);
+  const verifier: KeymasterHandle = await openKeymaster('emissary', config, PASSPHRASE);
   const guildId = await ensureIdentity(guild, config);
   const sovereignId = await ensureIdentity(sovereign, config);
   await ensureIdentity(verifier, config);

@@ -12,7 +12,7 @@ that surprises you in the margin.
 - A **Member wallet** on a phone/browser (the react-native wallet, or `wallet.archon.technology`) that
   can scan a QR / open a `?challenge=` deep link.
 
-**Ports used here** — Warden control `4310` · Sovereign(Signet) control `4311` · Mage `kb-web` `4313`
+**Ports used here** — Warden control `4310` · Sovereign(Signet) control `4311` · Emissary `kb-web` `4313`
 · apps: warden-console `5173`, signet-approver `5174`, kb-portal `5176`.
 
 ---
@@ -43,11 +43,11 @@ export HEARTHOLD_PASSPHRASE=<kb-warden-pass>
 Four processes (separate terminals). The Warden control daemon serves the KB **and** backs the console.
 
 - [ ] **B1** Warden (KB brain + console API): `warden control 4310` → "serving N Knowledge Base(s): hearthold-kb".
-- [ ] **B2** Mage (public web bridge): `HEARTHOLD_WARDEN_DID=<wardenDid> witness kb-web 4313` → "KB Portal … relaying to Warden …". *(Set `HEARTHOLD_PORTAL_PUBLIC_URL=http://<flaxlap-reachable-host>:4313` if the Member's wallet is on another device — the login callback is baked into the challenge and the wallet must reach it.)*
+- [ ] **B2** Emissary (public web bridge): `HEARTHOLD_WARDEN_DID=<wardenDid> emissary kb-web 4313` → "KB Portal … relaying to Warden …". *(Set `HEARTHOLD_PORTAL_PUBLIC_URL=http://<flaxlap-reachable-host>:4313` if the Member's wallet is on another device — the login callback is baked into the challenge and the wallet must reach it.)*
 - [ ] **B3** Portal (the Member's page): `cd apps/kb-portal && VITE_PORTAL_URL=http://localhost:4313 VITE_KB_ID=hearthold-kb npm run dev` → opens `http://localhost:5176`.
 - [ ] **B4** Warden Console (Operator's admin): `cd apps/warden-console && npm run dev` → `http://localhost:5173`; the **Knowledge Bases** panel shows `hearthold-kb`.
 
-**Watch the Mage + Warden terminals during login** — a healthy login prints `[kb-web] login/start → relaying…` then `[kb] login-start received → challenge issued` then `[kb-web] login/start ✓ challenge received`.
+**Watch the Emissary + Warden terminals during login** — a healthy login prints `[kb-web] login/start → relaying…` then `[kb] login-start received → challenge issued` then `[kb-web] login/start ✓ challenge received`.
 
 ---
 
@@ -88,7 +88,7 @@ Requires the Member to run a **Signet** that answers approval requests (the Sign
 
 - [ ] **G1** Member: `HEARTHOLD_SIGNET_PIN=<pin> sovereign control 4311` + `cd apps/signet-approver && npm run dev` (`http://localhost:5174`), signed in as their wallet.
 - [ ] **G2** With `write=factor2`, Member **Contributes** on the portal → the Signet Approver shows an amber **"action authorization"** card (write on hearthold-kb + the Warden-authored detail).
-- [ ] **G3** Member approves with the **PIN** → the contribution saves. Deny → it's refused. *(The Mage is never on this approval channel.)*
+- [ ] **G3** Member approves with the **PIN** → the contribution saves. Deny → it's refused. *(The Emissary is never on this approval channel.)*
 
 ## Part H — Reset for the next run
 
@@ -111,9 +111,9 @@ Requires the Member to run a **Signet** that answers approval requests (the Sign
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Portal stuck on **"preparing…"**, then *"timed out waiting for reply to kb-login-start"* | The Mage's `HEARTHOLD_WARDEN_DID` ≠ the running KB Warden's DID, or the Warden isn't serving | Compare `warden status` DID to the Mage's env; ensure `warden control`/`serve` is up for `~/.hearthold-kb`. Watch for `[kb] login-start received` on the Warden — if it never prints, the message isn't reaching that Warden |
+| Portal stuck on **"preparing…"**, then *"timed out waiting for reply to kb-login-start"* | The Emissary's `HEARTHOLD_WARDEN_DID` ≠ the running KB Warden's DID, or the Warden isn't serving | Compare `warden status` DID to the Emissary's env; ensure `warden control`/`serve` is up for `~/.hearthold-kb`. Watch for `[kb] login-start received` on the Warden — if it never prints, the message isn't reaching that Warden |
 | QR renders but sign-in never completes | The Member's wallet can't reach the **callback** (`…/api/kb/login/callback`) | Set `HEARTHOLD_PORTAL_PUBLIC_URL` on `kb-web` to a host the wallet can reach; keep `VITE_PORTAL_URL` the same origin |
-| Ask returns *"not authorized"* after granting | Granted the **wrong DID** (e.g. the Mage's, or a different wallet than the one that signed in) | Grant the exact DID the portal showed after sign-in; `warden kb-status` lists members |
+| Ask returns *"not authorized"* after granting | Granted the **wrong DID** (e.g. the Emissary's, or a different wallet than the one that signed in) | Grant the exact DID the portal showed after sign-in; `warden kb-status` lists members |
 | Ask returns *"Nothing has been indexed yet."* | KB not seeded, or the embedding model missing | `warden kb-seed --kb …`; `curl $OLLAMA_URL/api/tags` shows the embedding + chat models |
 | Recall answers are slow | The chat model is heavy on this hardware | Expected on CPU; use a smaller/faster chat model via `HEARTHOLD_CLASSIFIER_MODEL` |
 | A `hearthold-kb` query surfaces another KB's fact | (should not happen — fixed) | If seen, capture it — it's a scoping regression |

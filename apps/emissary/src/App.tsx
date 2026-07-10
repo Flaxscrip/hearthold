@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type {
   ControlEvent,
-  WitnessSnapshot,
+  EmissarySnapshot,
   ReceiptRecord,
   ProjectionRecord,
   ProofRecord,
@@ -13,7 +13,7 @@ import { Card, Pill, SensitivityChip, DidTag, Empty } from './ui';
 const KINDS = ['event', 'location', 'activity', 'browsing', 'document'] as const;
 
 export function App() {
-  const [snap, setSnap] = useState<WitnessSnapshot | null>(null);
+  const [snap, setSnap] = useState<EmissarySnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -79,14 +79,14 @@ export function App() {
   );
 }
 
-function TopBar({ snap, error }: { snap: WitnessSnapshot | null; error: string | null }) {
+function TopBar({ snap, error }: { snap: EmissarySnapshot | null; error: string | null }) {
   const s = snap?.status;
   return (
     <header className="topbar">
       <div className="brand">
         <span className="sigil">🧭</span>
         <div>
-          <h1>Witness</h1>
+          <h1>Emissary</h1>
           <p className="sub">the Companion · sees in, projects out — holds no secret</p>
         </div>
       </div>
@@ -109,7 +109,7 @@ function TopBar({ snap, error }: { snap: WitnessSnapshot | null; error: string |
       )}
       {error && (
         <div className="statline err">
-          can’t reach the Witness daemon at <code>{api.base}</code> — run <code>witness control</code>. ({error})
+          can’t reach the Emissary daemon at <code>{api.base}</code> — run <code>emissary control</code>. ({error})
         </div>
       )}
     </header>
@@ -140,7 +140,7 @@ function SubmitPanel({ onReceipt }: { onReceipt: (r: ReceiptRecord) => void }) {
   };
 
   return (
-    <Card title="Witness an observation">
+    <Card title="Emissary an observation">
       <div className="form col2">
         <div className="kinds">
           {KINDS.map((k) => (
@@ -427,7 +427,7 @@ function ReceiptsPanel({ receipts }: { receipts: ReceiptRecord[] }) {
   return (
     <Card title="Receipts" right={<span className="count">{receipts.length}</span>}>
       {receipts.length === 0 ? (
-        <Empty>No submissions yet. Witness something above — the Warden’s receipt returns here.</Empty>
+        <Empty>No submissions yet. Emissary something above — the Warden’s receipt returns here.</Empty>
       ) : (
         <ul className="rows">
           {receipts.map((r) => (

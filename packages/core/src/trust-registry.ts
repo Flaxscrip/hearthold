@@ -8,12 +8,12 @@
  * Two implementations behind one `TrustEvaluator` seam:
  *   - `HttpTrustRegistry` — consume a remote TRQP registry (the ecosystem/guild registry, outward).
  *   - `GroupTrustRegistry` — run a registry in-process over **Archon groups** (the Sovereign's own
- *     registry of its Witnesses, inward). Membership in the group bound to `(action, resource)` *is*
+ *     registry of its Emissaries, inward). Membership in the group bound to `(action, resource)` *is*
  *     the authorization — exactly archon-trust-registry's "groups are the authorization store", but
  *     bound per-resource (not just per-role) so we can grade autonomy by what's being done.
  *
  * The same primitive runs both ways: outward `(issuer, issue, schema)` = "may this issuer issue this
- * credential type?"; inward `(witnessDid, present, sensitivity)` = "is this Witness cleared to present
+ * credential type?"; inward `(emissaryDid, present, sensitivity)` = "is this Emissary cleared to present
  * at this level, or must it relay to the Signet?" See docs/trust-graph-and-delegation.md §6.
  */
 
@@ -21,12 +21,12 @@ import type { KeymasterHandle } from './keymaster.js';
 import { verifyRulesetChain, activeRuleset } from './ruleset.js';
 import type { SignedRuleset } from './ruleset.js';
 
-/** TRQP standard actions. `issue` is the outward case; `present` carries the inward Witness case. */
+/** TRQP standard actions. `issue` is the outward case; `present` carries the inward Emissary case. */
 export type TrqpAction = 'issue' | 'verify' | 'hold' | 'present' | 'revoke';
 
 /** A TRQP authorization query. */
 export interface AuthorizationQuery {
-  /** The DID being evaluated — an issuer (outward) or a Witness W-DID (inward). */
+  /** The DID being evaluated — an issuer (outward) or a Emissary W-DID (inward). */
   entity_id: string;
   /** The verb. */
   action: TrqpAction | string;
@@ -219,7 +219,7 @@ export async function grantAuthorization(
   return owner.keymaster.addGroupMember(groupDid, entityDid);
 }
 
-/** Revoke authorization: remove `entityDid` from the group (e.g. a Witness whose condition dropped). */
+/** Revoke authorization: remove `entityDid` from the group (e.g. a Emissary whose condition dropped). */
 export async function revokeAuthorization(
   owner: KeymasterHandle,
   groupDid: string,

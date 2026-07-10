@@ -54,16 +54,16 @@ async function main(): Promise<void> {
   const accepted = await acceptCredential(sovereign, credDid);
   if (!accepted) throw new Error('the Sovereign failed to accept the credential');
 
-  // The Witness projector — carries proofs and relays disclosures to the Signet (projected flow).
-  const witness = await openKeymaster('witness', config, WITNESS_PASS);
+  // The Emissary projector — carries proofs and relays disclosures to the Signet (projected flow).
+  const witness = await openKeymaster('emissary', config, WITNESS_PASS);
   const witnessId = await ensureIdentity(witness, config);
-  await new DidCommTransport(witness, IDENTITY_NAME.witness, config.nodeUrl).ready();
+  await new DidCommTransport(witness, IDENTITY_NAME.emissary, config.nodeUrl).ready();
 
   const line = '─'.repeat(64);
   process.stdout.write(
     `\n${line}\n  VP demo ready — the Sovereign holds a GuildMembership from the guild\n${line}\n` +
       `  Sovereign (holder) : ${sovId.did}\n` +
-      `  Witness (projector): ${witnessId.did}\n` +
+      `  Emissary (projector): ${witnessId.did}\n` +
       `  Issuer (guild)     : ${issuerId.did}\n` +
       `  Schema             : ${schemaDid}\n` +
       `  Credential         : ${credDid}\n${line}\n\n` +
@@ -76,11 +76,11 @@ async function main(): Promise<void> {
       `A) DIRECT flow — the verifier asks the Sovereign itself:\n\n` +
       `  HEARTHOLD_DATA_ROOT="${config.dataRoot}" HEARTHOLD_PASSPHRASE=${VERIFIER_PASS} ` +
       `npm run verifier -- verify ${sovId.did} ${schemaDid} ${issuerId.did}\n\n` +
-      `B) PROJECTED flow — the verifier asks the Witness, which relays to the Signet:\n\n` +
-      `  # the Witness projector (note HEARTHOLD_SOVEREIGN_DID — that is what enables projection)\n` +
+      `B) PROJECTED flow — the verifier asks the Emissary, which relays to the Signet:\n\n` +
+      `  # the Emissary projector (note HEARTHOLD_SOVEREIGN_DID — that is what enables projection)\n` +
       `  HEARTHOLD_DATA_ROOT="${config.dataRoot}" HEARTHOLD_PASSPHRASE=${WITNESS_PASS} ` +
       `HEARTHOLD_SOVEREIGN_DID=${sovId.did} npm run witness -- control 4313\n\n` +
-      `  # the Witness app (watch its Projections panel) — point it at the projector daemon\n` +
+      `  # the Emissary app (watch its Projections panel) — point it at the projector daemon\n` +
       `  cd apps/witness && VITE_CONTROL_URL=http://127.0.0.1:4313 npm run dev\n\n` +
       `  # the verifier now addresses the WITNESS, not the Sovereign\n` +
       `  HEARTHOLD_DATA_ROOT="${config.dataRoot}" HEARTHOLD_PASSPHRASE=${VERIFIER_PASS} ` +

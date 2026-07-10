@@ -46,7 +46,7 @@ const DID = {
 const ROOTS: Record<Game42Axis, { name: string; role: string; detail: string; did: string }> = {
   compute: { name: 'GenitriX', role: 'the learning mage', detail: 'the Scribe — learns the guild', did: DID.genitrix },
   connection: { name: 'The Quartermaster', role: 'the network mage', detail: 'the muster & the supply lines', did: DID.quartermaster },
-  delegation: { name: 'The Witness', role: 'the agency mage', detail: 'Soulbae — projects for the guild', did: DID.witness },
+  delegation: { name: 'The Emissary', role: 'the agency mage', detail: 'Soulbae — projects for the guild', did: DID.witness },
   protection: { name: 'The Warden', role: 'the privacy mage', detail: 'Soulbis — guards the guild vault', did: DID.warden },
   memory: { name: 'The Lorekeeper', role: 'the continuity mage', detail: 'keeps the guild’s lore', did: DID.lorekeeper },
   value: { name: 'The Sovereign', role: 'the trust mage', detail: 'Raid-Lead — holds the guild’s value', did: DID.sovereign },

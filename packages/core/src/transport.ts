@@ -7,7 +7,7 @@
  * DIDComm gives us, for free, what the old HTTP path needed a handshake for:
  *   - authcrypt authenticates the sender DID at the transport layer (no challenge to prove control);
  *   - the message reaches the recipient's mailbox with no registry footprint (no relationship leak);
- *   - store-and-forward means the Witness can submit while the Warden is offline.
+ *   - store-and-forward means the Emissary can submit while the Warden is offline.
  *
  * Request/reply is correlated by DIDComm thread id (`thid`): a request carries a fresh `thid`, and
  * the reply echoes it.

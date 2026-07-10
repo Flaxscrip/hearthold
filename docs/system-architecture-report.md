@@ -16,7 +16,7 @@ A Sovereign First Person generates a growing trove of personal history and artef
 gives them:
 
 - a **home-bound custodian agent** ("Warden") that holds and protects that private repository, and
-- a **companion agent** ("Witness") that witnesses local-only context and, when needed, requests
+- a **companion agent** ("Emissary") that witnesses local-only context and, when needed, requests
   **verifiable evidence** of the person's history to present to third parties —
   proving a fact *without disclosing the data behind it*.
 
@@ -31,11 +31,11 @@ The product goal is to let a person make practical, privacy-preserving use of th
 | Identity | App | Role | Runs |
 |---|---|---|---|
 | **Warden** | Warden service | Custodian & enforcer. Local-only AI: classifies/serves on-device. Holds the vault; issues evidence. | Always-on, home-bound |
-| **Witness** | Witness CLI/app | Envoy. Witnesses local context, submits it home; requests + presents evidence. Holds a scoped, revocable delegation. | Mobile (CLI now; browser/phone later) |
+| **Emissary** | Emissary CLI/app | Envoy. Emissaries local context, submits it home; requests + presents evidence. Holds a scoped, revocable delegation. | Mobile (CLI now; browser/phone later) |
 | **Sovereign** | Signet (2nd-factor authenticator) | The principal. Signs the Warden's access-control policy; co-signs sensitive disclosures with a proof-of-human assertion. | Separate device |
 
 Each is an independent Archon identity with its own Keymaster wallet. The **Warden enforces**, the
-**Sovereign authorizes the rules** (control plane vs. data plane), and the **Witness acts** under a
+**Sovereign authorizes the rules** (control plane vs. data plane), and the **Emissary acts** under a
 delegation the Warden issued and can revoke.
 
 ---
@@ -43,25 +43,25 @@ delegation the Warden issued and can revoke.
 ## 3. Use cases — both directions
 
 ### 3a. Inbound: witness → store (working, tested)
-1. The Witness captures a local-only observation (e.g. a location fix, an activity, browsing
+1. The Emissary captures a local-only observation (e.g. a location fix, an activity, browsing
    context) it alone can see.
 2. It **seals the payload to the Warden's key** and submits it.
 3. The Warden **decrypts locally**, classifies sensitivity with a local model, and **stores the
    still-sealed artefact** with a sensitivity label, returning a receipt.
 
-The Witness is therefore a *witness to the person's life* that contributes encrypted history to the
+The Emissary is therefore a *witness to the person's life* that contributes encrypted history to the
 vault — the repository grows from the edge, but the edge keeps nothing.
 
 ### 3b. Outbound: prove → disclose (designed; `/evidence` is a stub today)
-1. The Witness asks the Warden to prove a claim ("resided in FR during 2026-H1") for some purpose.
+1. The Emissary asks the Warden to prove a claim ("resided in FR during 2026-H1") for some purpose.
 2. If the supporting data is sensitive, the Warden requires **step-up** — up to a Sovereign
    co-signature gated by a proof-of-human check on the Signet.
 3. The Warden returns a signed **evidence graph**: the derived fact plus a hash-anchored provenance
-   subgraph (see §7). The Witness presents it; a third party verifies it against issuer DIDs.
+   subgraph (see §7). The Emissary presents it; a third party verifies it against issuer DIDs.
 
 ### 3c. Control plane: govern (designed — milestone S)
 The Sovereign **signs the Warden's access-control configuration** (the Warden verifies it on load
-and fails safe if unsigned), bounds Witness enrollment, and gates admin operations. This makes the
+and fails safe if unsigned), bounds Emissary enrollment, and gates admin operations. This makes the
 Warden a *provable executor of the Sovereign's directives*, not a self-authorizing actor.
 
 ---
@@ -89,7 +89,7 @@ Two independent ordinal scales plus a disclosure transform (full spec: `docs/sec
 ### Threat model summary
 | Adversary | Mitigation |
 |---|---|
-| Compromised Witness device | Scoped, revocable delegation; holds no vault data; sensitive disclosures require Sovereign co-sign + proof-of-human. |
+| Compromised Emissary device | Scoped, revocable delegation; holds no vault data; sensitive disclosures require Sovereign co-sign + proof-of-human. |
 | Compromised Warden host | Cannot change policy (Sovereign-signed), enroll access, or approve `SEALED`. Honest limit: a rooted, running Warden can still read what it can currently decrypt — addressed by the planned *SEALED-to-Sovereign* encryption (Warden can't open the crown jewels) or a TEE. |
 | Network / relay / registry observer | DIDComm writes nothing to the registry → no sender↔recipient edges. The relay (our own node) sees recipient DID + timing only; content is opaque. |
 | Third-party verifier (honest-but-curious) | Receives issuer-attested signed evidence + selectively disclosed provenance — the fact without the underlying data. |
@@ -109,7 +109,7 @@ Two independent ordinal scales plus a disclosure transform (full spec: `docs/sec
   the standard `evidence` field, single-use rides `termsOfUse`, revocation rides `credentialStatus`.
 - **SD-JWT-VC (selective disclosure).** Field-level disclosure uses salted-digest commitments /
   Merkle membership — reveal a leaf + path against a signed root.
-- **DIDComm v2 (DIF).** The Witness↔Warden transport (§6).
+- **DIDComm v2 (DIF).** The Emissary↔Warden transport (§6).
 - **Issuer-attested disclosure (why not ZK).** Because the Warden is the *issuer* of derived facts,
   the verifier trusts the issuer signature as with any credential; privacy comes from derivation +
   selective disclosure. ZK predicate proofs are optional and off the critical path — relevant only
@@ -124,16 +124,16 @@ Hearthold is a pure consumer of Archon primitives; it adds no new crypto. Notabl
 - **Keymaster as a library, wallet-per-actor.** Each agent instantiates `Keymaster` with its own
   `WalletJson` + `CipherNode`, connected to the node via `GatekeeperClient`. We deliberately do
   **not** use the node's shared keymaster service, so each actor custodies its own wallet and the
-  Witness identity can migrate to other devices via `backupId`/`recoverId`.
+  Emissary identity can migrate to other devices via `backupId`/`recoverId`.
 - **Identities:** `createId` / `listIds` / `setCurrentId` / `resolveDID`. Registry: `hyperswarm`.
 - **Delegation & attestation credentials:** `createSchema`/`getSchema` (a registered
   `HearthholdDelegation` schema), `bindCredential` → `issueCredential` → `acceptCredential`, and
-  `revokeCredential`. The Warden is the issuer; the Witness accepts; revocation de-authorizes
+  `revokeCredential`. The Warden is the issuer; the Emissary accepts; revocation de-authorizes
   instantly.
 - **Challenge/response — repurposed.** Originally our auth handshake (`createChallenge` /
   `createResponse` / `verifyResponse`). Under DIDComm authcrypt, DID authentication is free, so we
   **move challenge/response up to the authorization layer**: the Warden puts the *purpose*
-  (`txn`, claim, window) in an (extensible) challenge, and the Sovereign/Witness's **signed
+  (`txn`, claim, window) in an (extensible) challenge, and the Sovereign/Emissary's **signed
   response** becomes a dated, DID-attributable approval — the `approval` node of an evidence graph.
 - **In-band payload sealing — zero registry footprint.** Observations are sealed with the low-level
   `CipherNode.encryptMessage(recipientPubJwk, plaintext)` (resolved via `getPublicKeyJwk`) and
@@ -186,7 +186,7 @@ Monorepo (TypeScript, npm workspaces; builds clean):
 |---|---|---|
 | `packages/core` | config, security model, protocol, identity, credentials, schema, auth (challenge/response), payload (in-band seal), http + WardenClient | built |
 | `packages/warden` | HTTP service, submission service, classifier seam, vault store | built |
-| `packages/witness` | Companion CLI over WardenClient | built |
+| `packages/emissary` | Companion CLI over WardenClient | built |
 | `scripts/e2e-delegation.ts` | delegation issue/accept + challenge/response | **PASS** live |
 | `scripts/e2e-submission.ts` | witness→store→receipt over HTTP | **PASS** live |
 | `scripts/didcomm-smoke.ts` | DIDComm v2 publish→send→poll→reply-by-`thid` | **PASS** live |
@@ -203,7 +203,7 @@ re-verified); DIDComm v2 round-trip validated.
 - **Evidence/`prove` flow** — `/evidence` is a stub returning *denied*; implement the evidence graph
   + step-up (R1–R5).
 - **Sovereign / Signet control plane** — signed policy + co-signed approvals + proof-of-human.
-- **Later:** NAS/filesystem ingestion; browser & mobile Witness; multi-device fan-out.
+- **Later:** NAS/filesystem ingestion; browser & mobile Emissary; multi-device fan-out.
 
 ---
 
@@ -237,7 +237,7 @@ These cost us debugging time but nothing is blocking — the round-trip works on
 
 - **SEALED-to-Sovereign encryption** (so the Warden cannot open its most sensitive holdings): the
   Warden classifies *after* unsealing, so it briefly sees plaintext before it could re-seal to the
-  Sovereign. Options: Witness pre-tags sensitive kinds; the Signet ingests the most sensitive sources
+  Sovereign. Options: Emissary pre-tags sensitive kinds; the Signet ingests the most sensitive sources
   directly; or accept brief Warden sight in v1.
 - **Evidence-graph commitments:** committing Merkle roots over derived-claim digests vs. artefact
   ciphertext ids (we lean toward both as two anchors).

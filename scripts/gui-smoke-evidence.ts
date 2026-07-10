@@ -1,7 +1,7 @@
 /**
- * Evidence step-up smoke — the Witness sends ONE evidence-request to a running `warden control`
+ * Evidence step-up smoke — the Emissary sends ONE evidence-request to a running `warden control`
  * daemon and waits. Internally the Warden gets the Sovereign's approval on its own channel (the
- * Signet shows the Warden's description); the Witness never sees the approval, just the result.
+ * Signet shows the Warden's description); the Emissary never sees the approval, just the result.
  *
  * Env: HEARTHOLD_PASSPHRASE (witness), WARDEN_DID, SUBJECT_DID (the Sovereign). Run after the daemons.
  */
@@ -21,9 +21,9 @@ async function main(): Promise<void> {
   const subjectDid = process.env.SUBJECT_DID;
   if (!pass || !wardenDid || !subjectDid) throw new Error('need HEARTHOLD_PASSPHRASE, WARDEN_DID, SUBJECT_DID');
 
-  const witness = await openKeymaster('witness', config, pass);
+  const witness = await openKeymaster('emissary', config, pass);
   await ensureIdentity(witness, config);
-  const transport = new DidCommTransport(witness, IDENTITY_NAME.witness, config.nodeUrl);
+  const transport = new DidCommTransport(witness, IDENTITY_NAME.emissary, config.nodeUrl);
   await transport.ready();
 
   process.stdout.write('WITNESS → evidence-request (MEDIUM location claim) … awaiting the Warden\n');

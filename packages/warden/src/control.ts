@@ -157,17 +157,17 @@ export async function runWardenControl(
       'GET /api/status': async () => ({ status: await status() }),
       'GET /api/snapshot': async () => await snapshot(),
       'POST /api/delegate': async ({ body }) => {
-        const { witnessDid } = (body ?? {}) as DelegateRequest;
-        if (!witnessDid) throw new Error('witnessDid is required');
+        const { emissaryDid } = (body ?? {}) as DelegateRequest;
+        if (!emissaryDid) throw new Error('emissaryDid is required');
         const schemaDid = await ensureDelegationSchema(handle);
         const validUntil = new Date(Date.now() + 1000 * 60 * 60 * 24 * 365).toISOString();
-        const credentialDid = await issueDelegation(handle, witnessDid, schemaDid, {
+        const credentialDid = await issueDelegation(handle, emissaryDid, schemaDid, {
           kinds: ['event', 'location', 'activity', 'browsing', 'document'],
           validUntil,
         });
-        await delegations.record(witnessDid, credentialDid);
-        server.emit('delegation-issued', { subjectDid: witnessDid, credentialDid });
-        return { subjectDid: witnessDid, credentialDid };
+        await delegations.record(emissaryDid, credentialDid);
+        server.emit('delegation-issued', { subjectDid: emissaryDid, credentialDid });
+        return { subjectDid: emissaryDid, credentialDid };
       },
       'POST /api/classify': async ({ body }) => {
         const { kind, text } = (body ?? {}) as ClassifyRequest;
@@ -230,7 +230,7 @@ export async function runWardenControl(
         return { proof };
       },
       // Present (Sevenfold) — play the scroll; it BURNS. Single-use enforced verifier-side (the holder
-      // can't reset it). Home-plane demonstration; cross-party presentation stays Witness-side.
+      // can't reset it). Home-plane demonstration; cross-party presentation stays Emissary-side.
       'POST /api/present': async ({ body }) => {
         const { credentialDid } = (body ?? {}) as PresentRequest;
         if (!credentialDid) throw new Error('credentialDid is required');
@@ -281,7 +281,7 @@ export async function runWardenControl(
 
       // ── Knowledge Base membership + assurance policy (many KBs per Warden) ──
       // NB: KB access is granted to the *member* DID (the one that signs in), never to the relaying
-      // Mage/Witness — the Warden authorizes the member, the Mage only carries.
+      // Mage/Emissary — the Warden authorizes the member, the Mage only carries.
       'GET /api/kb': async () => ({ kbs: await kbList() }),
       'POST /api/kb/grant': async ({ body }) => {
         const { kbId, did, scope } = (body ?? {}) as KbGrantRequest;

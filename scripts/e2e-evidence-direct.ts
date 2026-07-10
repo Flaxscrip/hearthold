@@ -1,10 +1,10 @@
 /**
  * e2e: the direct Warden↔Sovereign approval channel (milestone A2-wire).
  *
- * The Witness sends ONE evidence-request. Internally, the Warden — not the Witness — obtains the
+ * The Emissary sends ONE evidence-request. Internally, the Warden — not the Emissary — obtains the
  * Sovereign's proof-of-human approval over its own channel (here the real `makeSovereignHandler` +
  * a PIN gate stands in for the Signet), mints the graph with the approval block, and returns it.
- * The Witness is never in the authorization path (§7.7). Also checks the decline path.
+ * The Emissary is never in the authorization path (§7.7). Also checks the decline path.
  *
  * Isolated data root; run:  npm run e2e:evidence-direct
  */
@@ -42,7 +42,7 @@ async function main(): Promise<void> {
   const pass = 'hearthold-e2e-direct';
 
   const warden = await openKeymaster('warden', config, pass);
-  const witness = await openKeymaster('witness', config, pass);
+  const witness = await openKeymaster('emissary', config, pass);
   const sovereign = await openKeymaster('sovereign', config, pass);
   const verifier = await openKeymaster('verifier', config, pass);
   const wardenId = await ensureIdentity(warden, config);
@@ -97,7 +97,7 @@ async function main(): Promise<void> {
   );
   assert(denied.status === 'denied', 'declined by the Sovereign → denied');
 
-  process.stdout.write('\n▸ Approve path: the Warden gets the approval directly, Witness uninvolved\n');
+  process.stdout.write('\n▸ Approve path: the Warden gets the approval directly, Emissary uninvolved\n');
   const evidence = new EvidenceService(warden, { ...config, sovereignDid: sovId.did }, makeApprover(new PinGate('4242', '4242')));
   const granted = await evidence.handle(baseReq, witnessId.did, delegationValid);
   assert(granted.status === 'granted', 'MEDIUM claim granted via the direct channel (one request)');
@@ -114,7 +114,7 @@ async function main(): Promise<void> {
   assert(appr?.approver === sovId.did, 'approval approver = the Sovereign');
   assert(appr?.humanProof?.level === 1, 'approval carries proof-of-human level 1');
 
-  process.stdout.write('\n✓ A2-wire: direct Warden↔Sovereign approval — Witness never in the authorization path\n');
+  process.stdout.write('\n✓ A2-wire: direct Warden↔Sovereign approval — Emissary never in the authorization path\n');
   process.exit(0);
 }
 

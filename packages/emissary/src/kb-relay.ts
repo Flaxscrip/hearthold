@@ -1,7 +1,7 @@
 /**
- * The public Mage's KB relay.
+ * The Emissary's KB relay.
  *
- * The Knowledge Portal's world-facing surface: a Witness (Mage) that carries an authorized Sovereign's
+ * The Knowledge Portal's world-facing surface: an Emissary that carries an authorized Sovereign's
  * KB traffic to the private Warden and carries the reply back. It **forwards** `kb-challenge-request`
  * and `kb-request` to the Warden and returns the Warden's `kb-challenge` / `kb-result` — it does not
  * authenticate, authorize, or read anything. It holds no secret; the Warden decides (§7.7).

@@ -1,8 +1,8 @@
 /**
- * The public Mage's Knowledge Portal — HTTP → DIDComm bridge.
+ * The Emissary's Knowledge Portal — HTTP → DIDComm bridge.
  *
  * The member's keys never touch the portal. Login is challenge/response (the archon.social pattern):
- * the browser gets a challenge from the Warden (via this Mage), the member's wallet/Signet responds
+ * the browser gets a challenge from the Warden (via this Emissary), the member's wallet/Signet responds
  * out-of-band, and the Warden mints a session. The browser then rides that session. This server only
  * relays — it authenticates and authorizes nothing (the Warden does, end-to-end). It holds no secret.
  *
@@ -26,7 +26,7 @@ export interface KbPortalOptions {
   port: number;
   /** Bind host. Default loopback; set to 0.0.0.0 / a tailnet address to expose the portal publicly. */
   host?: string;
-  /** The Mage's PUBLIC base URL — baked into the challenge callback the wallet POSTs to. */
+  /** The Emissary's PUBLIC base URL — baked into the challenge callback the wallet POSTs to. */
   publicUrl: string;
 }
 
@@ -39,7 +39,7 @@ interface LoginAttempt {
 
 export function startKbPortalServer(opts: KbPortalOptions): ControlServer {
   const { transport, wardenDid, publicUrl } = opts;
-  // The Mage is request-only (it relays to the Warden). Keep its mailbox reader continuously alive so
+  // The Emissary is request-only (it relays to the Warden). Keep its mailbox reader continuously alive so
   // it never goes idle between logins — an idle reader lets the relay session go stale and later
   // replies silently vanish (symptom: works for a while, then `transport: timeout` until restart).
   transport.keepAlive?.();
@@ -129,9 +129,9 @@ export function startKbPortalServer(opts: KbPortalOptions): ControlServer {
     },
     onListening: (p) =>
       process.stdout.write(
-        `KB Portal (public Mage web face) on http://${opts.host ?? '127.0.0.1'}:${p}\n` +
+        `KB Portal (Emissary web face) on http://${opts.host ?? '127.0.0.1'}:${p}\n` +
           `  public URL:  ${publicUrl}\n  relaying to Warden: ${wardenDid.slice(0, 28)}…\n` +
-          `  login: challenge/response (keys stay in the member's wallet/Signet); the Mage only carries\n`,
+          `  login: challenge/response (keys stay in the member's wallet/Signet); the Emissary only carries\n`,
       ),
   });
 }

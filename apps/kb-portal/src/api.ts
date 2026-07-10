@@ -1,5 +1,5 @@
 /**
- * The portal's HTTP client to the public Mage (`witness kb-web`). The Mage relays over DIDComm to the
+ * The portal's HTTP client to the public Emissary (`emissary kb-web`). The Emissary relays over DIDComm to the
  * private Warden. Login is challenge/response: start (get a challenge), poll (until the wallet responds
  * and the Warden mints a session), then ride the session on each op. No keys in the browser.
  */

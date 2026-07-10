@@ -25,7 +25,7 @@ export const DEMO_SETS: Record<string, DemoFact[]> = {
   hearthold: [
     { kind: 'document', text: 'The 7th Capital is a Sovereign First Person’s accumulated personal history — the value that lives in what you’ve done, seen, and can prove. Hearthold makes it safely liquid.' },
     { kind: 'document', text: 'The Warden is the always-on home Keeper: a local-only AI that custodies the sealed vault, classifies data on-device, and mints proofs. It never transmits your data.' },
-    { kind: 'document', text: 'The Witness (also called the Mage) is the world-facing companion: it captures local context and carries proofs to third parties. It holds minimal data and no deciding secret.' },
+    { kind: 'document', text: 'The Emissary (also called the Mage) is the world-facing companion: it captures local context and carries proofs to third parties. It holds minimal data and no deciding secret.' },
     { kind: 'document', text: 'The Sovereign is the First Person, held by the Signet app. The Signet co-signs sensitive disclosures with a graded proof-of-human, and governs the Warden’s policy.' },
     { kind: 'document', text: 'The Privacy Is Value Model (PVM) holds that privacy is not a cost but a form of capital: control over disclosure is what makes personal history valuable rather than merely exposed.' },
     { kind: 'document', text: 'A Knowledge Portal is a shared, authorized Knowledge Base a community queries and updates through a public Mage, while a private Warden holds the data — the guild brain, never a personal vault.' },

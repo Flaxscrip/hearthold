@@ -46,7 +46,7 @@ export const RCARD_TYPE = 'RelationshipCard';
 export interface WitnessContext {
   /** Human-readable event name, e.g. "Example Guild raid form-up". */
   event?: string;
-  /** Session or nonce identifier — the Witness-as-session-recorder anchor. */
+  /** Session or nonce identifier — the Emissary-as-session-recorder anchor. */
   sessionId?: string;
   /** Verification method used, e.g. "virtual-realtime" | "in-person-proximity". */
   method?: string;
@@ -144,7 +144,7 @@ export async function issueVrc(
 }
 
 /**
- * Issue a DTG Witness Credential (VWC): the Witness (current identity on `witness`, the W-DID) attests
+ * Issue a DTG Witness Credential (VWC): the Emissary (current identity on `witness`, the W-DID) attests
  * it observed an edge involving `observedDid`, optionally digesting the witnessed VRC and recording
  * the session context.
  */

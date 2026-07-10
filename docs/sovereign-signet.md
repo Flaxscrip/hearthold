@@ -9,7 +9,7 @@ Warden *executes signed directives*), and completes the PVM triad:
 |---|---|---|---|
 | First Person | **Sovereign** | **Signet** | the principal; signs directives & approves the sensitive |
 | Swordsman (protect) | **Warden** | Warden | always-on custodian; enforces signed policy |
-| Mage (project) | **Witness** | Witness | mobile envoy; witnesses + requests evidence |
+| Mage (project) | **Emissary** | Emissary | mobile envoy; witnesses + requests evidence |
 
 > "The Signet seals the Warden's directives." A signet ring is the historical instrument by which a
 > sovereign authorizes a document — here, the Warden's access-control configuration and its most
@@ -28,8 +28,8 @@ directives**: it enforces, but it does not author authority.
    **document the Sovereign signs**. The Warden verifies the signature on startup and on every
    change; an unsigned or wrong-key config is refused, failing safe to "everything `SEALED`, no
    disclosures." The Warden thus *provably runs the Sovereign's directives* — tamper-evident.
-2. **Witness enrollment bounds.** The Warden may issue `HearthholdDelegation` VCs only within
-   Sovereign-signed limits, so a compromised Warden cannot enroll an attacker's Witness.
+2. **Emissary enrollment bounds.** The Warden may issue `HearthholdDelegation` VCs only within
+   Sovereign-signed limits, so a compromised Warden cannot enroll an attacker's Emissary.
 3. **Admin operations.** NAS/connector registration, classifier-model changes, key rotation, vault
    export/backup, and Warden revocation each require a Sovereign signature.
 4. **Approving party for HIGH/SEALED.** Sensitive disclosures require a **Sovereign co-signature**
@@ -68,7 +68,7 @@ So every Signet approval must present a **human-readable, Warden-authored descri
 thing being authorized — and this is a *security requirement*, not UX polish:
 
 - **The Warden authors the description, never the requesting agent** (§7.7 of standards-alignment). The
-  approver sees the Warden's account of the transaction, so a world-facing agent (a Witness/Mage, or a
+  approver sees the Warden's account of the transaction, so a world-facing agent (an Emissary, or a
   cantrip) can't misdescribe what it's getting the human to approve. Every approval surface already
   carries this field: the evidence-disclosure `reason`/`claim`, the KB action `summary`, the
   policy-change `summary`, and (future, P3) a cantrip's capability manifest.
@@ -86,7 +86,7 @@ thing being authorized — and this is a *security requirement*, not UX polish:
 
 - **Dev:** a third wallet on the same machine to build the signing/verification mechanics.
 - **End-state:** a separate **Signet** app on a distinct device — a true possession factor.
-  Migration reuses Archon `backupId`/`recoverId` and the shared `core`, exactly like the Witness's
+  Migration reuses Archon `backupId`/`recoverId` and the shared `core`, exactly like the Emissary's
   path to phone/browser.
 - **Future:** cold/offline Sovereign root for config signing + a warm key on the Signet for routine
   approvals.
@@ -139,7 +139,7 @@ the Signet to a separate device.
 
 - **Classification before sealing (for SEALED-to-Sovereign).** The Warden classifies *after*
   unsealing, so it briefly sees plaintext before it could re-seal to the Sovereign. Options:
-  Witness pre-tags sensitive kinds; the Signet/Sovereign app ingests the most sensitive sources
+  Emissary pre-tags sensitive kinds; the Signet/Sovereign app ingests the most sensitive sources
   (e.g. the NAS tax docs) directly; or accept brief Warden sight in v1.
 - **PoH evidence retention** default (hash-only vs retained recording) and per-sensitivity policy.
 - **Recovery / social recovery** of the Sovereign root if the Signet device is lost.

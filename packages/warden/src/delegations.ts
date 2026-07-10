@@ -10,7 +10,7 @@ interface DelegationRecord {
 }
 
 /**
- * Records the delegations the Warden has issued, so it can authorize inbound submissions: a Witness
+ * Records the delegations the Warden has issued, so it can authorize inbound submissions: a Emissary
  * DID is authorized iff the Warden issued it a delegation that is still valid (not revoked).
  *
  * Authentication is handled by the transport (DIDComm authcrypt proves the sender DID); this is the

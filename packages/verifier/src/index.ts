@@ -22,7 +22,7 @@ Usage:
                                                       via [issuerDid] and/or a TRQP trust registry
                                                       (HEARTHOLD_TRUST_REGISTRY_URL). <presenterDid> is
                                                       whoever fields the request — the Sovereign, or
-                                                      the Witness projector. Optional key=value claims.
+                                                      the Emissary projector. Optional key=value claims.
   verifier help                                       Show this message
 
 Env:

@@ -5,7 +5,7 @@
  *   Guild (external issuer) ──issues "Raid-Lead, Example Guild"──► Sovereign (subject)
  *   Sovereign accepts ──► recordIssuedCredential ──► `issued` leaf in the Warden's vault
  *
- * (The "guild" issuer reuses the Witness identity as a stand-in external party — in production this
+ * (The "guild" issuer reuses the Emissary identity as a stand-in external party — in production this
  * is a real guild-manager DID. The accept mechanics are identical regardless of issuer.)
  *
  * Run:  npm run e2e:issued
@@ -41,7 +41,7 @@ async function main(): Promise<void> {
   process.stdout.write(`Hearthold issued-credential e2e\n  node: ${config.nodeUrl}\n  data: ${DATA_ROOT}\n`);
 
   step('Provision the issuer (guild) + the Sovereign');
-  const guild = await openKeymaster('witness', config, PASSPHRASE); // stand-in external issuer
+  const guild = await openKeymaster('emissary', config, PASSPHRASE); // stand-in external issuer
   const sovereign = await openKeymaster('sovereign', config, PASSPHRASE);
   const guildId = await ensureIdentity(guild, config);
   const sovereignId = await ensureIdentity(sovereign, config);

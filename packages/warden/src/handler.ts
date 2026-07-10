@@ -39,7 +39,7 @@ export function makeWardenHandler(
     switch (message.type) {
       case 'hearthold/witness-submission': {
         if (!(await delegations.isAuthorized(fromDid))) {
-          return deny('no valid delegation for this Witness');
+          return deny('no valid delegation for this Emissary');
         }
         return service.handleSubmission(message as WitnessSubmission, fromDid);
       }

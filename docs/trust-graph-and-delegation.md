@@ -17,11 +17,11 @@ The recurring trap is treating delegation as one thing. It is three, and the sta
 
 | Layer | Question | Standards | Hearthold piece |
 |---|---|---|---|
-| **Relationship / graph** | who relates to whom; who vouches | **DTG credentials** (VRC/VMC/VWC/…), **TRQP** trust registry, did:cid relationship binding | the Sovereign↔Witness↔Warden↔third-party fabric |
+| **Relationship / graph** | who relates to whom; who vouches | **DTG credentials** (VRC/VMC/VWC/…), **TRQP** trust registry, did:cid relationship binding | the Sovereign↔Emissary↔Warden↔third-party fabric |
 | **Capability / token** | what a delegate may do, attenuably | **UCAN**, **ZCAP-LD**, **OAuth RAR** (RFC 9396), **GNAP** (RFC 9635), Biscuit | the standing envelope + `confirmAbove` |
 | **Interactive approval** | how the human confirms above the line | **OIDC CIBA** (backchannel), GNAP interaction, **draft-rosomakho txn-challenge** (already aligned, R1–R5) | the **Signet** relay |
 
-Hearthold already implements the *approval* layer (the Witness-as-projector relay to the Signet) and
+Hearthold already implements the *approval* layer (the Emissary-as-projector relay to the Signet) and
 tracks the txn-challenge draft (see [standards-alignment.md](standards-alignment.md)). This note adds
 the **relationship** layer (DTG) and frames the **capability** layer as the open architectural call.
 
@@ -61,12 +61,12 @@ endorsement-borne, not baked into the membership credential.
 | Hearthold | DTG |
 |---|---|
 | **Sovereign** (First Person) | a person with a **P-DID**; personhood = a **PHC** (a governance-qualified VMC) |
-| **Witness** (per device) | a **W-DID** that issues **VWCs**; "fair witness… may be an agent or bot authorized by the organization" |
+| **Emissary** (per device) | a **W-DID** that issues **VWCs**; "fair witness… may be an agent or bot authorized by the organization" |
 | **Warden** (custodian) | holds the vault of received edges; could itself be a community agent |
 | **Guild** | a community **C-DID** issuing **VMC** membership; the role ("Raid-Lead") is a **VEC** endorsement |
 | our `issued` leaf | an inbound **VMC/VEC** accepted into the vault |
-| our `witnessed` trust class | a **VWC** the Witness produced |
-| our delegation VC (Warden→Witness) | a **VRC** edge, with the *authority* expressed in the registry (see §6) |
+| our `witnessed` trust class | a **VWC** the Emissary produced |
+| our delegation VC (Warden→Emissary) | a **VRC** edge, with the *authority* expressed in the registry (see §6) |
 | our per-device Witness DIDs | DTG's **R-DID-per-relationship** privacy rule, applied to devices |
 | our "no registry footprint" DIDComm | complements DTG's R-DID-per-connection unlinkability |
 
@@ -74,32 +74,32 @@ The mapping is close enough that Hearthold reads as an *implementation* of the D
 with a private vault (Warden), a local classifier, and an approval gate (Signet) added on top —
 exactly the pieces DTG leaves to "the wallet."
 
-## 5. The Witnessed-VRC flow *is* our Witness flow
+## 5. The Witnessed-VRC flow *is* our Emissary flow
 
 `witnessed_vrc_flow.md` describes a "fair witness" (human *or bot*) that observes a relationship
 exchange in a session and mints VWCs. Three of its design choices independently match ours:
 
-1. **Session bound at the Verifiable-Presentation layer, not in the credential.** The Witness issues a
+1. **Session bound at the Verifiable-Presentation layer, not in the credential.** The Emissary issues a
    challenge nonce; parties wrap their VRC in a VP signed over that challenge. "The credentials
    themselves can be kept simple and clean." → This is our **purpose-in-the-challenge** pattern
    (repurposed challenge/response carries the *what/when*), arrived at separately.
-2. **`witnessContext { event, sessionId, method }`.** → Our **Witness-as-session-recorder**, verbatim.
+2. **`witnessContext { event, sessionId, method }`.** → Our **Emissary-as-session-recorder**, verbatim.
 3. **Two separate credentials (VRC + VWC), each independently verifiable** — not one multi-signed
    credential. → Our **"multi-sig done differently / N single-sig leaves"** insight. DTG confirms the
    separate-but-linked approach is the idiom, not native multi-sig.
 
 The "fair witness authorized by virtue of a Community Credential" is the key to delegation (next).
 
-## 6. Where delegation authority lives — the answer to the standing-Witness question
+## 6. Where delegation authority lives — the answer to the standing-Emissary question
 
-Earlier we asked: *is there a level of delegation where the Witness acts without a Signet
+Earlier we asked: *is there a level of delegation where the Emissary acts without a Signet
 confirmation?* DTG gives the structurally-correct answer:
 
-- **The Witness's authority to act at all** = it holds a **membership/community credential** (a VMC,
+- **The Emissary's authority to act at all** = it holds a **membership/community credential** (a VMC,
   i.e. our delegation). That credential is the Sovereign/community signing the envelope **once**
   (control plane).
-- **What the Witness may do, and how far** = the **trust registry**, not the credential. The registry
-  maps the W-DID → role, acceptable scope, and **assurance level**. Below the line the Witness acts on
+- **What the Emissary may do, and how far** = the **trust registry**, not the credential. The registry
+  maps the W-DID → role, acceptable scope, and **assurance level**. Below the line the Emissary acts on
   its standing credential; above it, the Warden's release decision (reading the registry) requires a
   Signet-cosigned approval (the projector relay).
 
@@ -107,13 +107,13 @@ This makes the registry **two-sided** — and folds in the platform/location/con
 
 - **Outward registry:** a verifier trusts a *registry of issuers* — `issuerAuthorized(issuer, schema)`,
   the ToIP TRQP authorization query.
-- **Inward registry** (the Sovereign's own): each **Witness W-DID** carries an **assurance profile**,
+- **Inward registry** (the Sovereign's own): each **Emissary W-DID** carries an **assurance profile**,
   so autonomy is graded by **platform** (TEE server vs phone vs browser ext.), **location** (home LAN
   vs public internet), and **condition** (attested boot / health-check / recent human presence).
-  Because "condition" is dynamic, entries are short-TTL or evaluated at query time — a Witness that
+  Because "condition" is dynamic, entries are short-TTL or evaluated at query time — an Emissary that
   fails a check or roams to an untrusted network is **downgraded automatically** (continuous
   authorization, CAE-style), without revoking its identity. This pairs 1:1 with **per-device
-  Witnesses** (milestone W): each device-Witness DID is one registry entry.
+  Emissaries** (milestone W): each device-Witness DID is one registry entry.
 
 So: the same TRQP primitive governs both "whom we trust to issue to us" and "which of our own agents
 we trust to act, and how far." One mechanism, two directions — and it is exactly DTG's
@@ -167,7 +167,7 @@ Verified live in both directions and through the projector relay (`e2e:trust-reg
 ## 8. DTG credentials on Archon
 
 Archon issues and verifies the full DTG credential set natively on the live node — `core/dtg.ts`
-(`issueVrc`/`issueVmc`/`issueVic`/`issueVpc`/`issueVec`/`issueVwc`/`issueRCard`). The Witness mints a
+(`issueVrc`/`issueVmc`/`issueVic`/`issueVpc`/`issueVec`/`issueVwc`/`issueRCard`). The Emissary mints a
 **VWC** about a subject, digesting the witnessed **VRC** and recording `witnessContext`; both round-trip
 and present through `createChallenge`/`createResponse`/`verifyResponse`. Confirmed properties:
 
@@ -184,7 +184,7 @@ and present through `createChallenge`/`createResponse`/`verifyResponse`. Confirm
   DTG credential); the proof suite is `EcdsaSecp256k1Signature2019` where DTG examples use
   `Ed25519Signature2020`, so a DTG verifier must accept secp256k1.
 
-The relationship layer (VRC) and the Witness's attestation (VWC) run on Archon unchanged — the
+The relationship layer (VRC) and the Emissary's attestation (VWC) run on Archon unchanged — the
 credential layer a governance back-end draws on: **VMC** membership · **VEC** role · **VIC** onboarding ·
 **VRC** edges · **VWC** attestation.
 

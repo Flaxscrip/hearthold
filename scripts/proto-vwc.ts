@@ -3,7 +3,7 @@
  *
  * Exercises the witnessed-VRC pair on real keymaster + the live node:
  *   1. The Sovereign (observed party) issues a **VRC** (RelationshipCredential) to a counterparty.
- *   2. The **Witness** (W-DID) issues a **VWC** (WitnessCredential) about the Sovereign, digesting the
+ *   2. The **Emissary** (W-DID) issues a **VWC** (WitnessCredential) about the Sovereign, digesting the
  *      witnessed VRC and recording `witnessContext { event, sessionId, method }`.
  *   3. We read the VWC back from the node and check what Archon actually persisted — the DTG type
  *      hierarchy, the DTG @context, and the nested `witnessContext` (answers docs §8 Q#1/Q#2).
@@ -53,7 +53,7 @@ async function main(): Promise<void> {
   process.stdout.write(`DTG VWC issuance prototype\n  node: ${config.nodeUrl}\n  data: ${DATA_ROOT}\n`);
 
   step('Provision witness (W-DID), observed Sovereign, counterparty, verifier');
-  const witness: KeymasterHandle = await openKeymaster('witness', config, PASSPHRASE);
+  const witness: KeymasterHandle = await openKeymaster('emissary', config, PASSPHRASE);
   const sovereign: KeymasterHandle = await openKeymaster('sovereign', config, PASSPHRASE);
   const counterparty: KeymasterHandle = await openKeymaster('warden', config, PASSPHRASE);
   const verifier: KeymasterHandle = await openKeymaster('verifier', config, PASSPHRASE);
@@ -74,7 +74,7 @@ async function main(): Promise<void> {
     !!vrc && vrc.type.includes(DtgType.BASE) && vrc.type.includes(DtgType.RELATIONSHIP));
   process.stdout.write(`  VRC type: ${JSON.stringify(vrc?.type)}\n`);
 
-  step('Witness issues a VWC about the Sovereign, digesting the witnessed VRC');
+  step('Emissary issues a VWC about the Sovereign, digesting the witnessed VRC');
   const vwcSchema = await ensureSchema(witness, 'dtg/VWC', dtgSchema(DtgType.WITNESS));
   const witnessContext = {
     event: 'Example Guild raid form-up',
@@ -99,7 +99,7 @@ async function main(): Promise<void> {
   check('type array kept DTGCredential', vwc.type.includes(DtgType.BASE));
   check('type array kept WitnessCredential', vwc.type.includes(DtgType.WITNESS));
   check('@context kept the DTG context', (vwc['@context'] ?? []).includes(DTG_CONTEXT));
-  check('issuer == Witness W-DID', vwc.issuer === witnessId.did);
+  check('issuer == Emissary W-DID', vwc.issuer === witnessId.did);
   check('subject.id == observed Sovereign', subject.id === sovereignId.did);
   check('nested witnessContext.sessionId round-tripped', wctx.sessionId === witnessContext.sessionId);
   check('nested witnessContext.method round-tripped', wctx.method === witnessContext.method);

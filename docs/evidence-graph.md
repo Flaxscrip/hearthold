@@ -1,6 +1,6 @@
 # Hearthold — The Evidence Graph (proof object)
 
-When a Witness proves something in the world, the Warden returns an **evidence graph**: a portable,
+When an Emissary proves something in the world, the Warden returns an **evidence graph**: a portable,
 signed, decomposable object a relying party can verify on its own. It is the format of the "prove"
 half of the loop (step 5). This document specifies its exact shape in terms of `did:cid`
 identities, W3C Verifiable Credentials, signatures, and content hashes.
@@ -24,10 +24,10 @@ A small typed graph. **Nodes:**
 |---|---|
 | `claim` | the derived fact being proven ("resided in FR during 2026-H1") |
 | `evidence` | a group of supporting artefacts, summarized + hash-committed |
-| `identity` | a `did:cid` — the Sovereign (subject), Warden (issuer), Witness (observer) |
+| `identity` | a `did:cid` — the Sovereign (subject), Warden (issuer), Emissary (observer) |
 | `approval` | the Sovereign's signed response to a purpose-bearing challenge + proof-of-human (present for sensitive claims) |
 
-**Edges (provenance):** `claim —derivedFrom→ evidence`, `evidence —witnessedBy→ identity(Witness)`,
+**Edges (provenance):** `claim —derivedFrom→ evidence`, `evidence —witnessedBy→ identity(Emissary)`,
 `claim —issuedBy→ identity(Warden)`, `claim —about→ identity(Sovereign)`,
 `claim —approvedBy→ approval`.
 
@@ -119,7 +119,7 @@ revealing them, and lets it later reveal any single leaf + Merkle path on reques
 
 - **`ATTESTATION` (default).** Only the derived `claim` + the summarized, root-committed `evidence`
   group cross the boundary. The verifier sees *that* 142 witnessed observations back the claim, over
-  a date window, by a named Witness — not their contents.
+  a date window, by a named Emissary — not their contents.
 - **`SELECTIVE`.** To substantiate further, the holder reveals chosen leaves: each as
   `{ value, salt, merklePath }`. The verifier recomputes `sha256(salt || value)` and checks the path
   against the signed `merkleRoot`. This is SD-JWT-VC salted-digest disclosure.
@@ -148,7 +148,7 @@ trusts*, not by the Warden alone:
 | Class | What it is | Verifier trusts | Example |
 |---|---|---|---|
 | `issued` | a third-party Archon VC issued to the Sovereign's DID by an external issuer | the external **issuer's** DID | rental agreement, utility VC, RYT-500 cert |
-| `witnessed` | a self-attested observation, represented as a VC the **Warden issues** (subject = Sovereign, holder = Witness, `witnessedBy` = Witness DID) | the Sovereign's own infrastructure (weak alone) | photo at the Eiffel Tower, location pings |
+| `witnessed` | a self-attested observation, represented as a VC the **Warden issues** (subject = Sovereign, holder = Emissary, `witnessedBy` = Witness DID) | the Sovereign's own infrastructure (weak alone) | photo at the Eiffel Tower, location pings |
 | `attested` | a Warden-derived summary over sealed data, **disclosed as machine-derived** | the Warden + the disclosed `descriptionSource` | "142 pings in FR" |
 
 Archon already supports `issued` (third-party VCs); Hearthold *adds* `witnessed`/`attested`
@@ -195,7 +195,7 @@ is referenceable by DID from this graph.
 
 ## Producing a proof — flow (from roleplay)
 
-1. **Canonical claim — authored by the Warden, confirmed by the Sovereign.** The Witness relays the
+1. **Canonical claim — authored by the Warden, confirmed by the Sovereign.** The Emissary relays the
    Sovereign's intent (NL or guided); the **Warden** normalizes it to a structured predicate
    (`{type, …}`) — it is the issuer that must evaluate the claim, so the agent does not get to shape
    the assertion (§7.7). The Sovereign confirms that canonical claim in the Signet approval preview.
@@ -233,7 +233,7 @@ native multi-sig needed.
 Two degrees of this:
 
 - **Multi-agent (one person, several keys).** A Sovereign-signed asset (`create-asset-image`) cited
-  by a Witness-submitted observation is *two of the same person's keys* attesting to related objects.
+  by an Emissary-submitted observation is *two of the same person's keys* attesting to related objects.
   For *external* trust it is still self-attested (`witnessed` class), but it buys **separation of
   duties** (the field agent observes; the principal signs) and **tamper-evidence** (forging the
   bundle needs *both* keys, on two devices). This is the single-person warm-up.

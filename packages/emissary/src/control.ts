@@ -1,7 +1,7 @@
 /**
- * `witness control` — the Witness app's backing daemon.
+ * `emissary control` — the Emissary app's backing daemon.
  *
- * Runs the real Witness with a single receive loop that owns the mailbox, so there is no
+ * Runs the real Emissary with a single receive loop that owns the mailbox, so there is no
  * receive contention:
  *   - **Submit** is fire-and-forget — the app POSTs an observation, the daemon seals it and sends a
  *     `WitnessSubmission` to the Warden, and the Warden's receipt arrives back through the *same*
@@ -31,8 +31,8 @@ import {
 import {
   SENSITIVITY_NAMES,
   type SensitivityName,
-  type WitnessStatus,
-  type WitnessSnapshot,
+  type EmissaryStatus,
+  type EmissarySnapshot,
   type ReceiptRecord,
   type ProjectionRecord,
   type ProofRecord,
@@ -43,13 +43,13 @@ import {
 const bareDid = (s: string | undefined): string => String(s ?? '').split('#')[0] ?? '';
 const sensName = (s: number): SensitivityName => SENSITIVITY_NAMES[s] ?? 'SEALED';
 
-export async function runWitnessControl(
+export async function runEmissaryControl(
   handle: KeymasterHandle,
   config: HearthholdConfig,
   port: number,
 ): Promise<void> {
   const id = await ensureIdentity(handle, config);
-  const name = IDENTITY_NAME.witness;
+  const name = IDENTITY_NAME.emissary;
   const transport = new DidCommTransport(handle, name, config.nodeUrl);
   await transport.ready();
 
@@ -62,15 +62,15 @@ export async function runWitnessControl(
   const pending = new Map<string, PendingReq>();
   const sovereignDid = config.sovereignDid;
 
-  const status = (): WitnessStatus => ({
-    identity: { role: 'witness', name: id.name, did: id.did },
+  const status = (): EmissaryStatus => ({
+    identity: { role: 'emissary', name: id.name, did: id.did },
     nodeUrl: config.nodeUrl,
     wardenDid: config.wardenDid,
     sovereignDid,
     serving: true,
   });
 
-  const snapshot = (): WitnessSnapshot => ({
+  const snapshot = (): EmissarySnapshot => ({
     status: status(),
     receipts: [...receipts].reverse().slice(0, 50),
     projections: [...projections].reverse().slice(0, 50),
@@ -86,7 +86,7 @@ export async function runWitnessControl(
         const { kind, text } = (body ?? {}) as SubmitRequest;
         if (!kind || !text) throw new Error('kind and text are required');
         const wardenDid = config.wardenDid;
-        if (!wardenDid) throw new Error('HEARTHOLD_WARDEN_DID is not set on the Witness daemon');
+        if (!wardenDid) throw new Error('HEARTHOLD_WARDEN_DID is not set on the Emissary daemon');
         const ciphertext = await sealForWarden(handle, wardenDid, JSON.stringify({ text }));
         const thid = randomUUID();
         const submittedAt = new Date().toISOString();
@@ -109,7 +109,7 @@ export async function runWitnessControl(
         const { claim, kind, from, to, structured, validForMinutes } = (body ?? {}) as ProveRequest;
         if (!claim || !kind) throw new Error('claim and kind are required');
         const wardenDid = config.wardenDid;
-        if (!wardenDid) throw new Error('HEARTHOLD_WARDEN_DID is not set on the Witness daemon');
+        if (!wardenDid) throw new Error('HEARTHOLD_WARDEN_DID is not set on the Emissary daemon');
         const thid = randomUUID();
         const at = new Date().toISOString();
         const request: EvidenceRequest = {
@@ -132,7 +132,7 @@ export async function runWitnessControl(
     },
     onListening: (p) =>
       process.stdout.write(
-        `Witness control on http://127.0.0.1:${p}\n  did:  ${id.did}\n  node: ${config.nodeUrl}\n` +
+        `Emissary control on http://127.0.0.1:${p}\n  did:  ${id.did}\n  node: ${config.nodeUrl}\n` +
           `  warden:    ${config.wardenDid ?? '(set HEARTHOLD_WARDEN_DID to submit)'}\n` +
           `  sovereign: ${sovereignDid ?? '(set HEARTHOLD_SOVEREIGN_DID to project)'}\n` +
           `  mailbox serving; app API live. (Ctrl-C to stop)\n`,
@@ -165,7 +165,7 @@ export async function runWitnessControl(
             reply = {
               type: 'hearthold/error',
               version: PROTOCOL_VERSION,
-              reason: `Witness could not reach the Sovereign: ${err instanceof Error ? err.message : String(err)}`,
+              reason: `Emissary could not reach the Sovereign: ${err instanceof Error ? err.message : String(err)}`,
             };
           }
           if (fromDid && thid) {

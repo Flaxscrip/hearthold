@@ -1,17 +1,17 @@
 /**
- * End-to-end test of the **inward registry wired into the Witness projector** — the standing-delegation
+ * End-to-end test of the **inward registry wired into the Emissary projector** — the standing-delegation
  * ceiling in action.
  *
- *   The Sovereign runs an inward registry of its Witnesses (TRQP over Archon groups) and clears this
- *   Witness to present at LOW (a `present`+`LOW` group), but not HIGH.
+ *   The Sovereign runs an inward registry of its Emissaries (TRQP over Archon groups) and clears this
+ *   Emissary to present at LOW (a `present`+`LOW` group), but not HIGH.
  *
- *   - LOW request  → Witness is cleared → it presents a credential it HOLDS, on its own, no Signet
+ *   - LOW request  → Emissary is cleared → it presents a credential it HOLDS, on its own, no Signet
  *                    (standing delegation). The presentation carries NO proof-of-human.
- *   - HIGH request → Witness is NOT cleared → it relays to the Sovereign; the Signet approves with
+ *   - HIGH request → Emissary is NOT cleared → it relays to the Sovereign; the Signet approves with
  *                    proof-of-human and presents. The presentation CARRIES a proof-of-human.
  *
  * Roles: guild = warden (issues the HIGH credential to the Sovereign); Sovereign = holder of the HIGH
- * credential + registry owner + issuer of the Witness's LOW credential; Witness = projector + holder of
+ * credential + registry owner + issuer of the Emissary's LOW credential; Emissary = projector + holder of
  * the LOW credential; verifier = relying party.
  *
  * Run:  npm run e2e:inward-registry
@@ -40,7 +40,7 @@ import {
 } from '@hearthold/core';
 import { makeSovereignHandler } from '@hearthold/sovereign/handler';
 import { PinGate } from '@hearthold/sovereign/signet';
-import { makeWitnessProjectorHandler } from '@hearthold/witness/handler';
+import { makeEmissaryProjectorHandler } from '@hearthold/emissary/handler';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const DATA_ROOT = join(here, '..', '.hearthold-e2e');
@@ -65,10 +65,10 @@ async function main(): Promise<void> {
   const config = { ...loadConfig(), dataRoot: DATA_ROOT };
   process.stdout.write(`Hearthold inward-registry × projector e2e\n  node: ${config.nodeUrl}\n  data: ${DATA_ROOT}\n`);
 
-  step('Provision guild, Sovereign (holder + registry owner), Witness (projector), verifier');
+  step('Provision guild, Sovereign (holder + registry owner), Emissary (projector), verifier');
   const guild: KeymasterHandle = await openKeymaster('warden', config, PASSPHRASE);
   const sovereign: KeymasterHandle = await openKeymaster('sovereign', config, PASSPHRASE);
-  const witness: KeymasterHandle = await openKeymaster('witness', config, PASSPHRASE);
+  const witness: KeymasterHandle = await openKeymaster('emissary', config, PASSPHRASE);
   const verifier: KeymasterHandle = await openKeymaster('verifier', config, PASSPHRASE);
   const guildId = await ensureIdentity(guild, config);
   const sovereignId = await ensureIdentity(sovereign, config);
@@ -76,7 +76,7 @@ async function main(): Promise<void> {
   await ensureIdentity(verifier, config);
   check('identities ready', sovereignId.did.startsWith('did:') && witnessId.did.startsWith('did:'));
 
-  step('Set up credentials: Witness holds a LOW cred (from Sovereign); Sovereign holds a HIGH cred (from guild)');
+  step('Set up credentials: Emissary holds a LOW cred (from Sovereign); Sovereign holds a HIGH cred (from guild)');
   const lowSchema = await sovereign.keymaster.createSchema(SCHEMA);
   const lowBound = await sovereign.keymaster.bindCredential(witnessId.did, {
     schema: lowSchema,
@@ -92,9 +92,9 @@ async function main(): Promise<void> {
   });
   const highCred = await guild.keymaster.issueCredential(highBound, { schema: highSchema });
   await acceptCredential(sovereign, highCred);
-  check('Witness holds LOW cred, Sovereign holds HIGH cred', lowCred.startsWith('did:') && highCred.startsWith('did:'));
+  check('Emissary holds LOW cred, Sovereign holds HIGH cred', lowCred.startsWith('did:') && highCred.startsWith('did:'));
 
-  step('Sovereign\'s inward registry: clear the Witness to present at LOW (not HIGH)');
+  step('Sovereign\'s inward registry: clear the Emissary to present at LOW (not HIGH)');
   const presentLowGroup = await createRegistryGroup(sovereign, 'hearthold-witness-present-LOW', config.registry);
   await grantAuthorization(sovereign, presentLowGroup, witnessId.did);
   const inwardRegistry = new GroupTrustRegistry(
@@ -106,10 +106,10 @@ async function main(): Promise<void> {
   const sensitivityFor = (schema?: string): Sensitivity =>
     schema === highSchema ? Sensitivity.HIGH : schema === lowSchema ? Sensitivity.LOW : Sensitivity.SEALED;
 
-  step('Publish endpoints and start serving (Witness projector w/ autonomy; Sovereign w/ Signet)');
+  step('Publish endpoints and start serving (Emissary projector w/ autonomy; Sovereign w/ Signet)');
   const verifierTransport = new DidCommTransport(verifier, IDENTITY_NAME.verifier, config.nodeUrl);
   await verifierTransport.ready();
-  const witT = new DidCommTransport(witness, IDENTITY_NAME.witness, config.nodeUrl);
+  const witT = new DidCommTransport(witness, IDENTITY_NAME.emissary, config.nodeUrl);
   const sovT = new DidCommTransport(sovereign, IDENTITY_NAME.sovereign, config.nodeUrl);
   await witT.ready();
   await sovT.ready();
@@ -117,10 +117,10 @@ async function main(): Promise<void> {
   const PIN = '1234';
   const stopSov = await sovT.serve(makeSovereignHandler(sovereign, new PinGate(PIN, PIN)), { pollMs: 1000 });
   const stopWit = await witT.serve(
-    makeWitnessProjectorHandler(witT, sovereignId.did, {
+    makeEmissaryProjectorHandler(witT, sovereignId.did, {
       registry: inwardRegistry,
       witness,
-      witnessDid: witnessId.did,
+      emissaryDid: witnessId.did,
       sensitivityFor,
     }),
     { pollMs: 1000 },
@@ -136,7 +136,7 @@ async function main(): Promise<void> {
   };
 
   try {
-    step('LOW request → Witness cleared → presents on its own (no Signet, no proof-of-human)');
+    step('LOW request → Emissary cleared → presents on its own (no Signet, no proof-of-human)');
     {
       const reply = await ask(lowSchema, sovereignId.did);
       const pres = reply.type === 'hearthold/proof-presentation' ? (reply as ProofPresentationMessage) : null;
@@ -146,7 +146,7 @@ async function main(): Promise<void> {
       check('verifier verifies the LOW disclosure', result.ok === true);
     }
 
-    step('HIGH request → Witness not cleared → relays to Signet → presented with proof-of-human');
+    step('HIGH request → Emissary not cleared → relays to Signet → presented with proof-of-human');
     {
       const reply = await ask(highSchema, guildId.did);
       const pres = reply.type === 'hearthold/proof-presentation' ? (reply as ProofPresentationMessage) : null;

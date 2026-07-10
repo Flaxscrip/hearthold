@@ -24,7 +24,7 @@ import {
   type Transport,
 } from '@hearthold/core';
 import { KbService } from '@hearthold/warden/kb';
-import { makeKbRelayHandler } from '@hearthold/witness/kb-relay';
+import { makeKbRelayHandler } from '@hearthold/emissary/kb-relay';
 
 const assert = (cond: boolean, msg: string): void => {
   if (!cond) throw new Error(`ASSERT: ${msg}`);
@@ -39,7 +39,7 @@ async function main(): Promise<void> {
   const warden = await openKeymaster('warden', config, pass); // the KB Warden
   const alice = await openKeymaster('sovereign', config, pass); // an authorized member
   const bob = await openKeymaster('verifier', config, pass); // a non-member
-  const mage = await openKeymaster('witness', config, pass); // the public Mage (portal)
+  const mage = await openKeymaster('emissary', config, pass); // the public Mage (portal)
   const wardenId = await ensureIdentity(warden, config);
   const aliceId = await ensureIdentity(alice, config);
   const bobId = await ensureIdentity(bob, config);

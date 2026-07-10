@@ -1,8 +1,8 @@
 /**
  * End-to-end test of the Hearthold delegation handshake against a live Archon node.
  *
- *   provision Warden + Witness  →  register schema  →  [negative: respond w/o delegation]
- *   →  issue delegation  →  Witness accepts  →  [positive: respond + verify]
+ *   provision Warden + Emissary  →  register schema  →  [negative: respond w/o delegation]
+ *   →  issue delegation  →  Emissary accepts  →  [positive: respond + verify]
  *   →  Warden revokes  →  [negative: verify fails]
  *
  * Runs both agents in-process with separate wallets (separate data folders), mirroring the real
@@ -50,7 +50,7 @@ async function main(): Promise<void> {
 
   step('Provision identities');
   const warden = await openKeymaster('warden', config, PASSPHRASE);
-  const witness = await openKeymaster('witness', config, PASSPHRASE);
+  const witness = await openKeymaster('emissary', config, PASSPHRASE);
   const wardenId = await ensureIdentity(warden, config);
   const witnessId = await ensureIdentity(witness, config);
   check(`warden did  ${wardenId.did.slice(0, 32)}…`, wardenId.did.startsWith('did:'));
@@ -60,14 +60,14 @@ async function main(): Promise<void> {
   const schemaDid = await ensureDelegationSchema(warden);
   check(`schema did  ${schemaDid.slice(0, 32)}…`, schemaDid.startsWith('did:'));
 
-  step('Negative: Witness responds before holding any delegation');
+  step('Negative: Emissary responds before holding any delegation');
   const challenge1 = await createDelegationChallenge(warden, schemaDid);
   const response1 = await respondToChallenge(witness, challenge1);
   const verify1 = await verifyChallengeResponse(warden, response1);
   check('unauthorized response is rejected', verify1.verified === false);
   check(`  (requested ${verify1.requested}, fulfilled ${verify1.fulfilled})`, true);
 
-  step('Issue delegation → Witness accepts');
+  step('Issue delegation → Emissary accepts');
   const validUntil = new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString();
   const delegationDid = await issueDelegation(warden, witnessId.did, schemaDid, {
     kinds: ['event', 'location', 'activity'],
@@ -77,7 +77,7 @@ async function main(): Promise<void> {
   const accepted = await acceptDelegation(witness, delegationDid);
   check('witness accepted delegation', accepted === true);
 
-  step('Positive: Witness responds with delegation held');
+  step('Positive: Emissary responds with delegation held');
   const challenge2 = await createDelegationChallenge(warden, schemaDid);
   const response2 = await respondToChallenge(witness, challenge2);
   const verify2 = await verifyChallengeResponse(warden, response2);

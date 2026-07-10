@@ -28,16 +28,16 @@ export HEARTHOLD_OLLAMA_URL=http://megaflax.local:11434
 ```
 
 - [ ] **A1** `curl -s $HEARTHOLD_NODE_URL/api/v1/capabilities` → node up; `curl -s $HEARTHOLD_OLLAMA_URL/api/tags` shows the embedding + chat models.
-- [ ] **A2** Provision three identities (each its own passphrase): `warden init`, `witness init`, `sovereign init`. **Note all three `did:cid`.**
-- [ ] **A3** Delegate the Witness so it can submit to the vault: `warden delegate <witnessDid>` → prints a credential DID → `HEARTHOLD_PASSPHRASE=<witness> witness accept <credentialDid>`.
+- [ ] **A2** Provision three identities (each its own passphrase): `warden init`, `emissary init`, `sovereign init`. **Note all three `did:cid`.**
+- [ ] **A3** Delegate the Emissary so it can submit to the vault: `warden delegate <witnessDid>` → prints a credential DID → `HEARTHOLD_PASSPHRASE=<witness> emissary accept <credentialDid>`.
 
 ## Part B — Launch the stack (one process per identity)
 
 - [ ] **B1** Warden (vault + all control endpoints): `warden control 4310`.
 - [ ] **B2** Signet (step-up approvals): `HEARTHOLD_SIGNET_PIN=<pin> sovereign control 4311` + `cd apps/signet-approver && npm run dev` (`localhost:5174`).
-- [ ] **B3** Sanity: `ps … | grep dist/index.js` shows exactly **warden control** and **sovereign control** — one per identity (don't also run `warden serve` / `witness control`).
+- [ ] **B3** Sanity: `ps … | grep dist/index.js` shows exactly **warden control** and **sovereign control** — one per identity (don't also run `warden serve` / `emissary control`).
 
-## Part C — Seed the inputs (via the Witness CLI)
+## Part C — Seed the inputs (via the Emissary CLI)
 
 `export HEARTHOLD_WARDEN_DID=<wardenDid>` first.
 
@@ -45,14 +45,14 @@ export HEARTHOLD_OLLAMA_URL=http://megaflax.local:11434
   ```bash
   for d in "Dune — Frank Herbert" "Snow Crash — Neal Stephenson" "The Sovereign Individual" \
            "Neuromancer — William Gibson" "Cryptonomicon — Neal Stephenson"; do
-    HEARTHOLD_PASSPHRASE=<witness> witness submit document "Reference: $d"
+    HEARTHOLD_PASSPHRASE=<witness> emissary submit document "Reference: $d"
   done
   ```
 - [ ] **C2 — locations (UC1):** submit a day of `location` observations, incl. a lunch:
   ```bash
-  HEARTHOLD_PASSPHRASE=<witness> witness submit location "09:10 — arrived at the office"
-  HEARTHOLD_PASSPHRASE=<witness> witness submit location "12:45 — had lunch at Chez Nous on Rue Vivienne"
-  HEARTHOLD_PASSPHRASE=<witness> witness submit location "18:30 — gym, then home"
+  HEARTHOLD_PASSPHRASE=<witness> emissary submit location "09:10 — arrived at the office"
+  HEARTHOLD_PASSPHRASE=<witness> emissary submit location "12:45 — had lunch at Chez Nous on Rue Vivienne"
+  HEARTHOLD_PASSPHRASE=<witness> emissary submit location "18:30 — gym, then home"
   ```
 - [ ] **C3** Each `submit` returns a receipt with an assigned sensitivity. Quarantine-classified items land needing confirmation → they appear in triage.
 
@@ -96,7 +96,7 @@ export HEARTHOLD_OLLAMA_URL=http://megaflax.local:11434
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `/api/card/face` returns nothing useful | Warden control not on 4310, or wrong `artefactId` | Confirm `warden control 4310`; check the artefact exists (`warden vault`) |
-| `submit` rejected "no valid delegation" | Witness not delegated/accepted | Redo A3 (`warden delegate` → `witness accept`) |
+| `submit` rejected "no valid delegation" | Emissary not delegated/accepted | Redo A3 (`warden delegate` → `emissary accept`) |
 | `/api/forge` hangs on a MEDIUM+ claim | Signet not reachable for the step-up | Run B2; or keep UC1 data LOW |
 | `/api/recall` says "Nothing has been indexed yet" | No matching artefacts, or the embed model missing | Redo C2; `curl $OLLAMA_URL/api/tags` shows the embedding model |
 | Mark won't claim | Count below threshold (Warden re-counts) | Submit more documents, or lower the candidate threshold |

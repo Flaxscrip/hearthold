@@ -43,7 +43,7 @@ async function main(): Promise<void> {
   const warden = await openKeymaster('warden', config, pass);
   const sovereign = await openKeymaster('sovereign', config, pass);
   const verifier = await openKeymaster('verifier', config, pass);
-  const witness = await openKeymaster('witness', config, pass);
+  const witness = await openKeymaster('emissary', config, pass);
   const wardenId = await ensureIdentity(warden, config);
   const sovId = await ensureIdentity(sovereign, config);
   await ensureIdentity(verifier, config);

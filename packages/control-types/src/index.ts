@@ -2,7 +2,7 @@
  * Hearthold control-API payload types.
  *
  * The wire contract between the Node agent daemons (`warden control`, `sovereign control`,
- * `witness control`) and the browser GUIs (Warden Console, Signet Approver, Witness). Kept as
+ * `emissary control`) and the browser GUIs (Warden Console, Signet Approver, Emissary). Kept as
  * pure types — no runtime, no Node imports — so both sides import the exact same shapes.
  *
  * Transport: a small JSON HTTP API plus a Server-Sent-Events stream at `GET /api/events`. Every
@@ -23,7 +23,7 @@ export const SENSITIVITY_NAMES: readonly SensitivityName[] = [
 
 /** A Hearthold agent's public identity. */
 export interface AgentIdentity {
-  role: 'warden' | 'witness' | 'sovereign' | 'verifier' | 'registry';
+  role: 'warden' | 'emissary' | 'sovereign' | 'verifier' | 'registry';
   name: string;
   did: string;
 }
@@ -72,9 +72,9 @@ export interface WardenSnapshot {
   delegations: DelegationRecord[];
 }
 
-/** Issue a delegation to a Witness DID. */
+/** Issue a delegation to an Emissary DID. */
 export interface DelegateRequest {
-  witnessDid: string;
+  emissaryDid: string;
 }
 export interface DelegateResponse {
   subjectDid: string;
@@ -302,7 +302,7 @@ export interface ApprovalDecisionResponse {
   decision: 'approved' | 'denied';
 }
 
-// ─────────────────────────────── Witness ───────────────────────────────
+// ─────────────────────────────── Emissary ───────────────────────────────
 
 export interface ReceiptRecord {
   id: string;
@@ -320,7 +320,7 @@ export interface ProjectionRecord {
   at: string;
 }
 
-export interface WitnessStatus {
+export interface EmissaryStatus {
   identity: AgentIdentity;
   nodeUrl: string;
   wardenDid?: string;
@@ -338,7 +338,7 @@ export interface ProofEvidenceGroup {
   merkleRoot: string;
 }
 
-/** A "prove a claim" request the Witness sent to the Warden, and how it resolved. */
+/** A "prove a claim" request the Emissary sent to the Warden, and how it resolved. */
 export interface ProofRecord {
   id: string;
   claim: string;
@@ -362,8 +362,8 @@ export interface ProofRecord {
   at: string;
 }
 
-export interface WitnessSnapshot {
-  status: WitnessStatus;
+export interface EmissarySnapshot {
+  status: EmissaryStatus;
   receipts: ReceiptRecord[];
   projections: ProjectionRecord[];
   proofs: ProofRecord[];
@@ -396,7 +396,7 @@ export interface ProveResponse {
 /**
  * Present a minted Attestation scroll — it BURNS on play (single-use). Home-plane: the Sovereign
  * demonstrates the burn on their own Table; cross-party presentation to an external verifier is the
- * Witness's job (projecting into the world), so that path stays Witness-side.
+ * Emissary's job (projecting into the world), so that path stays Emissary-side.
  */
 export interface PresentRequest {
   credentialDid: string;

@@ -2,7 +2,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 /** Which Hearthold agent a process is acting as. */
-export type AgentRole = 'warden' | 'witness' | 'sovereign' | 'verifier' | 'registry';
+export type AgentRole = 'warden' | 'emissary' | 'sovereign' | 'verifier' | 'registry';
 
 export interface HearthholdConfig {
   /**
@@ -15,9 +15,9 @@ export interface HearthholdConfig {
   registry: string;
   /** Root folder holding per-agent wallets, vault, and index. */
   dataRoot: string;
-  /** Witness: the Warden's DID to address over DIDComm. */
+  /** Emissary: the Warden's DID to address over DIDComm. */
   wardenDid?: string;
-  /** Witness (projector): the Sovereign's DID to relay sensitive disclosures to (the Signet). */
+  /** Emissary (projector): the Sovereign's DID to relay sensitive disclosures to (the Signet). */
   sovereignDid?: string;
   /** Warden: local model endpoint for the classifier (Ollama). Stays on-device. */
   ollamaUrl: string;

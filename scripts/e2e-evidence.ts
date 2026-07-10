@@ -33,7 +33,7 @@ async function main(): Promise<void> {
   const pass = 'hearthold-e2e-evidence';
 
   const warden = await openKeymaster('warden', config, pass);
-  const witness = await openKeymaster('witness', config, pass);
+  const witness = await openKeymaster('emissary', config, pass);
   const sovereign = await openKeymaster('sovereign', config, pass);
   const verifier = await openKeymaster('verifier', config, pass);
   const wardenId = await ensureIdentity(warden, config);
@@ -41,7 +41,7 @@ async function main(): Promise<void> {
   const sovId = await ensureIdentity(sovereign, config);
   await ensureIdentity(verifier, config);
 
-  // 1. Warden delegates the Witness (authorizes the evidence request).
+  // 1. Warden delegates the Emissary (authorizes the evidence request).
   const delSchema = await ensureDelegationSchema(warden);
   const oneYear = new Date(Date.now() + 1000 * 60 * 60 * 24 * 365).toISOString();
   const delCred = await issueDelegation(warden, witnessId.did, delSchema, {
@@ -66,7 +66,7 @@ async function main(): Promise<void> {
   }
   process.stdout.write(`seeded ${days.length} PUBLIC event artefacts\n`);
 
-  // 3. Witness requests evidence → Warden assembles + mints the graph.
+  // 3. Emissary requests evidence → Warden assembles + mints the graph.
   const evidence = new EvidenceService(warden, { ...config, sovereignDid: sovId.did });
   const delegationValid = await new DelegationStore(warden).isAuthorized(witnessId.did);
   const resp = await evidence.handle(

@@ -29,11 +29,11 @@ The draft's five parties collapse into Hearthold's three actors:
 | Protected Resource (issues challenge, holds data) | **Warden** | |
 | Authorization Server (approves, mints token) | **Warden** | same local process — see *Advantages* |
 | Approving Party | **Sovereign** | via PIN/passphrase/second-device step-up |
-| Client (validates challenge) + Agent (relays) | **Witness** | the §7.7 pressure point |
+| Client (validates challenge) + Agent (relays) | **Emissary** | the §7.7 pressure point |
 | Access token bound to `txn` | **selective-disclosure attestation VC** | our access artefact |
 
 Two deliberate collapses: **PR + AS → Warden** (a privacy win — the authorizer is local), and
-**Client + Agent → Witness** (concentrates the §7.7 "untrusted summarizer" risk into one component
+**Client + Agent → Emissary** (concentrates the §7.7 "untrusted summarizer" risk into one component
 on the Sovereign's own device).
 
 ## Where Hearthold already aligns
@@ -53,11 +53,11 @@ on the Sovereign's own device).
    delegation challenge, not bound to the specific `EvidenceRequest`. The draft requires approval
    to bind a unique `txn` + the concrete operation, single-use (§7.4, §7.5). **Gap.**
 
-2. **§7.7 — the agent must not summarize the transaction.** In our current shape the *Witness*
+2. **§7.7 — the agent must not summarize the transaction.** In our current shape the *Emissary*
    holds the `claim` and would render the approval prompt — i.e., the agent describing what is
    approved. That is the anti-pattern. The approver must see a description derived from the
    Warden's signed challenge. **Gap** (and the teeth behind "presence ≠ person": PIN proves the
-   person; the signed Warden description proves they approve the *right thing* even if the Witness
+   person; the signed Warden description proves they approve the *right thing* even if the Emissary
    app is compromised).
 
 3. **Session token is a plain bearer token, not sender-constrained.** The draft `SHOULD`s
@@ -79,8 +79,8 @@ on the Sovereign's own device).
   don't log." Our in-band sealing (no registry anchoring) and local classifier make minimization
   the default.
 - **Smaller confused-deputy surface.** They split Client from Agent because the agent is an
-  untrusted relay; our Witness is the Sovereign's own trusted client. Residual risk reduces to
-  "is the Witness compromised" — exactly what requirements R2/R3 below harden against.
+  untrusted relay; our Emissary is the Sovereign's own trusted client. Residual risk reduces to
+  "is the Emissary compromised" — exactly what requirements R2/R3 below harden against.
 
 ## Requirements adopted into the evidence flow (step 5)
 
@@ -101,7 +101,7 @@ authcrypt message.
   carry the `txn`; the grant is **single-use** for non-idempotent/high-impact disclosures (§7.4, §7.5).
 
 - **R2 — Warden-authored approval (no agent summary).** The challenge carries a **Warden-signed
-  `reason` + a preview of the exact attestation** to be disclosed. The Witness MUST present that
+  `reason` + a preview of the exact attestation** to be disclosed. The Emissary MUST present that
   verbatim to the Sovereign and MUST NOT substitute its own description (§7.7). The Sovereign's
   **signed response** to that challenge is the approval record.
 
@@ -109,7 +109,7 @@ authcrypt message.
   transport layer, satisfying the sender-constraint goal (§7.5) without a separate bearer token;
   any retained approval is a signed artefact bound to its `txn`.
 
-- **R4 — Explicit decline + minimization.** The Sovereign can decline at the Witness before a
+- **R4 — Explicit decline + minimization.** The Sovereign can decline at the Emissary before a
   sensitive request proceeds; challenges and granted attestations carry the minimum necessary and
   are not logged in the clear (§7.9, §7.10).
 
@@ -135,7 +135,7 @@ signature as it would any credential issuer. Field-level disclosure uses **salte
 
 - `EvidenceRequest` gains a `txn` (client-proposed or Warden-assigned on first `step-up-required`).
 - For step-up, the Warden issues a **purpose-bearing Archon challenge** carrying
-  `{ txn, reason, attestationPreview }` (the artefact the Witness displays verbatim); the
+  `{ txn, reason, attestationPreview }` (the artefact the Emissary displays verbatim); the
   Sovereign's **signed response** is the approval, referenceable by DID as the evidence graph's
   `approval` node.
 - The minted attestation VC includes the `txn` and a short `validUntil`; the Warden records spent

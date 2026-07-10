@@ -34,7 +34,7 @@ purpose-built version of Gordian's salted-hash-tree elision.
    consumed as an `issued` leaf in our composite evidence — extending reach to the Blockchain Commons
    world without adopting the stack.
 3. **Reading.** Allen's essays (progressive trust, data minimization, "SSI bankruptcy", fair witness)
-   map closely onto the PVM and sharpen our framing; the "fair witness" model parallels our **Witness**.
+   map closely onto the PVM and sharpen our framing; the "fair witness" model parallels our **Emissary**.
 
 **Decision:** keep the Archon/W3C/ToIP spine; treat XIDs as a design reference and a possible bridge
 target, not a dependency. A competing open standard is a thing to *bridge to*, not to straddle.

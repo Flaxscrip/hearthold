@@ -1,7 +1,7 @@
 /**
  * A tiny localhost control server for the agent daemons.
  *
- * Each GUI (Warden Console, Signet Approver, Witness) is a browser app that drives its agent over
+ * Each GUI (Warden Console, Signet Approver, Emissary) is a browser app that drives its agent over
  * this JSON HTTP API plus a Server-Sent-Events stream at `GET /api/events`. The agent keeps its real
  * Keymaster + DIDComm loop; this only exposes control + a live event feed.
  *

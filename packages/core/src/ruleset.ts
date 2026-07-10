@@ -1,7 +1,7 @@
 /**
  * Rulesets — the Sovereign-signed, versioned, append-only operating law for a governed actor.
  *
- * A Ruleset names what an actor (a Witness, a cantrip, a composition, the KB, …) may do — which kinds,
+ * A Ruleset names what an actor (a Emissary, a cantrip, a composition, the KB, …) may do — which kinds,
  * which verbs, up to what sensitivity ceiling, and (converging the KB assurance policy) at what
  * assurance per verb. It takes effect only when signed by the Sovereign (`keymaster.addProof` — the
  * same detached-signature path as evidence approvals), and every version links to its predecessor,
@@ -30,9 +30,9 @@ export interface RulesetCapabilities {
 }
 
 export interface Ruleset {
-  /** The governed actor — a DID (Witness/cantrip/composition) or a stable id. */
+  /** The governed actor — a DID (Emissary/cantrip/composition) or a stable id. */
   actor: string;
-  /** 'witness' | 'cantrip' | 'composition' | 'theme' | 'kb' | … */
+  /** 'emissary' | 'cantrip' | 'composition' | 'theme' | 'kb' | … */
   actorKind: string;
   /** Optional resource scope (e.g. a KB id). */
   resource?: string;
@@ -179,7 +179,7 @@ export interface ActorAuthz {
 
 /**
  * Authorize a contained actor's request against its active Ruleset — the generalized inward-registry
- * check: the same primitive that grades a Witness's autonomy now bounds a cantrip (or any actor). The
+ * check: the same primitive that grades a Emissary's autonomy now bounds a cantrip (or any actor). The
  * interpreter sandbox contains *computation*; **this is where the Warden contains disclosure**. Fail
  * closed: no active Ruleset (unsigned / revoked / tampered / missing) authorizes nothing.
  */

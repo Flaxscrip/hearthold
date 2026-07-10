@@ -19,7 +19,7 @@ const HELP = `Hearthold Registry — a TRQP trust registry over Archon groups
 
 Authorize entities for an (action, resource): membership in the bound Archon group IS the
 authorization. Outward, action 'issue' authorizes issuers for a schema; inward, action 'present'
-grades a Witness's autonomy by sensitivity level.
+grades a Emissary's autonomy by sensitivity level.
 
 Usage:
   registry init                                Provision the registry identity

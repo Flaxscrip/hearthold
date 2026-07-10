@@ -1,6 +1,6 @@
-# Hearthold — the Witness as a composable agent (capability modules)
+# Hearthold — the Emissary as a composable agent (capability modules)
 
-The Witness began with one job — witnessing observations to the Warden — and has since grown several:
+The Emissary began with one job — witnessing observations to the Warden — and has since grown several:
 projecting proof requests to the Sovereign, relaying Knowledge Base traffic, and hosting the KB web
 portal. Rather than let it become a grab-bag, we give it a shape: a small **runtime** plus **capability
 modules** that compose. A deployment is simply a chosen set of modules.
@@ -11,14 +11,14 @@ its code paths.
 
 ## The shape
 
-- **Witness runtime (base).** A `did:cid` identity, a DIDComm endpoint, a serve loop, an HTTP
+- **Emissary runtime (base).** A `did:cid` identity, a DIDComm endpoint, a serve loop, an HTTP
   control/portal server, and a module registry. It knows nothing about any specific capability — it just
   hosts modules and routes traffic to them.
 - **Capability module.** A self-contained unit that registers: (a) the DIDComm message types it handles,
   (b) any HTTP routes it exposes, (c) the Keymaster capability it wraps, and (d) its own policy/config.
   Modules don't reference each other; they compose only through the runtime.
-- **A deployment is a module loadout.** The KB portal Witness loads `auth` + `query`; a capture-focused
-  Witness loads `capture` + `proof-relay`. Same runtime, different powers.
+- **A deployment is a module loadout.** The KB portal Emissary loads `auth` + `query`; a capture-focused
+  Emissary loads `capture` + `proof-relay`. Same runtime, different powers.
 
 ## Module interface (sketch)
 
@@ -30,12 +30,12 @@ interface CapabilityModule {
   init?(ctx: WitnessContext): Promise<void>; // access to identity, transport, config
 }
 
-class Witness {
+class Emissary {
   use(module: CapabilityModule): this;
   serve(): Promise<void>; // runs DIDComm + HTTP, dispatching each message/route to its module
 }
 
-// e.g. the KB portal:  new Witness(id, transport).use(auth).use(query).serve()
+// e.g. the KB portal:  new Emissary(id, transport).use(auth).use(query).serve()
 ```
 
 ## Modules — today and planned
@@ -56,10 +56,10 @@ module is: wrap a proven Keymaster capability, give it a DIDComm and/or HTTP fac
 
 ## Capabilities as governed policy
 
-Which modules a Witness may run — and for whom, and at what assurance — is **Trust Registry policy**, not
+Which modules an Emissary may run — and for whom, and at what assurance — is **Trust Registry policy**, not
 hardcode. This extends the registry's authorization answer from a bare boolean to
 `{ authorized, requiredAssurance }`, evaluated per `(action, resource)`. Governance declares an agent's
-capabilities and the assurance each action demands; the Witness runtime enforces it (e.g. escalating to
+capabilities and the assurance each action demands; the Emissary runtime enforces it (e.g. escalating to
 an out-of-band Sovereign approval when policy requires a higher tier). This is the authorization spine
 for accountable agent identity: an agent's powers are declared and auditable, and each consequential
 action can require a fresh human authorization.
@@ -82,7 +82,7 @@ and shrink to a thin client.
 
 ## Path (incremental, not a framework)
 
-1. Extract the runtime + module registry from the current Witness.
+1. Extract the runtime + module registry from the current Emissary.
 2. Convert the existing capabilities (`capture`, `query`, `proof-relay`, `auth`) into modules with no
    behaviour change — they already are self-contained, this only formalizes the seam.
 3. Add new capabilities as modules from the start — beginning with the `auth` module gaining a

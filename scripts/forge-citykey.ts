@@ -22,7 +22,7 @@ const DEMO = join(here, '..', 'demos', 'game-of-42');
 // Officer seated on each axis (mirrors seat-drake-gamers.ts) — used for the lit-vertex descriptions.
 const OFFICER: Record<string, string> = {
   protection: 'The Warden (Soulbis)',
-  delegation: 'The Witness (Soulbae)',
+  delegation: 'The Emissary (Soulbae)',
   memory: 'The Lorekeeper',
   connection: 'The Quartermaster',
   compute: 'GenitriX',

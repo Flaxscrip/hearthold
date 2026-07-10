@@ -4,7 +4,7 @@
     { "path": "packages/control-types" },
     { "path": "packages/core" },
     { "path": "packages/warden" },
-    { "path": "packages/witness" },
+    { "path": "packages/emissary" },
     { "path": "packages/sovereign" },
     { "path": "packages/verifier" },
     { "path": "packages/registry" }

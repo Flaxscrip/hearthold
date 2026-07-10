@@ -49,12 +49,12 @@ Expect two `PASS` blocks. Separately: `npm run e2e:delegation`, `npm run e2e:sub
 Uses **real identities** under `~/.hearthold`. Pick one passphrase; both agents read
 `HEARTHOLD_PASSPHRASE` (separate wallets, so a shared value is fine for testing).
 
-**Terminal B — Witness (get its DID first):**
+**Terminal B — Emissary (get its DID first):**
 
 ```bash
 cd ~/Projects/personal/hearthold
 export HEARTHOLD_PASSPHRASE='choose-a-passphrase'
-node packages/witness/dist/index.js init        # → copy the Witness did:cid
+node packages/emissary/dist/index.js init        # → copy the Emissary did:cid
 ```
 
 **Terminal A — Warden (init, delegate to that DID, serve):**
@@ -71,8 +71,8 @@ node packages/warden/dist/index.js serve                    # polls the mailbox 
 
 ```bash
 export HEARTHOLD_WARDEN_DID=<warden-did>
-node packages/witness/dist/index.js submit location "at the corner cafe"
-node packages/witness/dist/index.js submit document "2025 tax return summary"
+node packages/emissary/dist/index.js submit location "at the corner cafe"
+node packages/emissary/dist/index.js submit document "2025 tax return summary"
 ```
 
 **Terminal A (Ctrl-C the server, or a third terminal) — inspect the vault:**
@@ -81,13 +81,13 @@ node packages/witness/dist/index.js submit document "2025 tax return summary"
 node packages/warden/dist/index.js vault
 ```
 
-There is no `WARDEN_URL` or port: the Witness addresses the Warden by `did:cid` and the message
-routes through the node's DIDComm relay. `witness accept <credDid>` is optional — the Warden
-authorizes by the delegation it recorded; the Witness need not present it for submission.
+There is no `WARDEN_URL` or port: the Emissary addresses the Warden by `did:cid` and the message
+routes through the node's DIDComm relay. `emissary accept <credDid>` is optional — the Warden
+authorizes by the delegation it recorded; the Emissary need not present it for submission.
 
 ## 4. What you should see (and what's not built yet)
 
-- `witness submit` prints a receipt with an artefact id and a **sensitivity** the local model
+- `emissary submit` prints a receipt with an artefact id and a **sensitivity** the local model
   assigned (e.g. a tax document → `3` HIGH, a public tweet → `0` PUBLIC). Requires Ollama running
   with the model (`HEARTHOLD_CLASSIFIER_MODEL`, default `qwen3:8b`); if Ollama is down it fails safe
   to `4` SEALED. Test the classifier directly with `warden classify <kind> "<text>"`.
@@ -138,7 +138,7 @@ not the Warden's.
 
 ## 5. Command reference
 
-| Warden | Witness |
+| Warden | Emissary |
 |---|---|
 | `init` — provision identity | `init` — provision identity |
 | `status` — identity + config | `status` — identity + config |
@@ -157,7 +157,7 @@ not the Warden's.
 | `HEARTHOLD_NODE_URL` | both | `http://flaxlap.local:4222` | Archon node (Drawbridge); fronts gatekeeper + DIDComm |
 | `HEARTHOLD_DATA_ROOT` | both | `~/.hearthold` | per-agent wallets + vault |
 | `HEARTHOLD_REGISTRY` | both | `hyperswarm` | anchoring registry |
-| `HEARTHOLD_WARDEN_DID` | Witness | — | required for `submit`; the Warden's `did:cid` |
+| `HEARTHOLD_WARDEN_DID` | Emissary | — | required for `submit`; the Warden's `did:cid` |
 | `HEARTHOLD_OLLAMA_URL` | Warden | `http://localhost:11434` | local model endpoint (on-device) |
 | `HEARTHOLD_CLASSIFIER_MODEL` | Warden | `qwen3:8b` | local classifier model |
 | `HEARTHOLD_CLASSIFIER` | Warden | `ollama` | set to `quarantine` to disable the model |
@@ -168,7 +168,7 @@ not the Warden's.
 ## 7. Reset / troubleshooting
 
 - **`HEARTHOLD_PASSPHRASE is required`** → not exported in that terminal.
-- **`HEARTHOLD_WARDEN_DID is required for submit`** → export it in the Witness terminal.
+- **`HEARTHOLD_WARDEN_DID is required for submit`** → export it in the Emissary terminal.
 - **`recipient has no DIDCommMessaging endpoint`** → the Warden never published its endpoint. Run
   `warden init` (which publishes) or `warden publish` on the Warden, once the node's DIDComm is up.
 - **submit hangs / times out** → the Warden published its endpoint (so the send succeeded and the

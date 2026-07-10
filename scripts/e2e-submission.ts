@@ -2,9 +2,9 @@
  * End-to-end test of the Hearthold witness→store→receipt round-trip over the **DIDComm v2**
  * transport (no notices, no registry footprint, authcrypt-authenticated sender).
  *
- *   Warden serves a DIDComm receive loop  ←  Witness seals + sends a submission
+ *   Warden serves a DIDComm receive loop  ←  Emissary seals + sends a submission
  *   →  Warden authorizes (delegation) → unseals → classifies → stores  →  replies with a receipt
- *   →  Witness correlates the reply by thid.
+ *   →  Emissary correlates the reply by thid.
  *
  * Requires the node's DIDComm service enabled. Uses the identities under .hearthold-e2e.
  *
@@ -52,12 +52,12 @@ async function main(): Promise<void> {
 
   step('Open agents');
   const warden: KeymasterHandle = await openKeymaster('warden', config, PASSPHRASE);
-  const witness: KeymasterHandle = await openKeymaster('witness', config, PASSPHRASE);
+  const witness: KeymasterHandle = await openKeymaster('emissary', config, PASSPHRASE);
   const wardenId = await ensureIdentity(warden, config);
   const witnessId = await ensureIdentity(witness, config);
   check('warden + witness ready', wardenId.did.startsWith('did:') && witnessId.did.startsWith('did:'));
 
-  step('Issue + record a delegation for the Witness');
+  step('Issue + record a delegation for the Emissary');
   const schemaDid = await ensureDelegationSchema(warden);
   const validUntil = new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString();
   const delegationDid = await issueDelegation(warden, witnessId.did, schemaDid, {
@@ -80,8 +80,8 @@ async function main(): Promise<void> {
   check('warden endpoint published + serving', true);
 
   try {
-    step('Witness seals + submits over DIDComm');
-    const witnessTransport = new DidCommTransport(witness, IDENTITY_NAME.witness, config.nodeUrl);
+    step('Emissary seals + submits over DIDComm');
+    const witnessTransport = new DidCommTransport(witness, IDENTITY_NAME.emissary, config.nodeUrl);
     await witnessTransport.ready();
     const ciphertext = await sealForWarden(
       witness,

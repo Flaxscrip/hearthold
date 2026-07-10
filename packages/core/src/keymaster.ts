@@ -16,7 +16,7 @@ export interface KeymasterHandle {
 /**
  * Instantiate Keymaster as a library for one Hearthold agent — its own file-backed wallet,
  * connected to the Archon Gatekeeper. This is deliberately NOT the node's keymaster HTTP service:
- * each agent custodies its own wallet so the Witness identity can later migrate to other devices.
+ * each agent custodies its own wallet so the Emissary identity can later migrate to other devices.
  */
 export async function openKeymaster(
   role: AgentRole,

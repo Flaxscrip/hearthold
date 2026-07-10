@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import type {
   ApiResult,
   ControlEvent,
-  WitnessSnapshot,
+  EmissarySnapshot,
   SubmitResponse,
   ProveResponse,
 } from '@hearthold/control-types';
@@ -31,7 +31,7 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 
 export const api = {
   base: BASE,
-  snapshot: () => get<WitnessSnapshot>('/api/snapshot'),
+  snapshot: () => get<EmissarySnapshot>('/api/snapshot'),
   submit: (kind: string, text: string) => post<SubmitResponse>('/api/submit', { kind, text }),
   prove: (req: {
     claim: string;

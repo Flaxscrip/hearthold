@@ -1,11 +1,11 @@
 {
-  "name": "@hearthold/witness",
+  "name": "@hearthold/emissary",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "Hearthold Witness — Companion: witness capture and evidence requests.",
   "bin": {
-    "witness": "./dist/index.js"
+    "emissary": "./dist/index.js"
   },
   "exports": {
     ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },

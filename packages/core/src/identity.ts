@@ -4,7 +4,7 @@ import type { HearthholdConfig } from './config.js';
 /** Canonical wallet alias for each agent's identity. */
 export const IDENTITY_NAME = {
   warden: 'hearthold-warden',
-  witness: 'hearthold-witness',
+  emissary: 'hearthold-emissary',
   sovereign: 'hearthold-sovereign',
   verifier: 'hearthold-verifier',
   registry: 'hearthold-registry',

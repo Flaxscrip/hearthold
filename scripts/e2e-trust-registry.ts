@@ -5,12 +5,12 @@
  *   guild in the "issuers of GuildMembership" group; `verifyProof` consults the registry (no
  *   trustedIssuers list) → before the grant the proof is rejected, after it verifies.
  *
- *   INWARD: the same primitive grades a Witness's autonomy. "Is this Witness cleared to present at
+ *   INWARD: the same primitive grades a Emissary's autonomy. "Is this Emissary cleared to present at
  *   HIGH?" = membership in the `present+HIGH` group. Granting lets it act alone; revoking (condition
  *   dropped) downgrades it back to relay-to-Signet.
  *
  * Stand-in roles: guild = warden id, holder = sovereign, verifier = verifier id, registry owner +
- * the Witness being assured = witness id.
+ * the Emissary being assured = witness id.
  *
  * Run:  npm run e2e:trust-registry
  */
@@ -56,11 +56,11 @@ async function main(): Promise<void> {
   const config = { ...loadConfig(), dataRoot: DATA_ROOT };
   process.stdout.write(`Hearthold trust-registry e2e\n  node: ${config.nodeUrl}\n  data: ${DATA_ROOT}\n`);
 
-  step('Provision guild (issuer), holder, verifier, registry owner / Witness');
+  step('Provision guild (issuer), holder, verifier, registry owner / Emissary');
   const guild: KeymasterHandle = await openKeymaster('warden', config, PASSPHRASE);
   const holder: KeymasterHandle = await openKeymaster('sovereign', config, PASSPHRASE);
   const verifier: KeymasterHandle = await openKeymaster('verifier', config, PASSPHRASE);
-  const registry: KeymasterHandle = await openKeymaster('witness', config, PASSPHRASE);
+  const registry: KeymasterHandle = await openKeymaster('emissary', config, PASSPHRASE);
   const guildId = await ensureIdentity(guild, config);
   const holderId = await ensureIdentity(holder, config);
   await ensureIdentity(verifier, config);
@@ -111,33 +111,33 @@ async function main(): Promise<void> {
     check('disclosed role = Raid-Lead', result.disclosed[0]?.claims.role === 'Raid-Lead');
   }
 
-  // ── INWARD: the same registry grades a Witness's autonomy ─────────────────────
-  step('Inward: grade a Witness\'s autonomy to present at HIGH');
+  // ── INWARD: the same registry grades a Emissary's autonomy ─────────────────────
+  step('Inward: grade a Emissary\'s autonomy to present at HIGH');
   const presentHighGroup = await createRegistryGroup(registry, 'hearthold-witness-present-HIGH', config.registry);
   const assurance = new GroupTrustRegistry(
     registry,
     [{ action: 'present', resource: 'HIGH', group: presentHighGroup }],
     registryId.did,
   );
-  const witnessDid = registryId.did; // the Witness being assured
+  const emissaryDid = registryId.did; // the Emissary being assured
 
   {
-    const r = await assurance.authorize({ entity_id: witnessDid, action: 'present', resource: 'HIGH' });
-    check('Witness NOT yet cleared for HIGH → would relay to Signet', r.authorized === false);
+    const r = await assurance.authorize({ entity_id: emissaryDid, action: 'present', resource: 'HIGH' });
+    check('Emissary NOT yet cleared for HIGH → would relay to Signet', r.authorized === false);
   }
 
-  step('Condition met: grant the Witness HIGH-present clearance');
-  await grantAuthorization(registry, presentHighGroup, witnessDid);
+  step('Condition met: grant the Emissary HIGH-present clearance');
+  await grantAuthorization(registry, presentHighGroup, emissaryDid);
   {
-    const r = await assurance.authorize({ entity_id: witnessDid, action: 'present', resource: 'HIGH' });
-    check('Witness now cleared for HIGH → may act alone', r.authorized === true);
+    const r = await assurance.authorize({ entity_id: emissaryDid, action: 'present', resource: 'HIGH' });
+    check('Emissary now cleared for HIGH → may act alone', r.authorized === true);
   }
 
   step('Condition drops: revoke clearance → auto-downgrade');
-  await revokeAuthorization(registry, presentHighGroup, witnessDid);
+  await revokeAuthorization(registry, presentHighGroup, emissaryDid);
   {
-    const r = await assurance.authorize({ entity_id: witnessDid, action: 'present', resource: 'HIGH' });
-    check('Witness downgraded → back to relay-to-Signet', r.authorized === false);
+    const r = await assurance.authorize({ entity_id: emissaryDid, action: 'present', resource: 'HIGH' });
+    check('Emissary downgraded → back to relay-to-Signet', r.authorized === false);
   }
 
   process.stdout.write(`\n${failures === 0 ? 'PASS' : `FAIL (${failures})`}\n`);

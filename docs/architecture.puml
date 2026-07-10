@@ -43,7 +43,7 @@ package "HOME — trusted hardware" as home {
 
 ' ── WORLD (the projector) ────────────────────────────────────────────────
 package "WORLD — phone · browser · CLI" as world {
-  component "**Witness**\n//Companion · Mage//\nsees in · projects out\n(holds no secret)" as Witness
+  component "**Emissary**\n//Companion · Mage//\nsees in · projects out\n(holds no secret)" as Emissary
 }
 
 ' ── Sovereign side ───────────────────────────────────────────────────────
@@ -57,26 +57,26 @@ component "**Registry**\nToIP **TRQP** v2.0\nover Archon groups" as Registry
 cloud "**Archon Gatekeeper**\nflaxlap.local :4222 / :4224\nDID resolution + DIDComm relay" as GK
 
 ' ── trust / delegation ───────────────────────────────────────────────────
-Warden --> Witness   : delegation VC\n//(scoped · revocable)//
-Witness ..> Warden   : challenge / response
+Warden --> Emissary   : delegation VC\n//(scoped · revocable)//
+Emissary ..> Warden   : challenge / response
 
 ' ── submission over DIDComm ──────────────────────────────────────────────
-Witness --> Warden   : DIDComm v2: submission\n//(authcrypt · sealed)//
-Warden ..> Witness   : receipt (thid)
+Emissary --> Warden   : DIDComm v2: submission\n//(authcrypt · sealed)//
+Warden ..> Emissary   : receipt (thid)
 
 ' ── prove / projection ───────────────────────────────────────────────────
-Verifier <--> Witness  : proof request\n⇄ presentation
-Witness  --> Sovereign : relay //(above ceiling)//
-Sovereign ..> Witness  : PoH approval +\npresentation
+Verifier <--> Emissary  : proof request\n⇄ presentation
+Emissary  --> Sovereign : relay //(above ceiling)//
+Sovereign ..> Emissary  : PoH approval +\npresentation
 
 ' ── trust registry ───────────────────────────────────────────────────────
 Verifier --> Registry : TRQP //is issuer trusted?//
-Witness ..> Registry  : TRQP //autonomy ceiling?//
+Emissary ..> Registry  : TRQP //autonomy ceiling?//
 Registry --> GK       : testGroup //(groups)//
 
 ' ── DID resolution (everyone) ────────────────────────────────────────────
 Warden ..> GK    : resolve
-Witness ..> GK
+Emissary ..> GK
 Sovereign ..> GK
 Verifier ..> GK
 

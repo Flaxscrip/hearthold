@@ -9,26 +9,26 @@ export const CredentialType = {
   ATTESTATION: 'HearthholdAttestation',
 } as const;
 
-/** Scope of authority the Warden grants the Witness. */
+/** Scope of authority the Warden grants the Emissary. */
 export interface DelegationScope {
-  /** Which witness/claim kinds the Witness may request evidence about. */
+  /** Which witness/claim kinds the Emissary may request evidence about. */
   kinds: WitnessKind[];
   /** ISO timestamp after which the delegation is no longer valid. */
   validUntil: string;
 }
 
 /**
- * Warden issues a revocable delegation credential to the Witness, bound to the delegation schema
+ * Warden issues a revocable delegation credential to the Emissary, bound to the delegation schema
  * so challenge/response can match it. Returns the credential DID. The Warden must be the current
  * identity on `warden`.
  */
 export async function issueDelegation(
   warden: KeymasterHandle,
-  witnessDid: string,
+  emissaryDid: string,
   schemaDid: string,
   scope: DelegationScope,
 ): Promise<string> {
-  const bound = await warden.keymaster.bindCredential(witnessDid, {
+  const bound = await warden.keymaster.bindCredential(emissaryDid, {
     schema: schemaDid,
     validUntil: scope.validUntil,
     claims: {
@@ -63,7 +63,7 @@ export async function acceptCredential(
   return handle.keymaster.acceptCredential(credentialDid);
 }
 
-/** Witness accepts a delegation credential into its wallet. */
+/** Emissary accepts a delegation credential into its wallet. */
 export async function acceptDelegation(
   witness: KeymasterHandle,
   credentialDid: string,
@@ -82,7 +82,7 @@ export async function revokeCredential(
 /**
  * Mint a selective-disclosure attestation: a derived credential asserting a fact about the
  * Sovereign's history WITHOUT exposing the source artefact. This is what crosses the boundary
- * when the Witness needs to prove something in the world.
+ * when the Emissary needs to prove something in the world.
  */
 export async function mintAttestation(
   warden: KeymasterHandle,

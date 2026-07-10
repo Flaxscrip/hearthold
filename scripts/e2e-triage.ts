@@ -24,12 +24,12 @@ async function main(): Promise<void> {
   const wid = await ensureIdentity(warden, config);
   // Quarantine classifier → every submission is SEALED + needsHumanConfirmation (fail-safe default).
   const service = new WardenService(warden);
-  const witnessDid = wid.did;
+  const emissaryDid = wid.did;
 
   const submit = async (kind: string, text: string): Promise<string> => {
     const ciphertext = await sealForWarden(warden, wid.did, JSON.stringify({ text }));
     const submission: WitnessSubmission = { type: 'hearthold/witness-submission', version: PROTOCOL_VERSION, kind: kind as never, observedAt: new Date('2026-07-08').toISOString(), ciphertext };
-    const receipt = await service.handleSubmission(submission, witnessDid);
+    const receipt = await service.handleSubmission(submission, emissaryDid);
     return receipt.artefactId;
   };
 

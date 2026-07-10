@@ -36,10 +36,10 @@ export class WardenService {
     }
   }
 
-  /** Process one witness submission. `witnessDid` is the authenticated session subject. */
+  /** Process one witness submission. `emissaryDid` is the authenticated session subject. */
   async handleSubmission(
     submission: WitnessSubmission,
-    witnessDid: string,
+    emissaryDid: string,
   ): Promise<SubmissionReceipt> {
     // Decrypt locally for classification only — the stored artefact stays sealed at rest.
     const plaintext = await unsealAsWarden(this.warden, submission.ciphertext);
@@ -57,7 +57,7 @@ export class WardenService {
       storedAt,
       sensitivity: classification.sensitivity,
       ciphertext: submission.ciphertext,
-      metadata: { ...classification.metadata, witness: witnessDid, needsHumanConfirmation: classification.needsHumanConfirmation },
+      metadata: { ...classification.metadata, witness: emissaryDid, needsHumanConfirmation: classification.needsHumanConfirmation },
     };
     await this.store.put(artefact);
 

@@ -49,13 +49,13 @@ Every item below is exercised by an automated end-to-end test (`e2e:*`) against 
 ## The three identities (the PVM separation, built)
 
 Each is a `did:cid` with its own independently-custodied Keymaster wallet. **One Sovereign, one
-Warden, many Witnesses.**
+Warden, many Emissaries.**
 
 | PVM archetype | Hearthold role | Does | Never |
 |---|---|---|---|
 | First Person 🗝️ | **Sovereign** (held by the Signet) | decides, approves with proof-of-human, signs | witnesses routine context, or runs as an always-on server |
 | Swordsman ⚔️ | **Warden** (home Keeper, always-on) | custodies the sealed vault, classifies on-device, assembles/derives evidence, recalls | acts in the world, or holds the deciding secret |
-| Mage 🧙 | **Witness** (Companion, per device) | witnesses local context, carries proofs to the world | is the authority, the subject of a claim, or the approver |
+| Mage 🧙 | **Emissary** (Companion, per device) | witnesses local context, carries proofs to the world | is the authority, the subject of a claim, or the approver |
 
 The **control plane** (the Sovereign authorizes) is cryptographically separated from the **data plane**
 (the Warden executes) — a compromised always-on host cannot author authority.
@@ -65,7 +65,7 @@ The **control plane** (the Sovereign authorizes) is cryptographically separated 
 ## Capability map
 
 ### Identity, transport & storage
-- **Wallet-per-agent** custody; a Witness can migrate devices via `backupId`/`recoverId`.
+- **Wallet-per-agent** custody; an Emissary can migrate devices via `backupId`/`recoverId`.
 - **DIDComm v2** transport (authcrypt) — sender-authenticated, **zero registry footprint**; no
   observer learns who talks to whom. Payloads sealed in-band; the relay never sees content.
 - **On-device classifier** — the Warden labels each artefact's sensitivity with a local model (Ollama
@@ -86,7 +86,7 @@ Verifiable Credential; the Sovereign presents it; a verifier checks it offline a
 | **selective disclosure** | reveal chosen observations against the signed Merkle root | recomputes the leaf, checks the path — sees one fact, not the rest | ✅ `e2e:evidence-selective` |
 
 Two properties that matter for real use: the co-sign for a sensitive disclosure happens on a **direct
-Warden↔Sovereign channel** — the Witness (the world-facing agent) is *never* in the authorization path,
+Warden↔Sovereign channel** — the Emissary (the world-facing agent) is *never* in the authorization path,
 so it can't misdescribe what the human approves (honors the §7.7 "no agent summary" rule). And proofs
 are **ephemeral + single-use** — short `validUntil`, one `txn`.
 
@@ -104,7 +104,7 @@ are **ephemeral + single-use** — short `validUntil`, one `txn`.
 - The full **DTG credential set** (VRC / VMC / VIC / VPC / VEC / VWC + RCard) issues and verifies
   natively on `did:cid` (VC 2.0). `e2e:dtg-set`.
 - A **ToIP TRQP v2.0 trust registry** over Archon groups — *outward* (which issuers a verifier trusts)
-  and *inward* (a Witness's autonomy ceiling). Interoperates with an independent TRQP deployment.
+  and *inward* (an Emissary's autonomy ceiling). Interoperates with an independent TRQP deployment.
   `e2e:trust-registry` / `-inward-registry` / `interop:registry`.
 
 ### The GUIs
@@ -115,7 +115,7 @@ Node), so they stay thin and dependency-light.
 - **Warden Console** — identity/status, the live vault (sensitivity-chipped), delegations, classifier.
 - **Signet Approver** — the proof-of-human moment: a pending-approval queue with PIN approve/deny; it
   shows the **Warden-authored** disclosure description, never the requesting agent's words.
-- **Witness** — witness an observation, and **Prove a claim** end-to-end (claim → Signet approval →
+- **Emissary** — witness an observation, and **Prove a claim** end-to-end (claim → Signet approval →
   a granted, inspectable evidence graph).
 
 ---
@@ -144,11 +144,11 @@ recall R1, the trust registry + DTG set, and the three GUIs — each end-to-end 
 **Next / in progress:**
 - **Recall** — structured fact/entity/date extraction, a recall GUI surface, a real vector store.
 - **Knowledge Portal** — a shared, authorized Knowledge Base a community can query and update through a
-  **public Mage portal** in front of a **private Warden** (the projector pattern, inverted); authenticate
+  **public Emissary portal** in front of a **private Warden** (the projector pattern, inverted); authenticate
   via Archon challenge/response, authorize via a trust-registry group. A hosted, multi-party demo — see
   [knowledge-portal.md](knowledge-portal.md). *(The natural driver for a guild-manager GUI.)*
 - **Proof-of-human** beyond PIN (level 1) — biometric / face-liveness / FIDO2 behind the same gate.
-- **Per-device Witnesses** with kind-scope enforcement (one Sovereign, many Witnesses).
+- **Per-device Emissaries** with kind-scope enforcement (one Sovereign, many Emissaries).
 - **Sovereign-signed Warden policy** (lift access-control config into a signed document the Warden
   verifies / fails safe).
 
