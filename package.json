@@ -8,6 +8,7 @@
   "workspaces": [
     "packages/control-types",
     "packages/core",
+    "packages/cgpr-types",
     "packages/warden",
     "packages/emissary",
     "packages/sovereign",
@@ -58,7 +59,8 @@
     "e2e:scroll-burn": "npm run build && node --experimental-strip-types scripts/e2e-scroll-burn.ts",
     "e2e:kb-seed": "npm run build && node --experimental-strip-types scripts/e2e-kb-seed.ts",
     "e2e:forge-present": "npm run build && node --experimental-strip-types scripts/e2e-forge-present.ts",
-    "e2e:pairwise-grant": "npm run build && node --experimental-strip-types scripts/e2e-pairwise-grant.ts"
+    "e2e:pairwise-grant": "npm run build && node --experimental-strip-types scripts/e2e-pairwise-grant.ts",
+    "e2e:cgpr-schemas": "npm run build && node --experimental-strip-types scripts/e2e-cgpr-schemas.ts"
   },
   "engines": {
     "node": ">=22"
