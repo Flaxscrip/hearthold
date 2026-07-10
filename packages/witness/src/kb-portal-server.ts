@@ -39,6 +39,10 @@ interface LoginAttempt {
 
 export function startKbPortalServer(opts: KbPortalOptions): ControlServer {
   const { transport, wardenDid, publicUrl } = opts;
+  // The Mage is request-only (it relays to the Warden). Keep its mailbox reader continuously alive so
+  // it never goes idle between logins — an idle reader lets the relay session go stale and later
+  // replies silently vanish (symptom: works for a while, then `transport: timeout` until restart).
+  transport.keepAlive?.();
   const logins = new Map<string, LoginAttempt>();
 
   // Drop login attempts older than 10 min so the map can't grow unbounded.

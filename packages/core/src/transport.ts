@@ -40,6 +40,12 @@ export interface Transport {
   ): Promise<HearthholdMessage>;
   /** Start serving inbound requests. Returns a stop function. */
   serve(handler: RequestHandler, opts?: { pollMs?: number }): Promise<() => void>;
+  /**
+   * Keep the mailbox reader running continuously, even with no inflight request or serve handler. A
+   * request-only client (e.g. the Mage's kb-web bridge) should call this so its reader never goes idle
+   * between requests — an idle reader lets the relay session go stale, silently dropping later replies.
+   */
+  keepAlive?(pollMs?: number): void;
 }
 
 /** Bare DID without the key fragment that authcrypt metadata carries (`did#key-agreement-1`). */
@@ -95,12 +101,19 @@ export class DidCommTransport implements Transport {
   private readonly pending = new Map<string, (m: HearthholdMessage) => void>();
   private handler: RequestHandler | null = null;
   private loopRunning = false;
+  private keepDraining = false;
+
+  /** Keep the reader loop alive continuously (see the interface note). Idempotent. */
+  keepAlive(pollMs = 1500): void {
+    this.keepDraining = true;
+    this.ensureLoop(pollMs);
+  }
 
   private ensureLoop(pollMs: number): void {
     if (this.loopRunning) return;
     this.loopRunning = true;
     void (async () => {
-      while (this.handler || this.pending.size > 0) {
+      while (this.keepDraining || this.handler || this.pending.size > 0) {
         let inbound: Awaited<ReturnType<typeof this.handle.keymaster.receiveDidComm>> = [];
         try {
           inbound = await this.handle.keymaster.receiveDidComm({ name: this.idName });
@@ -141,7 +154,7 @@ export class DidCommTransport implements Transport {
           })();
         }
 
-        if (this.handler || this.pending.size > 0) await sleep(pollMs);
+        if (this.keepDraining || this.handler || this.pending.size > 0) await sleep(pollMs);
       }
       this.loopRunning = false;
     })();
