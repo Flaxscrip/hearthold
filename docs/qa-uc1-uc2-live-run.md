@@ -36,7 +36,7 @@ export HEARTHOLD_OLLAMA_URL=http://megaflax.local:11434
 - [ ] **A2** Provision the three identities (each its own passphrase): `warden init`, `witness init`, `sovereign init`. **Note all three `did:cid`.**
 - [ ] **A3** Delegate the Witness so it can submit to the vault:
   `warden delegate <witnessDid>` → prints a credential DID → `HEARTHOLD_PASSPHRASE=<witness> witness accept <credentialDid>`.
-- [ ] **A4** *(optional, UC2 visual)* If you want book cards to read **uncommon** (not just count toward the Mark), run the shelf-photo enrichment so `classificationTags` are non-empty. Without it the Mark still issues (count-based); only the veracity border differs. *(Enrichment job is a separate hearthold-side script — flag if not yet present.)*
+- [ ] **A4** *(nothing to do — enrichment is deferred).* The shelf-photo OCR/enrichment job (title/author → `classificationTags` → `uncommon` veracity) is **deferred; not needed for the initial demo rounds.** Book cards read `common` and still **count toward the Librarian Mark** (the Mark is count-based, so UC2's exit is unaffected). Enrichment (or setting tags at triage) only changes the card's veracity border, and is a later hearthold-side script.
 
 ## Part B — Launch the stack (one process per identity)
 
@@ -113,7 +113,7 @@ export HEARTHOLD_OLLAMA_URL=http://megaflax.local:11434
 | Forge hangs / times out on a MEDIUM+ claim | Signet not reachable for the step-up | Run B2 (`sovereign control 4311` + Approver); or keep UC1 data LOW |
 | Divination says "Nothing has been indexed yet" | No location artefacts, or the embed model missing | Redo C2; `curl $OLLAMA_URL/api/tags` shows the embedding model |
 | Mark won't claim | Deck count below threshold (Warden re-counts) | Submit more documents, or lower the candidate threshold for the demo |
-| Book cards read `common`, not `uncommon` | Enrichment not run (no `classificationTags`) | Optional A4 job, or set tags at triage confirm; the Mark still issues |
+| Book cards read `common`, not `uncommon` | Enrichment deferred (no `classificationTags`) — **expected** | Not a bug for the initial demos; the Mark still issues. (Enrichment is a later script) |
 | Second present still verifies | (should not happen) | Capture it — single-use regression |
 
 ## Sign-off
