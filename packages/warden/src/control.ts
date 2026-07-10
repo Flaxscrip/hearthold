@@ -6,6 +6,8 @@
  * stored submission is pushed to connected consoles live.
  */
 
+import { randomUUID } from 'node:crypto';
+
 import {
   ensureIdentity,
   ensureDelegationSchema,
@@ -18,12 +20,14 @@ import {
   selfSigner,
   AuthzTier,
   Sensitivity,
+  FileSpentTxnStore,
   PROTOCOL_VERSION,
   type HearthholdConfig,
   type KeymasterHandle,
   type RequestHandler,
   type SubmissionReceipt,
   type WitnessSubmission,
+  type EvidenceRequest,
 } from '@hearthold/core';
 import {
   SENSITIVITY_NAMES,
@@ -38,6 +42,9 @@ import {
   type TriageConfirmRequest,
   type MarkCandidate,
   type MarkClaimRequest,
+  type ProveRequest,
+  type ProofRecord,
+  type PresentRequest,
   type KbView,
   type KbGrantRequest,
   type KbPolicyRequest,
@@ -101,6 +108,28 @@ export async function runWardenControl(
   const transport = new DidCommTransport(handle, IDENTITY_NAME.warden, config.nodeUrl);
   await transport.ready();
 
+  // Direct Warden↔Sovereign approval channel: for a sensitive evidence disclosure (a forge of MEDIUM+
+  // data), the Warden asks the Sovereign's Signet directly. Hoisted here so the /api/forge route and
+  // the DIDComm evidence handler share ONE EvidenceService.
+  const approver: SovereignApprover | undefined = config.sovereignDid
+    ? {
+        async requestApproval(req) {
+          try {
+            const reply = await transport.request(config.sovereignDid as string, req, { timeoutMs: 180_000 });
+            if (reply.type === 'hearthold/approval-response') return reply;
+            return { type: 'hearthold/approval-response', version: PROTOCOL_VERSION, approved: false, reason: `unexpected reply ${reply.type}` };
+          } catch (err) {
+            return { type: 'hearthold/approval-response', version: PROTOCOL_VERSION, approved: false, reason: `Sovereign unreachable: ${err instanceof Error ? err.message : String(err)}` };
+          }
+        },
+      }
+    : undefined;
+  const evidenceService = new EvidenceService(handle, config, approver);
+  // Forge/present (Sevenfold Divination→Forge→Burn): scroll validity by credentialDid, single-use
+  // enforced verifier-side (the holder can't reset it) via the same SpentTxnStore as e2e:scroll-burn.
+  const forgeLedger = new Map<string, string | undefined>(); // credentialDid → validUntil (session)
+  const spentScrolls = new FileSpentTxnStore(handle.dataFolder);
+
   const classifierLabel =
     config.classifierMode === 'ollama'
       ? `ollama ${config.classifierModel} @ ${config.ollamaUrl}`
@@ -159,6 +188,64 @@ export async function runWardenControl(
         const result = await RecallService.forWarden(handle, config).recall(query, k ? { k } : {});
         return { result };
       },
+      // Forge (Sevenfold) — mint an Attestation scroll from a divination. Reuses the evidence flow: a
+      // MEDIUM+ forge triggers the same out-of-band Signet evidence-approval the DIDComm path uses;
+      // LOW/witnessed clears at STANDING with no step-up. The browser holds no key.
+      'POST /api/forge': async ({ body }) => {
+        const { claim, kind, from, to, structured, validForMinutes } = (body ?? {}) as ProveRequest;
+        if (!claim || !kind) throw new Error('claim and kind are required');
+        const at = new Date().toISOString();
+        const req: EvidenceRequest = {
+          type: 'hearthold/evidence-request',
+          version: PROTOCOL_VERSION,
+          claim,
+          disclosureMode: 'ATTESTATION',
+          spec: { kind: kind as never, from, to, structured },
+          ...(config.sovereignDid ? { subjectDid: config.sovereignDid } : {}),
+          ...(validForMinutes ? { validForMinutes } : {}),
+        };
+        // Home-plane forge: the Sovereign proves from their own vault (delegationValid = true).
+        const r = await evidenceService.handle(req, id.did, true);
+        const proof: ProofRecord =
+          r.status === 'granted'
+            ? {
+                id: randomUUID(),
+                claim,
+                kind,
+                status: 'granted',
+                credentialDid: r.credentialDid,
+                structured: r.graph?.structured,
+                evidence: r.graph?.evidence,
+                approved: r.graph?.approved,
+                validUntil: r.graph?.validUntil,
+                issued: r.graph?.issued,
+                trustClass: r.graph?.trustClass,
+                at,
+              }
+            : { id: randomUUID(), claim, kind, status: 'denied', reason: r.reason, at };
+        if (proof.status === 'granted' && proof.credentialDid) {
+          forgeLedger.set(proof.credentialDid, proof.validUntil);
+          server.emit('scroll-forged', { proof });
+        }
+        return { proof };
+      },
+      // Present (Sevenfold) — play the scroll; it BURNS. Single-use enforced verifier-side (the holder
+      // can't reset it). Home-plane demonstration; cross-party presentation stays Witness-side.
+      'POST /api/present': async ({ body }) => {
+        const { credentialDid } = (body ?? {}) as PresentRequest;
+        if (!credentialDid) throw new Error('credentialDid is required');
+        if (await spentScrolls.isSpent(credentialDid)) {
+          return { verified: false, reason: 'single-use scroll already spent (burned)' };
+        }
+        const validUntil = forgeLedger.get(credentialDid);
+        if (validUntil && new Date(validUntil).getTime() < Date.now()) {
+          return { verified: false, reason: 'scroll expired' };
+        }
+        await spentScrolls.markSpent(credentialDid);
+        server.emit('scroll-burned', { credentialDid });
+        return { verified: true };
+      },
+
       // Card-face hydration for the Sevenfold Table — crosses decideRelease; a refusal is `granted:false`
       // (obsidian), not an error. The face is unsealed transiently and never cached (G2).
       'POST /api/card/face': async ({ body }) => {
@@ -242,29 +329,12 @@ export async function runWardenControl(
       ),
   });
 
-  // Direct Warden↔Sovereign approval channel: for a sensitive evidence disclosure the Warden asks the
-  // Sovereign itself (the Witness is never in the authorization path). Runs inside the serve loop's
-  // await, so it is the sole mailbox drainer while the approval is in flight (no contention).
-  const approver: SovereignApprover | undefined = config.sovereignDid
-    ? {
-        async requestApproval(req) {
-          try {
-            const reply = await transport.request(config.sovereignDid as string, req, { timeoutMs: 180_000 });
-            if (reply.type === 'hearthold/approval-response') return reply;
-            return { type: 'hearthold/approval-response', version: PROTOCOL_VERSION, approved: false, reason: `unexpected reply ${reply.type}` };
-          } catch (err) {
-            return { type: 'hearthold/approval-response', version: PROTOCOL_VERSION, approved: false, reason: `Sovereign unreachable: ${err instanceof Error ? err.message : String(err)}` };
-          }
-        },
-      }
-    : undefined;
-
   // Serve a provisioned Knowledge Base over DIDComm too (a public Mage relays to this mailbox).
   // The step-up approver reaches the member's Signet directly (out-of-band from the Mage).
   const kbs = await buildKbServices(handle, config, id.did, makeDidcommActionApprover(transport));
 
   // Wrap the real handler so a stored submission is pushed to connected consoles.
-  const inner = makeWardenHandler(service, delegations, new EvidenceService(handle, config, approver), kbs);
+  const inner = makeWardenHandler(service, delegations, evidenceService, kbs);
   const handler: RequestHandler = async (message, fromDid) => {
     const result = await inner(message, fromDid);
     if (

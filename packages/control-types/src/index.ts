@@ -392,3 +392,17 @@ export interface ProveRequest {
 export interface ProveResponse {
   proof: ProofRecord;
 }
+
+/**
+ * Present a minted Attestation scroll — it BURNS on play (single-use). Home-plane: the Sovereign
+ * demonstrates the burn on their own Table; cross-party presentation to an external verifier is the
+ * Witness's job (projecting into the world), so that path stays Witness-side.
+ */
+export interface PresentRequest {
+  credentialDid: string;
+}
+export interface PresentResponse {
+  verified: boolean;
+  /** Why it didn't verify (already spent / expired), when `verified` is false. */
+  reason?: string;
+}
