@@ -57,7 +57,8 @@
     "e2e:mark": "npm run build && HEARTHOLD_CLASSIFIER=quarantine node --experimental-strip-types scripts/e2e-mark.ts",
     "e2e:scroll-burn": "npm run build && node --experimental-strip-types scripts/e2e-scroll-burn.ts",
     "e2e:kb-seed": "npm run build && node --experimental-strip-types scripts/e2e-kb-seed.ts",
-    "e2e:forge-present": "npm run build && node --experimental-strip-types scripts/e2e-forge-present.ts"
+    "e2e:forge-present": "npm run build && node --experimental-strip-types scripts/e2e-forge-present.ts",
+    "e2e:pairwise-grant": "npm run build && node --experimental-strip-types scripts/e2e-pairwise-grant.ts"
   },
   "engines": {
     "node": ">=22"

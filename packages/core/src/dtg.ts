@@ -22,6 +22,13 @@
 import { createHash } from 'node:crypto';
 
 import type { KeymasterHandle } from './keymaster.js';
+import type { SignedRuleset } from './ruleset.js';
+import {
+  resolvePairwiseDid,
+  isPairwiseDid,
+  enforcePairwiseSubject,
+  type PairwiseStore,
+} from './pairwise.js';
 
 /** W3C VC Data Model 2.0 context (Archon credentials are 2.0-shaped: validFrom/validUntil). */
 export const W3C_VC2_CONTEXT = 'https://www.w3.org/ns/credentials/v2';
@@ -141,6 +148,73 @@ export async function issueVrc(
   validUntil?: string,
 ): Promise<string> {
   return issueDtgCredential(issuer, targetDid, DtgType.RELATIONSHIP, schemaDid, {}, validUntil);
+}
+
+/**
+ * Issue a VRC to a counterparty under **Unilateral Relationship Identification** (DTG v0.3, H1): the
+ * issuer presents a FRESH per-counterparty **R-DID** (pairwise from its own perspective) as the
+ * credential's issuer, never its stable M-DID. Each counterparty ⇒ a distinct R-DID, so two edges from
+ * the same entity are unlinkable at the wire. The R-DID→issuer linkage is Warden-private (the injected
+ * `PairwiseStore`).
+ *
+ * The R-DID-per-relationship MUST is enforced here (`enforcePairwiseSubject`): the stable M-DID
+ * bootstrapping path (`bootstrapMdid`) is refused unless the active Ruleset carries a signed
+ * `stableDidAudiences` exception for the counterparty. Returns the credential DID and the R-DID used.
+ */
+export async function issueVrcToCounterparty(
+  issuer: KeymasterHandle,
+  store: PairwiseStore,
+  args: {
+    counterparty: string;
+    schemaDid: string;
+    /** The issuer's stable identity the R-DID stands in for (linkage; never disclosed). */
+    issuerDid: string;
+    activeRuleset: SignedRuleset | null;
+    createdAt: string;
+    registry?: string;
+    validUntil?: string;
+    /** Bootstrapping: issue from this stable M-DID instead of an R-DID (needs a Ruleset exception). */
+    bootstrapMdid?: string;
+  },
+): Promise<{ credentialDid: string; issuerDid: string; pairwise: boolean }> {
+  const km = issuer.keymaster;
+  let asName: string | null = null;
+  let identityDid: string;
+  let pairwise: boolean;
+
+  if (args.bootstrapMdid) {
+    identityDid = args.bootstrapMdid;
+    pairwise = await isPairwiseDid(store, identityDid);
+  } else {
+    const rec = await resolvePairwiseDid(issuer, store, {
+      audience: args.counterparty,
+      subjectDid: args.issuerDid,
+      createdAt: args.createdAt,
+      registry: args.registry,
+    });
+    identityDid = rec.pairwiseDid;
+    asName = rec.name;
+    pairwise = true;
+  }
+
+  const gate = enforcePairwiseSubject({
+    subjectDid: identityDid,
+    audience: args.counterparty,
+    isPairwise: pairwise,
+    activeRuleset: args.activeRuleset,
+  });
+  if (!gate.ok) throw new Error(gate.reason);
+
+  // Issue AS the R-DID: the VRC's issuer is the R-DID, its subject the counterparty. Restore the
+  // wallet's prior current id afterwards so this never leaves the issuer parked on a pairwise id.
+  const prev = await km.getCurrentId().catch(() => undefined);
+  if (asName) await km.setCurrentId(asName);
+  try {
+    const credentialDid = await issueVrc(issuer, args.counterparty, args.schemaDid, args.validUntil);
+    return { credentialDid, issuerDid: identityDid, pairwise };
+  } finally {
+    if (asName && prev) await km.setCurrentId(prev);
+  }
 }
 
 /**

@@ -27,6 +27,14 @@ export interface RulesetCapabilities {
   verbs?: string[];
   /** Required assurance per verb — converges the KB assurance policy (e.g. `{ write: 'factor2' }`). */
   assurance?: Partial<Record<string, AssuranceTier>>;
+  /**
+   * Audiences (counterparty ids) for which this actor may bind an external grant / DTG VRC to a
+   * STABLE, non-pairwise identity. External identities are pairwise-by-default (DTG v0.3's
+   * R-DID-per-relationship MUST and CGPR's deliberate-choice rule); a stable identifier is a
+   * conspicuous, signed, versioned exception — never a silent opt-out. Empty/absent = every external
+   * identity must be pairwise. Enforced at the mint chokepoint by `enforcePairwiseSubject`.
+   */
+  stableDidAudiences?: string[];
 }
 
 export interface Ruleset {
