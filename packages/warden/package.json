@@ -15,6 +15,7 @@
     "./pairwise-store": { "types": "./dist/pairwise-store.d.ts", "import": "./dist/pairwise-store.js" },
     "./store": { "types": "./dist/store.d.ts", "import": "./dist/store.js" },
     "./evidence": { "types": "./dist/evidence.d.ts", "import": "./dist/evidence.js" },
+    "./cgpr": { "types": "./dist/cgpr.d.ts", "import": "./dist/cgpr.js" },
     "./recall": { "types": "./dist/recall.d.ts", "import": "./dist/recall.js" },
     "./index-store": { "types": "./dist/index-store.d.ts", "import": "./dist/index-store.js" },
     "./kb": { "types": "./dist/kb.d.ts", "import": "./dist/kb.js" },

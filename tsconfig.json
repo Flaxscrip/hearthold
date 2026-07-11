@@ -4,6 +4,7 @@
     { "path": "packages/control-types" },
     { "path": "packages/core" },
     { "path": "packages/cgpr-types" },
+    { "path": "packages/a2a-gateway" },
     { "path": "packages/warden" },
     { "path": "packages/emissary" },
     { "path": "packages/sovereign" },

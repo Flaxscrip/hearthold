@@ -1,0 +1,18 @@
+{
+  "name": "@hearthold/a2a-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Hearthold A2A gateway — the boundary adapter that speaks A2A at the edge and CGPR internally. A Mage: holds no secrets, translates envelopes, relays to the Warden. No A2A types reach @hearthold/core.",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+  },
+  "types": "./dist/index.d.ts",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc --build"
+  },
+  "dependencies": {
+    "@hearthold/cgpr-types": "0.1.0"
+  }
+}
