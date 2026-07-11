@@ -32,8 +32,35 @@ import {
 
 /** W3C VC Data Model 2.0 context (Archon credentials are 2.0-shaped: validFrom/validUntil). */
 export const W3C_VC2_CONTEXT = 'https://www.w3.org/ns/credentials/v2';
+/** W3C VC Data Model 1.1 context — accepted inbound (verify fallback), never issued. */
+export const W3C_VC1_CONTEXT = 'https://www.w3.org/2018/credentials/v1';
 /** The DTG credentials context (First Person Network). */
 export const DTG_CONTEXT = 'https://firstperson.network/credentials/dtg/v1';
+
+/**
+ * VC 1.1 → 2.0 verify fallback (DTG v0.3 SHOULD). Accept a v1.1-shaped DTG credential on the verifier
+ * path by mapping only the fields that moved: the 2018 context → the 2.0 context, `issuanceDate` →
+ * `validFrom`, `expirationDate` → `validUntil`. Same schemas, same `type` hierarchy — a non-destructive
+ * normalized copy. Issue 2.0 only; this is inbound compatibility for credentials minted by other DTG
+ * implementations. A credential already in 2.0 shape passes through unchanged.
+ */
+export function mapVc11ToVc2<T extends Record<string, unknown>>(cred: T): T {
+  const out: Record<string, unknown> = { ...cred };
+  const raw = out['@context'];
+  const ctx = Array.isArray(raw) ? [...(raw as string[])] : raw ? [raw as string] : [];
+  const mapped = ctx.map((c) => (c === W3C_VC1_CONTEXT ? W3C_VC2_CONTEXT : c));
+  if (!mapped.includes(W3C_VC2_CONTEXT)) mapped.unshift(W3C_VC2_CONTEXT);
+  out['@context'] = mapped;
+  if ('issuanceDate' in out && !('validFrom' in out)) {
+    out.validFrom = out.issuanceDate;
+    delete out.issuanceDate;
+  }
+  if ('expirationDate' in out && !('validUntil' in out)) {
+    out.validUntil = out.expirationDate;
+    delete out.expirationDate;
+  }
+  return out as T;
+}
 
 /** DTG concrete subtypes (the abstract parent is `DTGCredential`). */
 export const DtgType = {
@@ -127,6 +154,8 @@ export async function issueDtgCredential(
   schemaDid: string,
   claims: Record<string, unknown> = {},
   validUntil?: string,
+  /** Extra top-level `type` tokens (e.g. a non-authoritative PHC hint appended to a VMC). */
+  extraTypes: string[] = [],
 ): Promise<string> {
   const bound = await issuer.keymaster.bindCredential(subjectDid, {
     schema: schemaDid,
@@ -135,7 +164,7 @@ export async function issueDtgCredential(
   });
   // Shape to the DTG type hierarchy + context. The subtype lives only in the top-level `type` array
   // (DTG-faithful), not in credentialSubject. The node round-trips both (verified by the prototype).
-  bound.type = ['VerifiableCredential', DtgType.BASE, subtype];
+  bound.type = ['VerifiableCredential', DtgType.BASE, subtype, ...extraTypes];
   bound['@context'] = withDtgContext(bound['@context']);
   return issuer.keymaster.issueCredential(bound, { validUntil });
 }
@@ -243,8 +272,12 @@ export async function issueVmc(
   memberDid: string,
   schemaDid: string,
   validUntil?: string,
+  /** DTG v0.3 optional PHC hint: append 'PersonhoodCredential' when the community's governance warrants
+   *  it (non-authoritative per spec — a hint, not a proof of personhood). */
+  opts: { personhood?: boolean } = {},
 ): Promise<string> {
-  return issueDtgCredential(community, memberDid, DtgType.MEMBERSHIP, schemaDid, {}, validUntil);
+  const extraTypes = opts.personhood ? ['PersonhoodCredential'] : [];
+  return issueDtgCredential(community, memberDid, DtgType.MEMBERSHIP, schemaDid, {}, validUntil, extraTypes);
 }
 
 /** Issue a DTG Invitation Credential (VIC): authorizes `prospectDid` to join (onboarding). */

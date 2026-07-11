@@ -63,7 +63,8 @@
     "e2e:pairwise-grant": "npm run build && node --experimental-strip-types scripts/e2e-pairwise-grant.ts",
     "e2e:cgpr-schemas": "npm run build && node --experimental-strip-types scripts/e2e-cgpr-schemas.ts",
     "e2e:cgpr-gateway": "npm run build && node --experimental-strip-types scripts/e2e-cgpr-gateway.ts",
-    "e2e:cgpr": "npm run build && node --experimental-strip-types scripts/e2e-cgpr.ts"
+    "e2e:cgpr": "npm run build && node --experimental-strip-types scripts/e2e-cgpr.ts",
+    "e2e:dtg-compat": "npm run build && node --experimental-strip-types scripts/e2e-dtg-compat.ts"
   },
   "engines": {
     "node": ">=22"
