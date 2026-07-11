@@ -13,6 +13,7 @@
     "build": "tsc --build"
   },
   "dependencies": {
-    "@hearthold/cgpr-types": "0.1.0"
+    "@hearthold/cgpr-types": "0.1.0",
+    "@hearthold/core": "0.1.0"
   }
 }

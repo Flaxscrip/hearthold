@@ -31,6 +31,7 @@ import {
   type ArtefactMeta,
   type Sensitivity,
   type WitnessKind,
+  type HearthholdMessage,
 } from '@hearthold/core';
 
 import { VaultStore, type Artefact } from './store.js';
@@ -185,4 +186,26 @@ export class CgprService {
       reason,
     };
   }
+}
+
+/**
+ * The Warden's DIDComm handler for CGPR: dispatches a relayed `hearthold/cgpr-request` (from the A2A
+ * gateway on the Emissary plane) to the `CgprService` and replies with the neutral
+ * `hearthold/cgpr-response`. Plug into the Warden's `transport.serve(...)`. The gateway is authorized as
+ * an ACTOR by its Sovereign-signed Ruleset inside `CgprService` — the DIDComm `fromDid` (authcrypt-
+ * authenticated) is the gateway's own DID and need not be a subject.
+ */
+export function makeCgprHandler(service: CgprService): (msg: HearthholdMessage, fromDid: string) => Promise<HearthholdMessage | null> {
+  return async (msg) => {
+    if (msg.type !== 'hearthold/cgpr-request') return null;
+    const r = await service.handle({
+      audience: msg.audience,
+      scopes: msg.scopes,
+      purpose: msg.purpose,
+      validForMinutes: msg.validForMinutes,
+    });
+    return r.status === 'granted'
+      ? { type: 'hearthold/cgpr-response', version: PROTOCOL_VERSION, status: 'granted', credential: r.credential, schemaDid: r.schemaDid, validUntil: r.validUntil }
+      : { type: 'hearthold/cgpr-response', version: PROTOCOL_VERSION, status: 'denied', reason: r.reason };
+  };
 }

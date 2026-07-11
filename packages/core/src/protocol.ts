@@ -363,6 +363,33 @@ export type KbResultMessage =
       reason: string;
     };
 
+// ── CGPR relay (A2A gateway ↔ Warden) ────────────────────────────────────────
+// The A2A gateway (Emissary-plane) translates an inbound A2A CgprRequestArtifact into this NEUTRAL
+// internal request and relays it to the Warden over DIDComm. No A2A type crosses this channel — the
+// gateway shapes CgprGrant/CgprDecision at the edge from the neutral response.
+
+/** Gateway → Warden: a translated CGPR request (audience = the counterparty C's DID). */
+export interface CgprRelayRequestMessage {
+  type: 'hearthold/cgpr-request';
+  version: typeof PROTOCOL_VERSION;
+  audience: string;
+  scopes: string[];
+  purpose: string;
+  validForMinutes: number;
+}
+
+/** Warden → gateway: the neutral CGPR result — the attestation VC (subject = pairwise DID), or a deny. */
+export type CgprRelayResponseMessage =
+  | {
+      type: 'hearthold/cgpr-response';
+      version: typeof PROTOCOL_VERSION;
+      status: 'granted';
+      credential: Record<string, unknown>;
+      schemaDid: string;
+      validUntil: string;
+    }
+  | { type: 'hearthold/cgpr-response'; version: typeof PROTOCOL_VERSION; status: 'denied'; reason: string };
+
 /** Warden → Emissary: a request was refused (e.g. not authorized). */
 export interface ErrorMessage {
   type: 'hearthold/error';
@@ -392,4 +419,6 @@ export type HearthholdMessage =
   | RulesetSignRequestMessage
   | RulesetSignResponseMessage
   | KbResultMessage
+  | CgprRelayRequestMessage
+  | CgprRelayResponseMessage
   | ErrorMessage;

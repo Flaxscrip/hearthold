@@ -65,7 +65,8 @@
     "e2e:cgpr-gateway": "npm run build && node --experimental-strip-types scripts/e2e-cgpr-gateway.ts",
     "e2e:cgpr": "npm run build && node --experimental-strip-types scripts/e2e-cgpr.ts",
     "e2e:dtg-compat": "npm run build && node --experimental-strip-types scripts/e2e-dtg-compat.ts",
-    "demo:cgpr": "npm run build && node --experimental-strip-types scripts/demo-cgpr.ts"
+    "demo:cgpr": "npm run build && node --experimental-strip-types scripts/demo-cgpr.ts",
+    "e2e:cgpr-relay": "npm run build && node --experimental-strip-types scripts/e2e-cgpr-relay.ts"
   },
   "engines": {
     "node": ">=22"
