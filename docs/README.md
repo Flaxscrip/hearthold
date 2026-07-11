@@ -32,6 +32,7 @@ Live: the Knowledge Portal at <https://kb.archon.social/>.
 
 ## Knowledge Portal
 - [knowledge-portal.md](knowledge-portal.md) — the shared-KB portal: challenge/response login, registry-governed factor-2, multi-tenancy.
+- [kb-spaces.md](kb-spaces.md) — **design**: KB spaces = a shared partition + a per-member private partition (Family DB, custodial HATPro DB); location-abstract so private partitions can later federate to the member's own Warden.
 - [qa-knowledge-portal.md](qa-knowledge-portal.md) — hands-on "with user" QA checklist for the portal (flaxlap before archon.social).
 
 ## QA & testing
