@@ -17,6 +17,13 @@ import { createHash, randomBytes } from 'node:crypto';
 import type { KeymasterHandle } from './keymaster.js';
 import { ensureSchema, openSchema } from './schema.js';
 import { Sensitivity } from './security.js';
+import type { SignedRuleset } from './ruleset.js';
+import {
+  resolvePairwiseDid,
+  isPairwiseDid,
+  enforcePairwiseSubject,
+  type PairwiseStore,
+} from './pairwise.js';
 import type {
   WitnessKind,
   EvidenceClaimSpec,
@@ -273,6 +280,74 @@ export async function mintEvidenceGraph(
     validUntil: args.validUntil,
   });
   return { credentialDid, schemaDid };
+}
+
+// ── H1: pairwise-subject grants (CGPR) ────────────────────────────────────────
+
+export interface PairwiseGrantArgs extends Omit<MintEvidenceArgs, 'subjectDid'> {
+  /** The counterparty the grant is for — the pairwise DID is minted per audience. */
+  audience: string;
+  /** The Sovereign the pairwise subject stands in for (linkage; never disclosed). */
+  sovereignDid: string;
+  /** The gateway/actor's active Ruleset — governs stable-subject exceptions. Null ⇒ pairwise-only. */
+  activeRuleset: SignedRuleset | null;
+  /** ISO timestamp for the linkage record (callers stamp; core stays time-free). */
+  createdAt: string;
+  /** Registry for the fresh pairwise DID (defaults to the wallet's). */
+  registry?: string;
+  /**
+   * Opt-out: bind the grant to this STABLE subject instead of a fresh pairwise DID. Refused unless the
+   * active Ruleset carries a `stableDidAudiences` exception for `audience` (`enforcePairwiseSubject`).
+   */
+  stableSubject?: string;
+}
+
+/**
+ * Mint a CGPR-style external grant bound to a FRESH pairwise DID for the audience (H1). The pairwise→
+ * Sovereign linkage is recorded Warden-side and never enters the credential; the single-use `txn`,
+ * `approval`, and `validUntil` semantics are exactly `mintEvidenceGraph`'s. A stable subject is only
+ * possible under a signed Ruleset exception — the chokepoint lives here, not in the caller.
+ */
+export async function mintPairwiseGrant(
+  warden: KeymasterHandle,
+  store: PairwiseStore,
+  args: PairwiseGrantArgs,
+): Promise<{ credentialDid: string; schemaDid: string; subjectDid: string; pairwise: boolean }> {
+  let subjectDid: string;
+  let pairwise: boolean;
+  if (args.stableSubject) {
+    subjectDid = args.stableSubject;
+    pairwise = await isPairwiseDid(store, subjectDid);
+  } else {
+    const rec = await resolvePairwiseDid(warden, store, {
+      audience: args.audience,
+      subjectDid: args.sovereignDid,
+      createdAt: args.createdAt,
+      registry: args.registry,
+    });
+    subjectDid = rec.pairwiseDid;
+    pairwise = true;
+  }
+
+  const gate = enforcePairwiseSubject({
+    subjectDid,
+    audience: args.audience,
+    isPairwise: pairwise,
+    activeRuleset: args.activeRuleset,
+  });
+  if (!gate.ok) throw new Error(gate.reason);
+
+  const { credentialDid, schemaDid } = await mintEvidenceGraph(warden, {
+    subjectDid,
+    claim: args.claim,
+    structured: args.structured,
+    evidence: args.evidence,
+    issuedLeaves: args.issuedLeaves,
+    txn: args.txn,
+    validUntil: args.validUntil,
+    approval: args.approval,
+  });
+  return { credentialDid, schemaDid, subjectDid, pairwise };
 }
 
 // ── Step-up: the Sovereign co-signs a sensitive disclosure (A2) ───────────────

@@ -1,0 +1,18 @@
+{
+  "name": "@hearthold/cgpr-types",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Hearthold CGPR (Consent-Gated Preference Request) A2A extension contract — the four wire objects + draft-07 schemas + extension URI. The boundary contract shared across the A2A gateway and the conformance suite; kept out of @hearthold/core (A2A types must not leak inward).",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+  },
+  "types": "./dist/index.d.ts",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc --build"
+  },
+  "dependencies": {
+    "@hearthold/core": "0.1.0"
+  }
+}

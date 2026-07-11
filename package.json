@@ -8,6 +8,8 @@
   "workspaces": [
     "packages/control-types",
     "packages/core",
+    "packages/cgpr-types",
+    "packages/a2a-gateway",
     "packages/warden",
     "packages/emissary",
     "packages/sovereign",
@@ -57,7 +59,13 @@
     "e2e:mark": "npm run build && HEARTHOLD_CLASSIFIER=quarantine node --experimental-strip-types scripts/e2e-mark.ts",
     "e2e:scroll-burn": "npm run build && node --experimental-strip-types scripts/e2e-scroll-burn.ts",
     "e2e:kb-seed": "npm run build && node --experimental-strip-types scripts/e2e-kb-seed.ts",
-    "e2e:forge-present": "npm run build && node --experimental-strip-types scripts/e2e-forge-present.ts"
+    "e2e:forge-present": "npm run build && node --experimental-strip-types scripts/e2e-forge-present.ts",
+    "e2e:pairwise-grant": "npm run build && node --experimental-strip-types scripts/e2e-pairwise-grant.ts",
+    "e2e:cgpr-schemas": "npm run build && node --experimental-strip-types scripts/e2e-cgpr-schemas.ts",
+    "e2e:cgpr-gateway": "npm run build && node --experimental-strip-types scripts/e2e-cgpr-gateway.ts",
+    "e2e:cgpr": "npm run build && node --experimental-strip-types scripts/e2e-cgpr.ts",
+    "e2e:dtg-compat": "npm run build && node --experimental-strip-types scripts/e2e-dtg-compat.ts",
+    "demo:cgpr": "npm run build && node --experimental-strip-types scripts/demo-cgpr.ts"
   },
   "engines": {
     "node": ">=22"
