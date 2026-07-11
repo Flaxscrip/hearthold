@@ -212,8 +212,9 @@ export interface MarkClaimableResponse {
 }
 export interface MarkClaimRequest {
   candidate: MarkCandidate;
-  /** The Sovereign DID the Mark is issued to. */
-  subjectDid: string;
+  /** The Sovereign DID the Mark is issued to. Optional — defaults to the Warden's configured Sovereign
+   *  (mirrors /api/forge), so the front-end can send just `{ candidate }`. */
+  subjectDid?: string;
 }
 export type MarkClaimResult =
   | { issued: true; markName: string; count: number; threshold: number; credentialDid: string }

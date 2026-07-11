@@ -272,8 +272,12 @@ export async function runWardenControl(
         return { marks: await claimableMarks(handle, candidates ?? []) };
       },
       'POST /api/marks/claim': async ({ body }) => {
-        const { candidate, subjectDid } = (body ?? {}) as MarkClaimRequest;
-        if (!candidate || !subjectDid) throw new Error('candidate and subjectDid are required');
+        const { candidate, subjectDid: bodyDid } = (body ?? {}) as MarkClaimRequest;
+        // Default the subject to the configured Sovereign (mirrors /api/forge), so the front-end can
+        // send just `{ candidate }` and never needs to know the Sovereign's DID.
+        const subjectDid = bodyDid ?? config.sovereignDid;
+        if (!candidate) throw new Error('candidate is required');
+        if (!subjectDid) throw new Error('subjectDid is required (no Sovereign configured on this Warden)');
         const result = await claimMark(handle, { candidate, subjectDid });
         if (result.issued) server.emit('mark-issued', { result });
         return { result };
