@@ -235,6 +235,10 @@ export interface KbRequestStatement {
   /** Update: the knowledge to contribute. */
   kind?: string;
   text?: string;
+  /** KB Spaces: which partition an update targets — the shared partition or the member's own private
+   *  one. Omit to use the space's default (`defaultScope`). Ignored for queries (which union the
+   *  member's visible set). */
+  scope?: 'shared' | 'private';
 }
 /** A KB request statement plus the Sovereign's detached signature (`keymaster.addProof`). */
 export type SignedKbRequest = KbRequestStatement & { proof?: unknown };
@@ -296,6 +300,8 @@ export interface KbSessionRequestMessage {
   k?: number;
   kind?: string;
   text?: string;
+  /** KB Spaces: target the shared partition or the member's private one (update only; default per space). */
+  scope?: 'shared' | 'private';
 }
 
 // ── KB assurance step-up (factor 2): the Warden asks the member out-of-band to authorize an action ──

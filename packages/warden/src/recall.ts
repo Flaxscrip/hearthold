@@ -80,8 +80,9 @@ export interface RecallOptions {
   k?: number;
   /** Drop artefacts above this sensitivity from recall (e.g. exclude SEALED). */
   maxSensitivity?: number;
-  /** Scope to one Knowledge Base (kbId), or `null` for the personal vault only. Omit = all. */
-  kb?: string | null;
+  /** Scope retrieval: one KB id, an array of ids (a member's visible set of partitions), `null` for the
+   *  personal vault only, or omit for all. */
+  kb?: string | string[] | null;
 }
 
 export class RecallService {

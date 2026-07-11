@@ -1,9 +1,12 @@
+import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import {
   GroupTrustRegistry,
   RulesetAssurancePolicy,
+  createRegistryGroup,
+  grantAuthorization,
   rulesetId,
   activeRuleset,
   selfSigner,
@@ -17,8 +20,13 @@ import {
 } from '@hearthold/core';
 
 import { KbService, type KbActionApprover } from './kb.js';
+import { PartitionStore, type PartitionRecord } from './partition-store.js';
 
-/** Persisted KB provisioning for a Warden: the resource, its access groups, and its policy chain. */
+/**
+ * Persisted KB provisioning for a Warden: the resource (a KB *space*), its shared-partition access
+ * groups, and its policy chain. A space with `memberPartitions` auto-provisions a private partition per
+ * granted member (docs/kb-spaces.md).
+ */
 export interface KbConfig {
   kbId: string;
   readGroup: string;
@@ -27,6 +35,34 @@ export interface KbConfig {
   policyAsset?: string;
   /** The governing DID that signs the policy chain (readers pin it). Absent = self-governed by Warden. */
   governorDid?: string;
+  /** KB Spaces: grant a member their own private partition (private DB) on join. Default false. */
+  memberPartitions?: boolean;
+  /** Where a scope-less contribution lands. Default 'shared'. Personal-profile spaces set 'private'. */
+  defaultScope?: 'shared' | 'private';
+}
+
+const sha16 = (s: string): string => createHash('sha256').update(s).digest('hex').slice(0, 16);
+
+/**
+ * Provision a member's private partition in a space: a single GroupTrustRegistry group whose sole member
+ * is the owner (read + write), recorded (location `local`) so recall can add it to the owner's visible
+ * set. Idempotent — returns the existing record if already provisioned.
+ */
+export async function provisionMemberPartition(
+  handle: KeymasterHandle,
+  config: HearthholdConfig,
+  spaceId: string,
+  ownerDid: string,
+): Promise<PartitionRecord> {
+  const partitions = new PartitionStore(handle.dataFolder);
+  const existing = await partitions.get(spaceId, ownerDid);
+  if (existing) return existing;
+  const id = `${spaceId}::priv:${sha16(ownerDid)}`;
+  const group = await createRegistryGroup(handle, `kb-priv-${sha16(spaceId + ownerDid)}`, config.registry);
+  await grantAuthorization(handle, group, ownerDid);
+  const rec: PartitionRecord = { spaceId, owner: ownerDid, id, group, location: { kind: 'local' }, createdAt: new Date().toISOString() };
+  await partitions.put(rec);
+  return rec;
 }
 
 /** Raised when governance (the Signet) declines / is unreachable — the caller must not proceed. */
@@ -157,7 +193,15 @@ function serviceFor(handle: KeymasterHandle, config: HearthholdConfig, wardenDid
     wardenDid,
     policy,
   );
-  return new KbService(handle, config, { kbId: kb.kbId, wardenDid, registry, approver });
+  return new KbService(handle, config, {
+    kbId: kb.kbId,
+    wardenDid,
+    registry,
+    approver,
+    memberPartitions: kb.memberPartitions,
+    defaultScope: kb.defaultScope,
+    partitions: kb.memberPartitions ? new PartitionStore(handle.dataFolder) : undefined,
+  });
 }
 
 /**

@@ -50,19 +50,23 @@ export interface ScoredEntry {
 
 /**
  * Rank index entries against a query embedding, most-similar first. `maxSensitivity` drops anything
- * above a ceiling; `kb` scopes to a single Knowledge Base (or, when `null`, to the personal vault only)
- * — this is what keeps one KB's content from surfacing in another KB's query on a multi-KB Warden.
+ * above a ceiling; `kb` scopes retrieval: a single KB id, an ARRAY of ids (the caller's *visible set* —
+ * their shared partition + their own private partition, for KB Spaces), or `null` for the personal vault
+ * only. This is what keeps one KB's (or one member's private partition's) content from surfacing in
+ * another's query on a multi-KB Warden.
  */
 export function rankByQuery(
   queryEmbedding: number[],
   entries: IndexEntry[],
-  opts: { k?: number; maxSensitivity?: number; kb?: string | null } = {},
+  opts: { k?: number; maxSensitivity?: number; kb?: string | string[] | null } = {},
 ): ScoredEntry[] {
   const k = opts.k ?? 5;
   const ceiling = opts.maxSensitivity ?? Number.POSITIVE_INFINITY;
+  const kbSet = Array.isArray(opts.kb) ? new Set(opts.kb) : null;
   const kbMatch = (e: IndexEntry): boolean => {
     if (opts.kb === undefined) return true; // no scope → all entries
     if (opts.kb === null) return e.kb === undefined; // personal vault only
+    if (kbSet) return e.kb !== undefined && kbSet.has(e.kb); // visible set (union of partitions)
     return e.kb === opts.kb; // exactly this KB
   };
   return entries

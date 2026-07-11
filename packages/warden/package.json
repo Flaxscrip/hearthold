@@ -13,6 +13,7 @@
     "./handler": { "types": "./dist/handler.d.ts", "import": "./dist/handler.js" },
     "./delegations": { "types": "./dist/delegations.d.ts", "import": "./dist/delegations.js" },
     "./pairwise-store": { "types": "./dist/pairwise-store.d.ts", "import": "./dist/pairwise-store.js" },
+    "./partition-store": { "types": "./dist/partition-store.d.ts", "import": "./dist/partition-store.js" },
     "./store": { "types": "./dist/store.d.ts", "import": "./dist/store.js" },
     "./evidence": { "types": "./dist/evidence.d.ts", "import": "./dist/evidence.js" },
     "./cgpr": { "types": "./dist/cgpr.d.ts", "import": "./dist/cgpr.js" },

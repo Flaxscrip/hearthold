@@ -60,7 +60,7 @@ import { makeDidcommActionApprover, makeDidcommRulesetSigner } from './kb.js';
 import { hydrateCardFace } from './face.js';
 import { triageQueue, confirmTriage } from './triage.js';
 import { claimableMarks, claimMark } from './marks.js';
-import { buildKbServices, KbConfigStore, setKbAssurance, readKbAssurance } from './kb-config.js';
+import { buildKbServices, KbConfigStore, setKbAssurance, readKbAssurance, provisionMemberPartition } from './kb-config.js';
 import { makeWardenHandler } from './handler.js';
 
 const sensitivityName = (s: number): SensitivityName => SENSITIVITY_NAMES[s] ?? 'SEALED';
@@ -294,6 +294,8 @@ export async function runWardenControl(
         if (!did) throw new Error('did is required');
         if (scope === 'read' || scope === 'both') await grantAuthorization(handle, kb.readGroup, did);
         if (scope === 'write' || scope === 'both') await grantAuthorization(handle, kb.writeGroup, did);
+        // KB Spaces: granting a member also provisions their private partition (their private DB).
+        if (kb.memberPartitions) await provisionMemberPartition(handle, config, kb.kbId, did);
         const kbs = await kbList();
         server.emit('kb-changed', { kbs });
         return { kbs };

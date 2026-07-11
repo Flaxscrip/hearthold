@@ -42,6 +42,7 @@ import { VaultStore, type Artefact } from './store.js';
 import { IndexStore } from './index-store.js';
 import { RecallService } from './recall.js';
 import { OllamaEmbedder } from './recall.js';
+import type { PartitionStore } from './partition-store.js';
 
 interface KbServiceOptions {
   kbId: string;
@@ -55,6 +56,12 @@ interface KbServiceOptions {
   sessionTtlMs?: number;
   /** Out-of-band step-up: asks the member's Signet to authorize a factor2 action, when policy demands it. */
   approver?: KbActionApprover;
+  /** KB Spaces: this space grants each member a private partition (private DB). */
+  memberPartitions?: boolean;
+  /** Where a scope-less contribution lands. Default 'shared'. */
+  defaultScope?: 'shared' | 'private';
+  /** The Warden-side store of per-member private partitions (present when `memberPartitions`). */
+  partitions?: PartitionStore;
 }
 
 /**
@@ -207,63 +214,94 @@ export class KbService {
     return this.execute(s.did, req);
   }
 
-  /** Shared: authorize the DID for the action, then query (recall) or update (seal+classify+index). */
-  private async execute(
-    did: string,
-    req: { action: 'query' | 'update'; query?: string; k?: number; kind?: string; text?: string },
-  ): Promise<KbResultMessage> {
-    const action = req.action === 'update' ? 'write' : 'read';
+  /** The member's own private partition in this space, if provisioned + they are still its member. */
+  private async ownPartition(did: string): Promise<{ id: string } | null> {
+    if (!this.opts.partitions) return null;
+    const p = await this.opts.partitions.get(this.opts.kbId, did);
+    if (!p || p.location.kind !== 'local') return null; // Phase 1: local partitions only
+    const member = await this.warden.keymaster.testGroup(p.group, did).catch(() => false);
+    return member ? { id: p.id } : null;
+  }
+
+  /** Run the assurance step-up if the space's policy requires more than factor1 for `action`. */
+  private async clearAssurance(did: string, action: 'read' | 'write', summary: string): Promise<string | null> {
     const authz = await this.opts.registry.authorize({ entity_id: did, action, resource: this.opts.kbId });
-    if (!authz.authorized) return kbErr(`not authorized to ${action} this KB`);
-
-    // Assurance step-up (factor 2) — governance policy, read from the registry. Both entry paths (a
-    // signed request, a web-login session) achieve factor1; if policy requires more, the Warden asks
-    // the member out-of-band (direct to their Signet — a channel the Mage is never on) to authorize it.
     const required = authz.requiredAssurance ?? 'factor1';
-    if (!meetsAssurance('factor1', required)) {
-      if (!this.opts.approver) return kbErr(`${action} requires ${required}, but no step-up channel is configured`);
-      const summary =
-        req.action === 'update' ? `contribute to ${this.opts.kbId}: “${(req.text ?? '').slice(0, 80)}”` : `${action} on ${this.opts.kbId}`;
-      const approved = await this.opts.approver.requestActionApproval({ member: did, action, resource: this.opts.kbId, summary });
-      if (!approved) return kbErr(`${action} was not authorized by the Sovereign (${required} step-up declined)`);
-    }
+    if (meetsAssurance('factor1', required)) return null;
+    if (!this.opts.approver) return `${action} requires ${required}, but no step-up channel is configured`;
+    const approved = await this.opts.approver.requestActionApproval({ member: did, action, resource: this.opts.kbId, summary });
+    return approved ? null : `${action} was not authorized by the Sovereign (${required} step-up declined)`;
+  }
 
-    if (req.action === 'query') {
-      if (!req.query) return kbErr('query is required');
-      // INVARIANT II — no query attribution retained. The query and `did` are read in memory only to
-      // answer; nothing about *who asked what, when* is persisted or logged. Retaining it would let the
-      // host reconstruct a member's interest graph (PVM Reconstruction Ceiling, R<1). Any future ops
-      // metrics MUST be aggregate and non-attributable. Do not add query/requester logging here.
-      // Scope recall to THIS KB — one Warden holds many KBs in one index; a query must never surface
-      // another KB's content.
-      const result = await RecallService.forWarden(this.warden, this.config).recall(req.query, { k: req.k, kb: this.opts.kbId });
-      return { type: 'hearthold/kb-result', version: PROTOCOL_VERSION, action: 'query', answer: result.answer, citations: result.citations };
-    }
-
-    // update — INVARIANT I: this stores *shared* knowledge into the KB, contributor-attributed. It is
-    // not a personal vault; a member's 7th Capital must never be routed here (content discipline is a
-    // governance rule — the prove→contribute path is how a consented, derived fact enters the KB).
-    if (!req.kind || !req.text) return kbErr('kind and text are required for an update');
-    const ciphertext = await sealForWarden(this.warden, this.opts.wardenDid, JSON.stringify({ text: req.text }));
-    const classification = await createClassifier(this.config).classify({ kind: req.kind, text: req.text });
+  /** Seal + classify + index a contribution into partition `kb`. */
+  private async storeContribution(did: string, kind: string, text: string, kb: string): Promise<KbResultMessage> {
+    const ciphertext = await sealForWarden(this.warden, this.opts.wardenDid, JSON.stringify({ text }));
+    const classification = await createClassifier(this.config).classify({ kind, text });
     const id = contentId(ciphertext, this.warden.cipher);
     const artefact: Artefact = {
       id,
-      kind: req.kind as Artefact['kind'],
+      kind: kind as Artefact['kind'],
       observedAt: new Date().toISOString(),
       storedAt: new Date().toISOString(),
       sensitivity: classification.sensitivity,
       ciphertext,
-      metadata: { ...classification.metadata, kb: this.opts.kbId, contributor: did },
+      metadata: { ...classification.metadata, kb, contributor: did },
     };
     await this.store.put(artefact);
     try {
-      const embedding = await this.embedder.embed(req.text);
-      await this.index.put({ artefactId: id, kind: artefact.kind, observedAt: artefact.observedAt, sensitivity: artefact.sensitivity, embedding, kb: this.opts.kbId });
+      const embedding = await this.embedder.embed(text);
+      await this.index.put({ artefactId: id, kind: artefact.kind, observedAt: artefact.observedAt, sensitivity: artefact.sensitivity, embedding, kb });
     } catch {
       /* index is best-effort */
     }
     return { type: 'hearthold/kb-result', version: PROTOCOL_VERSION, action: 'update', artefactId: id };
+  }
+
+  /**
+   * Authorize the DID (from the authenticated session — never client input), then serve. A query unions
+   * the member's **visible set** (shared partition + their own private partition); an update targets one
+   * partition by `scope` (default per space). See docs/kb-spaces.md.
+   */
+  private async execute(
+    did: string,
+    req: { action: 'query' | 'update'; query?: string; k?: number; kind?: string; text?: string; scope?: 'shared' | 'private' },
+  ): Promise<KbResultMessage> {
+    const own = await this.ownPartition(did);
+
+    if (req.action === 'query') {
+      // Visible set = the shared partition (if a member) ∪ the caller's own private partition. Computed
+      // from the authenticated DID, NEVER from the request — a member can't ask to read another's data.
+      const sharedRead = (await this.opts.registry.authorize({ entity_id: did, action: 'read', resource: this.opts.kbId })).authorized;
+      const visible: string[] = [];
+      if (sharedRead) visible.push(this.opts.kbId);
+      if (own) visible.push(own.id);
+      if (visible.length === 0) return kbErr('not authorized to read this KB');
+      if (!req.query) return kbErr('query is required');
+      const stepUp = await this.clearAssurance(did, 'read', `read on ${this.opts.kbId}`);
+      if (stepUp) return kbErr(stepUp);
+      // INVARIANT II — no query attribution retained. The query and `did` are read in memory only to
+      // answer; nothing about who-asked-what-when is persisted. Do not add query/requester logging here.
+      const result = await RecallService.forWarden(this.warden, this.config).recall(req.query, { k: req.k, kb: visible });
+      return { type: 'hearthold/kb-result', version: PROTOCOL_VERSION, action: 'query', answer: result.answer, citations: result.citations };
+    }
+
+    // update — resolve the target partition by scope.
+    if (!req.kind || !req.text) return kbErr('kind and text are required for an update');
+    const scope = req.scope ?? this.opts.defaultScope ?? 'shared';
+    if (scope === 'private') {
+      // A member's own private partition — their private DB. INVARIANT I is preserved: private and
+      // shared never merge without an explicit promotion; this write stays in the owner's partition.
+      if (!own) return kbErr('no private partition for you on this KB (the space may not grant member partitions)');
+      const stepUp = await this.clearAssurance(did, 'write', `contribute (private) to ${this.opts.kbId}: “${req.text.slice(0, 80)}”`);
+      if (stepUp) return kbErr(stepUp);
+      return this.storeContribution(did, req.kind, req.text, own.id);
+    }
+    // shared partition — INVARIANT I: shared knowledge, contributor-attributed; not a personal vault.
+    const sharedWrite = (await this.opts.registry.authorize({ entity_id: did, action: 'write', resource: this.opts.kbId })).authorized;
+    if (!sharedWrite) return kbErr('not authorized to write this KB');
+    const stepUp = await this.clearAssurance(did, 'write', `contribute to ${this.opts.kbId}: “${req.text.slice(0, 80)}”`);
+    if (stepUp) return kbErr(stepUp);
+    return this.storeContribution(did, req.kind, req.text, this.opts.kbId);
   }
 }
 

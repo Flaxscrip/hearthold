@@ -24,7 +24,7 @@ import { DelegationStore } from './delegations.js';
 import { EvidenceService } from './evidence.js';
 import { RecallService, OllamaEmbedder } from './recall.js';
 import { makeDidcommActionApprover, makeDidcommRulesetSigner } from './kb.js';
-import { KbConfigStore, buildKbServices, initKbAssurance, setKbAssurance, readKbAssurance } from './kb-config.js';
+import { KbConfigStore, buildKbServices, initKbAssurance, setKbAssurance, readKbAssurance, provisionMemberPartition } from './kb-config.js';
 import { seedKb, resetKb, DEMO_SETS, DEFAULT_DEMO_SET } from './kb-seed.js';
 import { makeWardenHandler } from './handler.js';
 
@@ -264,9 +264,12 @@ async function main(): Promise<void> {
     }
     case 'kb-init': {
       const kbId = process.argv[3];
-      if (!kbId || kbId.startsWith('--')) throw new Error('usage: warden kb-init <kbId> [--governor <sovereignDid>]');
+      if (!kbId || kbId.startsWith('--')) throw new Error('usage: warden kb-init <kbId> [--governor <sovereignDid>] [--member-partitions] [--default-scope shared|private]');
       const gi = process.argv.indexOf('--governor');
       const governorDid = gi > 0 ? process.argv[gi + 1] : config.sovereignDid;
+      const memberPartitions = process.argv.includes('--member-partitions');
+      const dsi = process.argv.indexOf('--default-scope');
+      const defaultScope = dsi > 0 && (process.argv[dsi + 1] === 'private' || process.argv[dsi + 1] === 'shared') ? (process.argv[dsi + 1] as 'shared' | 'private') : undefined;
       const id = await ensureIdentity(handle, config);
       const store = new KbConfigStore(handle.dataFolder);
       if (await store.get(kbId)) throw new Error(`KB "${kbId}" is already provisioned (each Warden can hold many KBs — pick a new id)`);
@@ -276,11 +279,12 @@ async function main(): Promise<void> {
       // the Warden itself if self-governed). Readers pin the governor DID.
       const { signer } = await cliRulesetSigner(handle, config, id.did, governorDid);
       const policyAsset = await initKbAssurance(handle, config, kbId, signer);
-      await store.put({ kbId, readGroup, writeGroup, policyAsset, governorDid });
+      await store.put({ kbId, readGroup, writeGroup, policyAsset, governorDid, memberPartitions: memberPartitions || undefined, defaultScope });
       process.stdout.write(
         `Knowledge Base "${kbId}" provisioned\n` +
           `  read group:  ${readGroup}\n  write group: ${writeGroup}\n  policy:      ${policyAsset}\n` +
           `  governance:  ${governorDid ? `Sovereign ${governorDid.slice(0, 20)}… (signs at the Signet)` : 'self-governed (Warden signs)'}\n` +
+          (memberPartitions ? `  spaces:      member partitions ON (each grant gets a private DB; default contribute = ${defaultScope ?? 'shared'})\n` : '') +
           `  → grant members:  warden kb-grant <sovereignDid> both --kb ${kbId}\n` +
           `  → raise assurance: warden kb-policy write factor2 --kb ${kbId}\n` +
           `  → serve it:       warden serve   (or warden control)\n`,
@@ -335,8 +339,15 @@ async function main(): Promise<void> {
         if (cmd === 'kb-grant') await grantAuthorization(handle, g, did);
         else await revokeAuthorization(handle, g, did);
       }
+      // KB Spaces: granting a member also provisions their private partition (their private DB). The
+      // partition (and its data) is retained on revoke — deletion is a separate, explicit op.
+      let partNote = '';
+      if (cmd === 'kb-grant' && kb.memberPartitions) {
+        const part = await provisionMemberPartition(handle, config, kb.kbId, did);
+        partNote = `  private partition: ${part.id}\n`;
+      }
       process.stdout.write(
-        `${cmd === 'kb-grant' ? 'Granted' : 'Revoked'} ${scope} for ${did.slice(0, 28)}… on "${kb.kbId}"\n`,
+        `${cmd === 'kb-grant' ? 'Granted' : 'Revoked'} ${scope} for ${did.slice(0, 28)}… on "${kb.kbId}"\n` + partNote,
       );
       break;
     }
