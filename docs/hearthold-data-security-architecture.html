@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hearthold — Data Security Architecture for Policy-Constrained AI Agents</title>
+<style>
+  :root {
+    --bg: #10141c; --panel: #171d28; --panel2: #1c2432; --edge: #2c3648;
+    --ink: #dbe2ee; --dim: #8b96a8;
+    --det: #2f9e77;      /* deterministic */
+    --prob: #d8973c;     /* probabilistic */
+    --human: #c9a227;    /* human authority */
+    --data: #4a5aa8;     /* sealed data */
+    --gate: #b8452f;     /* enforcement gate */
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: var(--bg); color: var(--ink); font-family: 'Helvetica Neue', Arial, sans-serif;
+         padding: 28px 36px 48px; font-size: 13px; }
+  h1 { font-size: 19px; font-weight: 600; letter-spacing: .02em; }
+  h1 small { display: block; font-size: 12px; color: var(--dim); font-weight: 400; margin-top: 4px; }
+  .rule { font-size: 13px; margin: 10px 0 18px; color: var(--ink); }
+  .rule b { color: var(--det); } .rule i { color: var(--prob); font-style: normal; font-weight: 600; }
+
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; margin-bottom: 20px; font-size: 11px; color: var(--dim); }
+  .legend span { display: flex; align-items: center; gap: 6px; }
+  .chip { width: 14px; height: 10px; border-radius: 3px; display: inline-block; }
+  .c-det  { background: none; border: 2px solid var(--det); }
+  .c-prob { background: none; border: 2px dashed var(--prob); }
+  .c-hum  { background: none; border: 2px solid var(--human); }
+  .c-data { background: var(--data); opacity: .5; }
+  .c-gate { background: var(--gate); }
+
+  .planes { display: grid; grid-template-columns: 240px 1fr 300px; gap: 0; max-width: 1180px; }
+  .plane { border: 1px solid var(--edge); background: var(--panel); padding: 14px; position: relative; }
+  .plane h2 { font-size: 11px; letter-spacing: .18em; color: var(--dim); margin-bottom: 4px; }
+  .plane .sub { font-size: 10px; color: var(--dim); margin-bottom: 12px; }
+  .plane + .plane { border-left: none; }
+
+  .box { border-radius: 8px; padding: 9px 11px; margin-bottom: 10px; background: var(--panel2); }
+  .box h3 { font-size: 12.5px; font-weight: 600; margin-bottom: 3px; }
+  .box p { font-size: 10.5px; color: var(--dim); line-height: 1.5; }
+  .box .tag { float: right; font-size: 8.5px; letter-spacing: .1em; padding: 1px 6px; border-radius: 7px; font-weight: 700; }
+  .det  { border: 2px solid var(--det); }   .det  .tag { background: var(--det); color: #0d1117; }
+  .prob { border: 2px dashed var(--prob); } .prob .tag { background: var(--prob); color: #0d1117; }
+  .hum  { border: 2px solid var(--human); } .hum  .tag { background: var(--human); color: #0d1117; }
+  .data { border: 1px solid var(--data); background: #1a2036; } .data .tag { background: var(--data); color: #dbe2ee; }
+
+  .gatebar { background: var(--gate); color: #fff; font-size: 9.5px; font-weight: 700; letter-spacing: .12em;
+    text-align: center; padding: 5px 4px; border-radius: 6px; margin: 12px 0; }
+  .gatebar small { display: block; font-weight: 400; font-size: 8.5px; opacity: .85; letter-spacing: .04em; margin-top: 2px;}
+
+  .lane { font-size: 9px; letter-spacing: .14em; color: var(--dim); margin: 12px 0 6px; }
+
+  .flows { max-width: 1180px; margin-top: 22px; border: 1px solid var(--edge); background: var(--panel); padding: 14px 16px; }
+  .flows h2 { font-size: 11px; letter-spacing: .18em; color: var(--dim); margin-bottom: 10px; }
+  .flow { font-size: 11.5px; margin-bottom: 8px; line-height: 1.55; }
+  .flow b { color: var(--ink); }
+  .flow .g { color: var(--gate); font-weight: 700; }
+  .flow .d { color: var(--det); font-weight: 600; }
+  .flow .p { color: var(--prob); font-weight: 600; }
+  .flow .h { color: var(--human); font-weight: 600; }
+
+  .formal { max-width: 1180px; margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap; }
+  .formal div { flex: 1; min-width: 200px; border: 1px solid var(--edge); background: var(--panel); border-radius: 8px;
+    padding: 10px 12px; font-size: 10.5px; color: var(--dim); line-height: 1.55; }
+  .formal b { color: var(--ink); display: block; font-size: 11.5px; margin-bottom: 3px; }
+  .foot { max-width: 1180px; margin-top: 16px; font-size: 10px; color: var(--dim); }
+  .foot a { color: #7aa2d8; }
+</style>
+</head>
+<body>
+
+<h1>Hearthold — Data Security Architecture for Policy-Constrained AI Agents
+<small>DIF Trusted AI Agents WG · running code on Archon did:cid · live at kb.archon.social</small></h1>
+
+<p class="rule">Design rule: <i>probabilistic components propose</i>; <b>deterministic components dispose</b>. No LLM is ever the security boundary. Policy is signed by the human, enforced at egress, and survives a compromised enforcer (governor pinning fails closed).</p>
+
+<div class="legend">
+  <span><span class="chip c-hum"></span> human authority</span>
+  <span><span class="chip c-det"></span> deterministic (pure code, verifiable)</span>
+  <span><span class="chip c-prob"></span> probabilistic (LLM — propose-only)</span>
+  <span><span class="chip c-data"></span> sealed data at rest</span>
+  <span><span class="chip c-gate"></span> enforcement gate (every boundary crossing)</span>
+</div>
+
+<div class="planes">
+
+  <div class="plane">
+    <h2>CONTROL PLANE</h2>
+    <div class="sub">the human principal · occasional</div>
+    <div class="box hum"><span class="tag">HUMAN</span>
+      <h3>Principal (Sovereign)</h3>
+      <p>The delegating human. Root of every authority chain. Own DID, own wallet, own keys.</p>
+    </div>
+    <div class="box hum"><span class="tag">HUMAN</span>
+      <h3>Signet (approver device)</h3>
+      <p>Signs policy (Rulesets) and co-signs sensitive disclosures with fresh proof-of-human. Consent text is <b>never authored by the requesting agent</b> — the policy engine writes what the human reads.</p>
+    </div>
+    <div class="box det"><span class="tag">DET</span>
+      <h3>Ruleset chains &nbsp;<i>= π</i></h3>
+      <p>Versioned, append-only, per-actor policy documents signed by the Principal. Readers pin the governor's key: a self-signed downgrade by a rooted enforcer is <b>rejected, fails closed</b>. Unsigned policy governs nothing.</p>
+    </div>
+    <div class="gatebar">PROOF-OF-HUMAN GATE<small>challenge-bound · single-use txn · decline ⇒ nothing happens</small></div>
+  </div>
+
+  <div class="plane">
+    <h2>HOME PLANE — TRUSTED HARDWARE</h2>
+    <div class="sub">always-on · custodies data · enforces policy · never acts in the world</div>
+
+    <div class="box det"><span class="tag">DET · δ_D</span>
+      <h3>Warden — deterministic policy engine</h3>
+      <p><b>decideRelease</b>(sensitivity × authorization tier × disclosure mode) at every crossing · per-actor Ruleset checks (kinds / verbs / ceiling / assurance) <b>at egress</b> · authorization ladder: STANDING→LOW · CHALLENGE→MEDIUM · HUMAN→HIGH · MULTIFACTOR→SEALED · deny-by-default.</p>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="box data"><span class="tag">SEALED</span>
+        <h3>Vault (the 7th Capital)</h3>
+        <p>Personal history, encrypted at rest. Index = embeddings + metadata only, no plaintext. Content unsealed transiently, per cleared request.</p>
+      </div>
+      <div class="box data"><span class="tag">AUDIT</span>
+        <h3>Evidence, not logs</h3>
+        <p>Disclosures recorded as salted-Merkle commitments + signed approval statements — <b>transactions, never payloads</b>. Queries not logged.</p>
+      </div>
+    </div>
+
+    <div class="lane">PROPOSE-ONLY LANE — models are local, labeled machine-derived, and cannot act</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+      <div class="box prob"><span class="tag">PROB · δ_N</span>
+        <h3>Classifier</h3>
+        <p>Local LLM assigns sensitivity. <b>Fail-safe: unclassified = SEALED</b> (most restricted). Human confirms at triage. A jailbroken classifier can only misclassify into quarantine.</p>
+      </div>
+      <div class="box prob"><span class="tag">PROB · δ_N</span>
+        <h3>Recall (RAG)</h3>
+        <p>Answers the principal's questions from the vault, on-device, ceiling-scoped. Output is fallible, cited, never a verifiable claim by itself.</p>
+      </div>
+      <div class="box prob"><span class="tag">PROB · δ_N</span>
+        <h3>Agent scripts</h3>
+        <p>Optionally AI-drafted, human-audited before capability grant. Each runs under its own signed Ruleset; the Warden checks its egress. Prompt injection can corrupt an interpretation — <b>it cannot widen an authorization</b>.</p>
+      </div>
+    </div>
+
+    <div class="gatebar">EGRESS GATE — decideRelease() + actor Ruleset + ladder<small>what leaves: a derived, scoped, expiring, single-use, audience-bound credential — never a raw dump, never a score</small></div>
+  </div>
+
+  <div class="plane">
+    <h2>WORLD PLANE</h2>
+    <div class="sub">phones · browsers · other parties' agents</div>
+    <div class="box det"><span class="tag">DET</span>
+      <h3>Emissaries (the principal's envoys)</h3>
+      <p>Carry sealed envelopes and present credentials. Hold no secrets, are never the authority, and are revocable. Kind-scoped delegation credentials bound their reach.</p>
+    </div>
+    <div class="box prob"><span class="tag">EXTERN</span>
+      <h3>Third-party AI agents / verifiers</h3>
+      <p>Receive purpose-bound grants issued to <b>pairwise DIDs</b> (fresh per relationship — ToIP DTG v0.3). Verify offline against issuer signatures. Reuse refused; expiry enforced; revocation one message away.</p>
+    </div>
+    <div class="box prob"><span class="tag">EXTERN</span>
+      <h3>Brokers / intermediaries</h3>
+      <p>Relay consent-gated request tickets (no subject identifier, expiring, single-use). Structurally cannot see content — no GDPR custody of data they never process.</p>
+    </div>
+    <div class="gatebar">TRUST REGISTRY (ToIP TRQP)<small>outward: who may issue · inward: what each agent may do</small></div>
+  </div>
+</div>
+
+<div class="flows">
+  <h2>THREE FLOWS, END TO END</h2>
+  <div class="flow"><b>Capture:</b> Emissary witnesses context → sealed envelope home → <span class="g">delegation check</span> → <span class="p">classifier proposes sensitivity</span> (fail-safe SEALED) → <span class="h">human confirms at triage</span> → stored sealed.</div>
+  <div class="flow"><b>Ask (private RAG):</b> principal asks their own vault → <span class="p">recall answers with citations</span>, on-device, ceiling-scoped → nothing leaves the house; query not logged.</div>
+  <div class="flow"><b>Disclose (agentic request):</b> third-party AI sends purpose-bearing, subject-less ticket → <span class="d">Warden authors the consent sentence</span> → <span class="h">Signet: proof-of-human approve/decline</span> → <span class="g">egress gate</span> → derived credential to a fresh pairwise DID → verified offline → <b>burns on reuse, expires on schedule</b>.</div>
+</div>
+
+<div class="formal">
+  <div><b>Tom Jones's dual-mode model</b>O = δ_D(δ_N(p), π). Here: δ_N = local models (propose) · π = principal-signed Ruleset chains · δ_D = Warden release decision + egress checks · O = scoped verifiable credential.</div>
+  <div><b>Accountability chain</b>Agent → scoped delegation VC → Warden policy → principal's signature. The "legally responsible party" isn't a metadata field — it's the signature chain, offline-verifiable.</div>
+  <div><b>Standards</b>W3C DID + VC 2.0 · DIDComm v2 · ToIP TRQP v2.0 · ToIP DTG v0.3 (pairwise R-DIDs) · JSON Schema · A2A bridge in progress (consent-gated preference requests).</div>
+</div>
+
+<p class="foot">Hearthold · House of Archon — running code: github.com/Flaxscrip/hearthold · live portal: kb.archon.social · companion note: <i>ai-policy-architecture.md</i> (point-by-point mapping to “AI Constrained by Policy”, incl. honest non-claims).</p>
+
+</body>
+</html>
