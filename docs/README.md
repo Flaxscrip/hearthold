@@ -28,6 +28,7 @@ Live: the Knowledge Portal at <https://kb.archon.social/>.
 
 ## A2A / CGPR
 - [a2a-cgpr.md](a2a-cgpr.md) — the A2A gateway for Consent-Gated Preference Requests: flow diagram, wire objects, consent-authorship rationale, trust posture. Try it: `npm run demo:cgpr`.
+- [deploying-didcomm-relay.md](deploying-didcomm-relay.md) — provisioning the Archon DIDComm relay (clearnet + `.onion`) so the gateway↔Warden production path works cross-host; the endpoint-mode privacy lever + verification.
 
 ## Knowledge Portal
 - [knowledge-portal.md](knowledge-portal.md) — the shared-KB portal: challenge/response login, registry-governed factor-2, multi-tenancy.
