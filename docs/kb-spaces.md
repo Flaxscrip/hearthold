@@ -116,5 +116,10 @@ vault); private→shared is always a deliberate act.
   HATPro DB. `e2e:kb-spaces` — two members, each sees shared + their own private, neither sees the other's.
 - **Phase 2 — federation (operator-private):** the `remote` partition location + federated recall over
   DIDComm to the owner's Warden. Design 2, without a rewrite.
-- **Phase 3 — CGPR tie-in:** the A2A/CGPR gateway discloses a traveler's preference **from their private
+- **Phase 3 — CGPR tie-in ✅:** the A2A/CGPR gateway discloses a traveler's preference **from their private
   partition** in the custodial HATPro space — the custodial DB becomes the vault the gateway serves.
+  `CgprService` gains a custodial mode (`spaceId` + `partitions`): the traveler (`owner`) is supplied by
+  the gateway *out-of-band* (booking context / per-relationship path), never on the CGPR wire, so the
+  no-subject rule holds; evidence is sourced from that traveler's private partition; the pairwise DID
+  stands in for the traveler and is keyed per `(audience, traveler)` so two travelers to the same hotel
+  stay unlinkable. `e2e:cgpr-hatpro`.

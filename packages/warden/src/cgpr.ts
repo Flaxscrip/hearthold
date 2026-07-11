@@ -36,6 +36,7 @@ import {
 
 import { VaultStore, type Artefact } from './store.js';
 import type { SovereignApprover } from './evidence.js';
+import type { PartitionStore } from './partition-store.js';
 
 const toMeta = (a: Artefact): ArtefactMeta => ({
   id: a.id,
@@ -53,6 +54,13 @@ export interface CgprRequestInternal {
   scopes: string[];
   purpose: string;
   validForMinutes: number;
+  /**
+   * Custodial (KB Spaces Phase 3): the traveler whose private partition backs this disclosure. Supplied
+   * by the gateway out-of-band (booking context / per-relationship path), NEVER on the CGPR wire — so
+   * the no-subject-before-approval rule holds. In a personal Warden this is omitted and the disclosure is
+   * backed by the Sovereign's own vault.
+   */
+  owner?: string;
 }
 
 export interface CgprGrantResult {
@@ -82,6 +90,13 @@ export interface CgprServiceOptions {
   kind?: WitnessKind;
   /** Signet channel for MEDIUM+ scopes; LOW clears at STANDING without it (existing machinery). */
   approver?: SovereignApprover;
+  /**
+   * Custodial mode (KB Spaces Phase 3): a custodial Warden serving many travelers. When set, each
+   * disclosure is backed by the requesting traveler's PRIVATE PARTITION in this space (not the whole
+   * vault), and the pairwise DID stands in for that traveler. Omit for a personal Warden.
+   */
+  spaceId?: string;
+  partitions?: PartitionStore;
 }
 
 export class CgprService {
@@ -99,9 +114,26 @@ export class CgprService {
     const deny = (reason: string): CgprDenyResult => ({ status: 'denied', reason });
     const kind: WitnessKind = this.opts.kind ?? 'document';
 
-    // 1. Assemble the witnessed evidence backing the requested scopes.
+    // Custodial mode (Phase 3): back the disclosure with the TRAVELER's private partition; the pairwise
+    // DID stands in for that traveler. Personal Warden: back it with the Sovereign's own vault.
+    const custodial = Boolean(this.opts.spaceId && this.opts.partitions);
+    const owner = req.owner ?? this.opts.sovereignDid;
+    let sourceKb: string | undefined;
+    if (custodial) {
+      if (!req.owner) return deny('custodial request needs the traveler (owner) — supplied out-of-band by the gateway');
+      const p = await this.opts.partitions!.get(this.opts.spaceId!, req.owner);
+      if (!p) return deny('no private partition for that traveler in this space');
+      sourceKb = p.id;
+    }
+    // Each (audience, owner) gets its own pairwise DID — two travelers to the same hotel stay unlinkable.
+    const grantAudience = req.owner ? `${req.audience}::${req.owner}` : req.audience;
+
+    // 1. Assemble the witnessed evidence backing the requested scopes — from the traveler's private
+    //    partition when custodial, else the whole vault.
     const spec: EvidenceClaimSpec = { kind, structured: { scopes: req.scopes } };
-    const metas = (await this.store.list()).map(toMeta);
+    const artefacts = await this.store.list();
+    const scoped = sourceKb ? artefacts.filter((a) => a.metadata?.kb === sourceKb) : artefacts;
+    const metas = scoped.map(toMeta);
     const assembled = assembleEvidence(metas, spec);
     if (!assembled) return deny(`no witnessed ${kind} artefacts back these scopes`);
     const sensitivity = assembled.sensitivity as Sensitivity;
@@ -146,17 +178,17 @@ export class CgprService {
         evidenceRoot: assembled.group.commitment.merkleRoot,
         requiredLevel: requiredLevelFor(sensitivity),
         reason,
-        subjectDid: this.opts.sovereignDid,
+        subjectDid: owner,
       });
       if (!ares.approved) return deny(`disclosure declined by the Sovereign: ${ares.reason}`);
       approval = ares.approval;
     }
 
-    // 5. Mint the grant to a FRESH pairwise DID for this counterparty (H1). The gateway's active
-    //    Ruleset governs both the actor authorization above and any stable-DID exception.
+    // 5. Mint the grant to a FRESH pairwise DID for this counterparty (H1), standing in for the traveler
+    //    (`owner`). The gateway's active Ruleset governs the actor authorization + any stable-DID exception.
     const mint = await mintPairwiseGrant(this.warden, this.opts.pairwiseStore, {
-      audience: req.audience,
-      sovereignDid: this.opts.sovereignDid,
+      audience: grantAudience,
+      sovereignDid: owner,
       activeRuleset: active,
       createdAt: new Date().toISOString(),
       registry: this.config.registry,
@@ -171,7 +203,7 @@ export class CgprService {
     // 6. Resolve the issued VC as the pairwise holder (the Warden owns the pairwise id), so the gateway
     //    can hand C a verifiable credential. Restore the wallet's current id afterwards.
     const prev = await this.warden.keymaster.getCurrentId().catch(() => undefined);
-    await this.warden.keymaster.setCurrentId(pairwiseName(req.audience));
+    await this.warden.keymaster.setCurrentId(pairwiseName(grantAudience));
     await acceptCredential(this.warden, mint.credentialDid);
     const credential = (await this.warden.keymaster.getCredential(mint.credentialDid)) as unknown as Record<string, unknown>;
     if (prev) await this.warden.keymaster.setCurrentId(prev);
