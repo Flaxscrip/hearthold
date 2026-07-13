@@ -1,0 +1,27 @@
+[Unit]
+Description=Hearthold KB Mage — public kb-web bridge (HTTP -> DIDComm relay to the KB Warden)
+Documentation=file:/opt/hearthold/docs/knowledge-portal.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=flaxscrip
+Group=flaxscrip
+WorkingDirectory=/opt/hearthold
+# Secrets + config (0600). Must contain HEARTHOLD_WARDEN_DID before this will start
+# (kb-web exits immediately if the Warden DID is unset).
+EnvironmentFile=/opt/hearthold/.env.kb-mage
+# nvm-installed node; if you upgrade node, repoint this (or make a stable /usr/local/bin/node symlink).
+ExecStart=/home/flaxscrip/.nvm/versions/node/v22.15.1/bin/node /opt/hearthold/packages/emissary/dist/index.js kb-web 4313
+Restart=on-failure
+RestartSec=5
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/flaxscrip/.hearthold-kb-mage
+
+[Install]
+WantedBy=multi-user.target
