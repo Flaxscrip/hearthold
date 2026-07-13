@@ -24,7 +24,7 @@ import { DelegationStore } from './delegations.js';
 import { EvidenceService } from './evidence.js';
 import { RecallService, OllamaEmbedder } from './recall.js';
 import { makeDidcommActionApprover, makeDidcommRulesetSigner } from './kb.js';
-import { KbConfigStore, buildKbServices, initKbAssurance, setKbAssurance, readKbAssurance, provisionMemberPartition } from './kb-config.js';
+import { KbConfigStore, buildKbServices, initKbAssurance, setKbAssurance, readKbAssurance, provisionMemberPartition, enableMemberPartitions } from './kb-config.js';
 import { reindexKb } from './reindex.js';
 import { seedKb, resetKb, DEMO_SETS, DEFAULT_DEMO_SET } from './kb-seed.js';
 import { makeWardenHandler } from './handler.js';
@@ -85,6 +85,7 @@ Usage:
   warden kb-grant <did> [read|write|both] [--kb <kbId>]   Authorize a member DID on a KB
   warden kb-revoke <did> [read|write|both] [--kb <kbId>]  Revoke a member's KB authorization
   warden kb-policy <action> <factor1|factor2> [--kb <kbId>]   Set required assurance (governance)
+  warden kb-spaces enable [--default-scope shared|private] [--kb <kbId>]  Turn on per-member private partitions for an existing KB (backfills current members)
   warden kb-status         List all Knowledge Bases: members + assurance policy
   warden kb-seed [--kb <kbId>] [--set <name>]   Load curated demo data into a KB
   warden kb-reset [--kb <kbId>]                 Remove a KB's data (identity/groups/policy kept)
@@ -350,6 +351,28 @@ async function main(): Promise<void> {
       }
       process.stdout.write(
         `${cmd === 'kb-grant' ? 'Granted' : 'Revoked'} ${scope} for ${did.slice(0, 28)}… on "${kb.kbId}"\n` + partNote,
+      );
+      break;
+    }
+    case 'kb-spaces': {
+      const sub = process.argv[3];
+      if (sub !== 'enable') throw new Error('usage: warden kb-spaces enable [--default-scope shared|private] [--kb <kbId>]');
+      await ensureIdentity(handle, config);
+      const store = new KbConfigStore(handle.dataFolder);
+      const kb = await resolveKb(store);
+      const dsi = process.argv.indexOf('--default-scope');
+      const defaultScope =
+        dsi > 0 && (process.argv[dsi + 1] === 'private' || process.argv[dsi + 1] === 'shared')
+          ? (process.argv[dsi + 1] as 'shared' | 'private')
+          : undefined;
+      // Flip the flag + backfill every current member's private partition (idempotent, non-destructive).
+      const { alreadyOn, members } = await enableMemberPartitions(handle, config, store, kb, defaultScope);
+      const scope = defaultScope ?? kb.defaultScope ?? 'shared';
+      process.stdout.write(
+        `Member partitions ${alreadyOn ? 'reaffirmed' : 'enabled'} on "${kb.kbId}"\n` +
+          `  default contribute: ${scope} (scope-less contributions land here)\n` +
+          `  backfilled ${members.length} member partition(s): ${members.map((m) => m.slice(0, 20) + '…').join(', ') || '(no members yet — each future kb-grant provisions one)'}\n` +
+          `  existing shared content is untouched; each member now has an (empty) private partition\n`,
       );
       break;
     }

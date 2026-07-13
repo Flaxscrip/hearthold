@@ -46,6 +46,12 @@ interface Partition {
    inheriting the space policy) when the space has member partitions enabled. A Warden-side map records
    `(spaceId, ownerDid) → partition` (like the pairwise-DID store — private, never on the wire).
 
+   A KB that was provisioned as a plain shared KB can be upgraded in place afterwards with
+   `warden kb-spaces enable [--default-scope shared|private] --kb <space>`: it flips member partitions on,
+   sets the default contribution scope, and backfills a private partition for every current member
+   (read ∪ write — the same set a grant provisions). It is non-destructive (existing shared content is
+   untouched) and idempotent (re-running only reaffirms; partition ids are stable).
+
 2. **The visible set is derived server-side from the authenticated session DID** — never from client
    input. On a session-request the Warden computes *this caller's* visible set:
 

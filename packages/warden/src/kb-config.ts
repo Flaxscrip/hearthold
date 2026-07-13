@@ -65,6 +65,32 @@ export async function provisionMemberPartition(
   return rec;
 }
 
+/**
+ * Retrofit KB Spaces onto an already-provisioned KB: flip `memberPartitions` on, set the default
+ * contribution scope, and backfill a private partition for every current member (read ∪ write) — the same
+ * set `kb-grant` provisions for, so a member granted before spaces were enabled is not left without one.
+ * Non-destructive and idempotent: existing shared content is untouched, `provisionMemberPartition` returns
+ * the existing record for members who already have one, and re-running only reaffirms. Returns whether
+ * spaces were already on and the member DIDs that now hold a partition.
+ */
+export async function enableMemberPartitions(
+  handle: KeymasterHandle,
+  config: HearthholdConfig,
+  store: KbConfigStore,
+  kb: KbConfig,
+  defaultScope?: 'shared' | 'private',
+): Promise<{ alreadyOn: boolean; members: string[] }> {
+  const alreadyOn = kb.memberPartitions === true;
+  await store.put({ ...kb, memberPartitions: true, defaultScope: defaultScope ?? kb.defaultScope });
+  const membersOf = async (group: string): Promise<string[]> => {
+    const g = (await handle.keymaster.getGroup(group).catch(() => null)) as { members?: string[] } | null;
+    return g?.members ?? [];
+  };
+  const members = Array.from(new Set([...(await membersOf(kb.readGroup)), ...(await membersOf(kb.writeGroup))]));
+  for (const did of members) await provisionMemberPartition(handle, config, kb.kbId, did);
+  return { alreadyOn, members };
+}
+
 /** Raised when governance (the Signet) declines / is unreachable — the caller must not proceed. */
 export class GovernanceDeclined extends Error {
   constructor(what: string) {
