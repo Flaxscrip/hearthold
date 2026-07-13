@@ -165,10 +165,20 @@ export function selectArtefacts(metas: ArtefactMeta[], spec: EvidenceClaimSpec):
   });
 }
 
-/** Assemble a hash-committed evidence group over the matching artefacts, or null if none match. */
+/**
+ * Assemble a hash-committed evidence group over the matching artefacts, or null if none match.
+ *
+ * Per-leaf salts are random by default (production: unlinkable, unbrute-forceable low-entropy leaves).
+ * Pass `opts.saltSeed` to derive them deterministically (`sha256(saltSeed|artefactId|index)`), making the
+ * whole group — merkle root, revealed leaves, and therefore the canonical disclosure bundle — **byte
+ * reproducible**. This is required by the disclosure-debt harness, whose Fiat–Shamir draw seeds off
+ * `sha256(canonical bundle)`: a non-reproducible bundle yields a non-re-derivable draw. Same length
+ * (16-byte / 32-hex) either way, so it never changes the byte count — only whether the bytes repeat.
+ */
 export function assembleEvidence(
   metas: ArtefactMeta[],
   spec: EvidenceClaimSpec,
+  opts: { saltSeed?: string } = {},
 ): AssembledEvidence | null {
   const selected = selectArtefacts(metas, spec).sort((a, b) =>
     a.observedAt.localeCompare(b.observedAt),
@@ -177,7 +187,9 @@ export function assembleEvidence(
 
   const ids = selected.map((m) => m.id);
   const leaves: LeafData[] = selected.map((m, i) => {
-    const salt = randomBytes(16).toString('hex');
+    const salt = opts.saltSeed
+      ? sha256hex(`${opts.saltSeed}|${m.id}|${i}`).slice(0, 32)
+      : randomBytes(16).toString('hex');
     return { index: i, kind: m.kind, observedAt: m.observedAt, salt, hash: leafDigest(salt, m.kind, m.observedAt) };
   });
   const { root } = buildMerkle(leaves.map((l) => l.hash));

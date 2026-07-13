@@ -69,7 +69,8 @@
     "e2e:cgpr-relay": "npm run build && node --experimental-strip-types scripts/e2e-cgpr-relay.ts",
     "e2e:kb-spaces": "npm run build && node --experimental-strip-types scripts/e2e-kb-spaces.ts",
     "e2e:cgpr-hatpro": "npm run build && node --experimental-strip-types scripts/e2e-cgpr-hatpro.ts",
-    "e2e:kb-reindex": "npm run build && node --experimental-strip-types scripts/e2e-kb-reindex.ts"
+    "e2e:kb-reindex": "npm run build && node --experimental-strip-types scripts/e2e-kb-reindex.ts",
+    "e2e:evidence-deterministic": "npm run build && node --experimental-strip-types scripts/e2e-evidence-deterministic.ts"
   },
   "engines": {
     "node": ">=22"
