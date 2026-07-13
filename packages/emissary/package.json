@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Hearthold Witness — Companion: witness capture and evidence requests.",
+  "description": "Hearthold Emissary — Companion: witness capture and evidence requests.",
   "bin": {
     "emissary": "./dist/index.js"
   },

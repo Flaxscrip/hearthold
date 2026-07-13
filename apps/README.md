@@ -6,7 +6,7 @@ Three browser apps, one per world-facing actor, so their **boundaries** are exer
 |---|---|---|---|---|
 | **warden-console** | Warden — Swordsman | 5173 | `warden control` | 4310 |
 | **signet-approver** | Sovereign — First Person | 5174 | `sovereign control` | 4311 |
-| **witness** | Witness — Mage | 5175 | `witness control` | 4312 |
+| **emissary** | Emissary — Mage | 5175 | `emissary control` | 4312 |
 
 ## How it fits together
 
@@ -53,26 +53,26 @@ HEARTHOLD_PASSPHRASE=… HEARTHOLD_SIGNET_PIN=1234 npm run sovereign -- control
 cd apps/signet-approver && npm run dev      # → http://localhost:5174
 ```
 
-**Witness** — capture observations and (optionally) project proofs:
+**Emissary** — capture observations and (optionally) project proofs:
 ```bash
 HEARTHOLD_PASSPHRASE=… HEARTHOLD_WARDEN_DID=did:cid:… \
-  HEARTHOLD_SOVEREIGN_DID=did:cid:…  npm run witness -- control    # sovereign DID optional (projector)
-cd apps/witness && npm run dev              # → http://localhost:5175
+  HEARTHOLD_SOVEREIGN_DID=did:cid:…  npm run emissary -- control    # sovereign DID optional (projector)
+cd apps/emissary && npm run dev              # → http://localhost:5175
 ```
 
 ## The full three-app demo
 
 1. Start all three daemons (get each DID from its `… control` banner or `GET /api/status`).
-2. In the **Warden Console**, delegate the Witness (paste its DID → *Issue delegation*).
-3. In the **Witness** app, witness an observation → it seals to the Warden and submits. Watch it appear
-   **live** in the Warden Console vault with its sensitivity chip, and the Witness receipt flip
+2. In the **Warden Console**, delegate the Emissary (paste its DID → *Issue delegation*).
+3. In the **Emissary** app, witness an observation → it seals to the Warden and submits. Watch it appear
+   **live** in the Warden Console vault with its sensitivity chip, and the Emissary receipt flip
    `submitted → stored`.
-4. In the **Witness** app, *Prove a claim* — enter a claim + kind (e.g. a `location` residence claim) →
+4. In the **Emissary** app, *Prove a claim* — enter a claim + kind (e.g. a `location` residence claim) →
    *Prove*. The Warden assembles the matching artefacts into a signed evidence graph (A1). For a
    sensitive claim it obtains the Sovereign's approval on its **own** channel — the **Signet Approver**
-   shows an *evidence-approval* card with the Warden-authored claim (never the Witness's words); approve
-   with your PIN → the Witness *Proofs* panel flips `requesting → granted` with the credential DID (A2).
+   shows an *evidence-approval* card with the Warden-authored claim (never the Emissary's words); approve
+   with your PIN → the Emissary *Proofs* panel flips `requesting → granted` with the credential DID (A2).
    *(The Warden daemon needs `HEARTHOLD_SOVEREIGN_DID` set for the direct approval channel.)*
-5. Run the projected prove flow (a verifier requests a disclosure via the Witness projector). The
-   **Signet Approver** shows the pending request → approve with your PIN → the Witness *Projections*
+5. Run the projected prove flow (a verifier requests a disclosure via the Emissary projector). The
+   **Signet Approver** shows the pending request → approve with your PIN → the Emissary *Projections*
    panel records the carried proof. Deny, and the verifier is refused.

@@ -18,20 +18,20 @@ Each is a `did:cid` with its own Keymaster wallet, custodied independently of th
 | | Role | Runs | Holds |
 |---|---|---|---|
 | **Warden** 🛡️ | Home **Keeper** — custodian & enforcer. A **local-only AI**: reasons on-device, nothing transmittable. Stores the vault, classifies, serves evidence. | Always-on, home-bound (e.g. behind Tailscale) | The full private vault |
-| **Witness** 👁️ | **Companion** — witnesses local-only context (location, browsing) and submits it home; later requests evidence and presents it to third parties. | Mobile — CLI now; browser & phone later | Minimal data; a revocable delegation |
+| **Emissary** 👁️ | **Companion** — witnesses local-only context (location, browsing) and submits it home; later requests evidence and presents it to third parties. | Mobile — CLI now; browser & phone later | Minimal data; a revocable delegation |
 | **Sovereign** 🔑 | The **principal**, held by the **Signet** app (a 2nd-factor authenticator). Signs the Warden's access-control policy and co-signs sensitive disclosures with a proof-of-human assertion. | Separate device | The root of authority |
 
-The Warden enforces; the Sovereign authorizes the rules; the Witness acts in the world under a
+The Warden enforces; the Sovereign authorizes the rules; the Emissary acts in the world under a
 scoped, revocable delegation. Control plane (Sovereign) is separated from data plane (Warden).
 
 ## The core loop
 
 ```
-Witness  ──observe──►  seal in-band  ──►  Warden unseals → classifies → stores (sealed at rest)
+Emissary  ──observe──►  seal in-band  ──►  Warden unseals → classifies → stores (sealed at rest)
                                                                               │
-You need to prove something  ──►  Witness requests evidence  ──►  Warden checks authorization,
+You need to prove something  ──►  Emissary requests evidence  ──►  Warden checks authorization,
 steps up (PIN / Sovereign co-sign) for sensitive content  ──►  returns a signed EVIDENCE GRAPH
-──►  Witness presents it; a third party verifies against the issuer DIDs
+──►  Emissary presents it; a third party verifies against the issuer DIDs
 ```
 
 Disclosure is **issuer-attested**: the Warden derives and signs the fact, with provenance carried
@@ -44,7 +44,7 @@ reputation score — only a verifiable, decomposable evidence graph.
 packages/
   core/      shared library: identity, security model, protocol, transport, credentials
   warden/    home Keeper: HTTP service, classifier seam, vault store
-  witness/   Companion CLI: witness capture + evidence requests
+  emissary/   Companion CLI: witness capture + evidence requests
 docs/
   PLAN.md                phased plan & milestones
   architecture.md        components, identities, transport, data flow

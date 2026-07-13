@@ -2,7 +2,7 @@
   "name": "hearthold",
   "version": "0.1.0",
   "private": true,
-  "description": "Hearthold — a Sovereign First Person's 7th Capital, made safely liquid. Two separated Archon agents: Warden (home Keeper) and Witness (Companion).",
+  "description": "Hearthold — a Sovereign First Person's 7th Capital, made safely liquid. Two separated Archon agents: Warden (home Keeper) and Emissary (Companion).",
   "type": "module",
   "license": "MIT",
   "workspaces": [

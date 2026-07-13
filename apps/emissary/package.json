@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Hearthold Witness — the Companion: capture and submit observations, and project proofs to the world.",
+  "description": "Hearthold Emissary — the Companion: capture and submit observations, and project proofs to the world.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
