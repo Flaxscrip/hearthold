@@ -248,13 +248,21 @@ export class KbService {
       metadata: { ...classification.metadata, kb, contributor: did },
     };
     await this.store.put(artefact);
+    // Index (embed) so recall can find it. NON-SILENT: if the embedder is down/overloaded the artefact
+    // is still stored, but we surface it — the caller learns via `indexed:false`, the operator sees a
+    // warning, and `warden kb-reindex` backfills it later. (Was a silent catch that hid the drop.)
+    let indexed = false;
     try {
       const embedding = await this.embedder.embed(text);
       await this.index.put({ artefactId: id, kind: artefact.kind, observedAt: artefact.observedAt, sensitivity: artefact.sensitivity, embedding, kb });
-    } catch {
-      /* index is best-effort */
+      indexed = true;
+    } catch (e) {
+      process.stderr.write(
+        `[kb] WARNING: stored ${id.slice(0, 12)}… in "${kb}" but indexing FAILED (${e instanceof Error ? e.message : String(e)}) — ` +
+          `NOT searchable until \`warden kb-reindex --kb ${kb}\`\n`,
+      );
     }
-    return { type: 'hearthold/kb-result', version: PROTOCOL_VERSION, action: 'update', artefactId: id };
+    return { type: 'hearthold/kb-result', version: PROTOCOL_VERSION, action: 'update', artefactId: id, indexed };
   }
 
   /**

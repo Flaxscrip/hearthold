@@ -362,6 +362,9 @@ export type KbResultMessage =
       version: typeof PROTOCOL_VERSION;
       action: 'update';
       artefactId: string;
+      /** Whether the contribution was embedded into the recall index. `false` = stored but NOT yet
+       *  searchable (the embedder was unavailable); recover with `warden kb-reindex`. */
+      indexed?: boolean;
     }
   | {
       type: 'hearthold/kb-error';

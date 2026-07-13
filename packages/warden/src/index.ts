@@ -25,6 +25,7 @@ import { EvidenceService } from './evidence.js';
 import { RecallService, OllamaEmbedder } from './recall.js';
 import { makeDidcommActionApprover, makeDidcommRulesetSigner } from './kb.js';
 import { KbConfigStore, buildKbServices, initKbAssurance, setKbAssurance, readKbAssurance, provisionMemberPartition } from './kb-config.js';
+import { reindexKb } from './reindex.js';
 import { seedKb, resetKb, DEMO_SETS, DEFAULT_DEMO_SET } from './kb-seed.js';
 import { makeWardenHandler } from './handler.js';
 
@@ -87,6 +88,7 @@ Usage:
   warden kb-status         List all Knowledge Bases: members + assurance policy
   warden kb-seed [--kb <kbId>] [--set <name>]   Load curated demo data into a KB
   warden kb-reset [--kb <kbId>]                 Remove a KB's data (identity/groups/policy kept)
+  warden kb-reindex [--kb <kbId>]              Backfill the recall index (embed stored-but-unindexed content)
   warden help              Show this message
 
 Env:
@@ -390,6 +392,22 @@ async function main(): Promise<void> {
       const kb = await resolveKb(new KbConfigStore(handle.dataFolder));
       const { removed } = await resetKb(handle, kb.kbId);
       process.stdout.write(`Reset "${kb.kbId}": removed ${removed} artefact(s) + index entries. Identity, access groups, and policy are untouched.\n`);
+      break;
+    }
+    case 'kb-reindex': {
+      // Backfill the recall index: embed any stored-but-unindexed artefacts (e.g. contributions whose
+      // embed dropped when the embedder was overloaded). Idempotent — never duplicates. Run when the
+      // embedder has headroom. `--kb <id>` scopes to one KB/space; omit to sweep everything.
+      await ensureIdentity(handle, config);
+      const ki = process.argv.indexOf('--kb');
+      const kbFilter = ki > 0 ? process.argv[ki + 1] : undefined;
+      process.stdout.write(`Re-indexing${kbFilter ? ` "${kbFilter}"` : ' all KB content'}…\n`);
+      const r = await reindexKb(handle, config, { kb: kbFilter });
+      process.stdout.write(
+        `  scanned ${r.scanned} · already-indexed ${r.alreadyIndexed} · backfilled ${r.backfilled} · skipped ${r.skipped} · failed ${r.failed}\n` +
+          (r.failed > 0 ? `  ⚠ ${r.failed} still failed to embed — the embedder may be down; re-run when it has headroom.\n` : '') +
+          (r.backfilled > 0 ? `  ✓ ${r.backfilled} artefact(s) are now searchable.\n` : ''),
+      );
       break;
     }
     default:

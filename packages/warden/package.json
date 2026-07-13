@@ -18,6 +18,7 @@
     "./evidence": { "types": "./dist/evidence.d.ts", "import": "./dist/evidence.js" },
     "./cgpr": { "types": "./dist/cgpr.d.ts", "import": "./dist/cgpr.js" },
     "./recall": { "types": "./dist/recall.d.ts", "import": "./dist/recall.js" },
+    "./reindex": { "types": "./dist/reindex.d.ts", "import": "./dist/reindex.js" },
     "./index-store": { "types": "./dist/index-store.d.ts", "import": "./dist/index-store.js" },
     "./kb": { "types": "./dist/kb.d.ts", "import": "./dist/kb.js" },
     "./kb-config": { "types": "./dist/kb-config.d.ts", "import": "./dist/kb-config.js" },
