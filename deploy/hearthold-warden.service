@@ -1,0 +1,30 @@
+[Unit]
+Description=Hearthold Warden — home Keeper/custodian; drains the DIDComm mailbox, stores submissions, serves KB evidence
+Documentation=file:/opt/hearthold/CLAUDE.md
+After=network-online.target
+Wants=network-online.target
+# The Warden resolves/registers its did:cid and drains its mailbox through the local
+# Archon node (Drawbridge on :4222). If that node runs as a systemd unit on this box,
+# add its unit to After= so the Warden starts after it.
+
+[Service]
+Type=simple
+User=flaxscrip
+Group=flaxscrip
+WorkingDirectory=/opt/hearthold
+# Secrets + config (0600). Holds HEARTHOLD_PASSPHRASE which unlocks the Warden wallet.
+EnvironmentFile=/opt/hearthold/.env.warden
+# nvm-installed node; if you upgrade node, repoint this (or make a stable /usr/local/bin/node symlink).
+ExecStart=/home/flaxscrip/.nvm/versions/node/v22.15.1/bin/node /opt/hearthold/packages/warden/dist/index.js serve
+Restart=on-failure
+RestartSec=5
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+# Only the Warden's own data root is writable — the vault, indexes, KB config, wallet.
+ReadWritePaths=/home/flaxscrip/.hearthold-warden
+
+[Install]
+WantedBy=multi-user.target
