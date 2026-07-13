@@ -138,7 +138,7 @@ export class RecallService {
       const text = await this.resolve(entry.artefactId);
       if (!text) continue;
       passages.push({ observedAt: entry.observedAt, text });
-      citations.push({ artefactId: entry.artefactId, kind: entry.kind, observedAt: entry.observedAt, score });
+      citations.push({ artefactId: entry.artefactId, kind: entry.kind, observedAt: entry.observedAt, score, kb: entry.kb });
     }
 
     if (passages.length === 0) {

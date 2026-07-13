@@ -82,6 +82,8 @@ export interface RecallCitation {
   kind: string;
   observedAt: string;
   score: number;
+  /** The partition (index `kb` tag) this citation came from — lets callers label shared vs private. */
+  kb?: string;
 }
 
 /** The answer to a recall query, with the artefacts it drew on. Machine-derived; local-only. */

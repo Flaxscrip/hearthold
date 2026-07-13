@@ -208,6 +208,7 @@ function QueryPanel({ session }: { session: Session }) {
               {cites.map((c) => (
                 <li key={c.artefactId}>
                   <span className="kind">{c.kind}</span>
+                  {c.scope && <span className={`scope-badge ${c.scope}`}>{c.scope === 'private' ? '🔒 yours' : '🌐 shared'}</span>}
                   <span className="when">{new Date(c.observedAt).toLocaleDateString()}</span>
                   <span className="score">{c.score.toFixed(2)}</span>
                 </li>
@@ -225,9 +226,11 @@ function QueryPanel({ session }: { session: Session }) {
 function ContributePanel({ session }: { session: Session }) {
   const [kind, setKind] = useState('event');
   const [text, setText] = useState('');
+  const [scope, setScope] = useState<'shared' | 'private'>(session.defaultScope ?? 'shared');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const spaces = session.memberPartitions === true; // this KB grants each member a private partition
 
   const add = async () => {
     if (!text.trim()) return;
@@ -241,10 +244,11 @@ function ContributePanel({ session }: { session: Session }) {
         action: 'update',
         kind,
         text: text.trim(),
+        scope: spaces ? scope : undefined,
       });
       if (result.type === 'hearthold/kb-error') setErr(result.reason);
       else if (result.action === 'update') {
-        setMsg('✓ contributed to the Knowledge Base');
+        setMsg(spaces && scope === 'private' ? '✓ saved to your private notes (only you can see it)' : '✓ contributed to the shared Knowledge Base');
         setText('');
       }
     } catch (e) {
@@ -256,10 +260,29 @@ function ContributePanel({ session }: { session: Session }) {
 
   return (
     <section className="card">
-      <p className="dim">
-        Contribute <strong>shared knowledge</strong> (requires write authorization) — never your private
-        vault, only knowledge meant for the community.
-      </p>
+      {spaces ? (
+        <>
+          <p className="dim">Choose where this goes:</p>
+          <div className="kinds scope-toggle">
+            <button className={scope === 'shared' ? 'pick on' : 'pick'} onClick={() => setScope('shared')}>
+              🌐 Shared
+            </button>
+            <button className={scope === 'private' ? 'pick on' : 'pick'} onClick={() => setScope('private')}>
+              🔒 Private (only you)
+            </button>
+          </div>
+          <p className="tiny dim">
+            {scope === 'private'
+              ? 'Stored in your own private partition — visible only to you, never to other members.'
+              : 'Shared knowledge for every member of this Knowledge Base.'}
+          </p>
+        </>
+      ) : (
+        <p className="dim">
+          Contribute <strong>shared knowledge</strong> (requires write authorization) — never your private
+          vault, only knowledge meant for the community.
+        </p>
+      )}
       <div className="kinds">
         {['event', 'document', 'activity', 'location'].map((k) => (
           <button key={k} className={kind === k ? 'pick on' : 'pick'} onClick={() => setKind(k)}>

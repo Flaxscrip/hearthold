@@ -287,6 +287,11 @@ export interface KbSessionMessage {
   token: string;
   did: string;
   expiresAt: string;
+  /** KB Spaces: this KB grants each member a private partition — the portal can show a shared/private
+   *  contribute toggle. Absent/false = a plain shared KB (no toggle). */
+  memberPartitions?: boolean;
+  /** Where a scope-less contribution lands (the portal's toggle default). */
+  defaultScope?: 'shared' | 'private';
 }
 
 /** Browser → Mage → Warden: a session-authenticated KB op (the token stands in for a signature). */
@@ -355,7 +360,8 @@ export type KbResultMessage =
       version: typeof PROTOCOL_VERSION;
       action: 'query';
       answer: string;
-      citations: { artefactId: string; kind: string; observedAt: string; score: number }[];
+      /** Each citation is labelled by which partition it came from — 'shared' or the member's 'private'. */
+      citations: { artefactId: string; kind: string; observedAt: string; score: number; scope?: 'shared' | 'private' }[];
     }
   | {
       type: 'hearthold/kb-result';

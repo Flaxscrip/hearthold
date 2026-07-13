@@ -199,7 +199,15 @@ export class KbService {
     const token = randomBytes(24).toString('hex');
     const exp = Date.now() + (this.opts.sessionTtlMs ?? 30 * 60_000);
     this.sessions.set(token, { did: res.responder, exp });
-    return { type: 'hearthold/kb-session', version: PROTOCOL_VERSION, token, did: res.responder, expiresAt: new Date(exp).toISOString() };
+    return {
+      type: 'hearthold/kb-session',
+      version: PROTOCOL_VERSION,
+      token,
+      did: res.responder,
+      expiresAt: new Date(exp).toISOString(),
+      memberPartitions: this.opts.memberPartitions ?? false,
+      defaultScope: this.opts.defaultScope ?? 'shared',
+    };
   }
 
   /** Serve a session-authenticated request (the token stands in for a per-request signature). */
@@ -290,7 +298,15 @@ export class KbService {
       // INVARIANT II — no query attribution retained. The query and `did` are read in memory only to
       // answer; nothing about who-asked-what-when is persisted. Do not add query/requester logging here.
       const result = await RecallService.forWarden(this.warden, this.config).recall(req.query, { k: req.k, kb: visible });
-      return { type: 'hearthold/kb-result', version: PROTOCOL_VERSION, action: 'query', answer: result.answer, citations: result.citations };
+      // Label each citation by partition so the portal can show where an answer came from.
+      const citations = result.citations.map((c) => ({
+        artefactId: c.artefactId,
+        kind: c.kind,
+        observedAt: c.observedAt,
+        score: c.score,
+        scope: (c.kb === own?.id ? 'private' : c.kb === this.opts.kbId ? 'shared' : undefined) as 'shared' | 'private' | undefined,
+      }));
+      return { type: 'hearthold/kb-result', version: PROTOCOL_VERSION, action: 'query', answer: result.answer, citations };
     }
 
     // update — resolve the target partition by scope.

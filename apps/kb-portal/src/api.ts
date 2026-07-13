@@ -31,6 +31,10 @@ export interface Session {
   token: string;
   did: string;
   expiresAt: string;
+  /** KB Spaces: this KB grants each member a private partition (show a shared/private toggle). */
+  memberPartitions?: boolean;
+  /** The toggle's default when the member doesn't pick. */
+  defaultScope?: 'shared' | 'private';
 }
 
 export interface KbCitation {
@@ -38,6 +42,8 @@ export interface KbCitation {
   kind: string;
   observedAt: string;
   score: number;
+  /** Which partition this citation came from — shown as a badge. */
+  scope?: 'shared' | 'private';
 }
 
 /** The Warden's reply, relayed verbatim by the Mage. */
@@ -54,6 +60,8 @@ export interface SessionRequestBody {
   k?: number;
   kind?: string;
   text?: string;
+  /** KB Spaces: contribute to the shared partition or the member's own private one. */
+  scope?: 'shared' | 'private';
 }
 
 export const portalApi = {

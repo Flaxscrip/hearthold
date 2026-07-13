@@ -337,3 +337,15 @@ button.ghost {
   line-height: 1.6;
   text-align: center;
 }
+
+/* KB Spaces — shared/private scope */
+.scope-badge {
+  font-size: 0.72em;
+  padding: 0.05em 0.5em;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  opacity: 0.85;
+}
+.scope-badge.private { color: #b45309; }
+.scope-badge.shared { color: #2563eb; }
+.scope-toggle .pick { flex: 1; }
