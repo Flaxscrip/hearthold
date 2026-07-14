@@ -368,6 +368,11 @@ export type KbResultMessage =
       version: typeof PROTOCOL_VERSION;
       action: 'update';
       artefactId: string;
+      /** Which partition this contribution was ACTUALLY written to — the Warden's authoritative word.
+       *  The client must render its success message from this, never from the button the user clicked:
+       *  a scope dropped anywhere on the wire (e.g. a stale relay) must not be able to look like it
+       *  landed private when it landed shared. See docs/kb-spaces.md. */
+      scope: 'shared' | 'private';
       /** Whether the contribution was embedded into the recall index. `false` = stored but NOT yet
        *  searchable (the embedder was unavailable); recover with `warden kb-reindex`. */
       indexed?: boolean;

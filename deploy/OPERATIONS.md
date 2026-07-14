@@ -64,6 +64,27 @@ backup archives or env files** — only reference them here.
 - **Procedure**: service stopped first; backup taken **and verified to contain `warden/vault.json`**
   before mutating (see the runbook — this step is new, and is why the reset was safe to run).
 
+### 2026-07-14 — Fix: private KB contributions were silently landing in the SHARED partition
+- **Symptom**: a portal **Contribute → Private** write showed "✓ saved to your private notes" but the
+  artefact was readable by anyone with shared read; its citation was tagged `scope:"shared"`.
+- **Root cause — deployment staleness, NOT a code bug.** All source/`dist` correctly plumbed the KB
+  Spaces `scope` field end-to-end. But `hearthold-kb-mage` (the Emissary relay) had started
+  **2026-07-13 19:45:40**, and the scope-forwarding build landed **19:51:00** — after process start.
+  The Warden was later restarted (21:38, current) but the kb-mage was **never restarted**, so for ~27h
+  the relay ran pre-`scope` code and dropped the field. The Warden then applied `defaultScope` (`shared`)
+  to every contribution. Diagnosed from `~/.hearthold-warden/warden`: all 55 index entries tagged
+  `hearthold-kb`, zero in any `::priv:` partition — including owner `flaxscrip`'s intended-private test
+  note `99d38f3f…` (contributor DID owns `hearthold-kb::priv:d0746da7a089d9ac`, yet the write went shared).
+- **Immediate fix**: `sudo systemctl restart hearthold-kb-mage` (loads the current, scope-forwarding
+  build). The KB DB was wiped + reseeded fresh (pre-announce, no other users) since existing private
+  content was mis-partitioned.
+- **Durable fix (defense in depth)**: the `kb-result` `update` message now carries an authoritative
+  `scope` echo from the Warden; the portal renders its success/warn message from *that*, never from the
+  button the user clicked — so a dropped scope surfaces as a loud mismatch, never a false success.
+  Regression coverage added in `scripts/e2e-kb-spaces.ts` (asserts the update RESULT's `scope`).
+- **Runbook fix**: the wallet-mutating procedure now flags that a core/Emissary rebuild requires a
+  `kb-mage` restart (see below).
+
 ### 2026-07-13 — Upgrade to KB Spaces; enable per-member private partitions on `hearthold-kb`
 - **Commit**: pulled `ad62411` (`warden: kb-spaces enable`), rebuilt `dist/`.
 - **What**: ran `warden kb-spaces enable --default-scope shared --kb hearthold-kb`. Retrofit
@@ -139,6 +160,15 @@ node packages/warden/dist/index.js <command>    # e.g. kb-spaces enable --defaul
 node packages/warden/dist/index.js kb-status     # verify
 sudo systemctl start hearthold-warden
 ```
+> ⚠️ **If the release you just built also changed `@hearthold/core` or the Emissary** (e.g. a new wire
+> field like `scope`), restart the Emissary too — it does **not** hot-reload:
+> ```bash
+> sudo systemctl restart hearthold-kb-mage
+> ```
+> A long-running `kb-mage` keeps executing the JS it loaded at *process start*; a `dist/` rebuilt
+> underneath it has no effect until restart. This procedure only cycles the Warden, so the two ends can
+> silently diverge on the protocol — which is exactly how the KB-Spaces `scope` field was dropped by the
+> relay for ~27h while the Warden and browser both understood it (see change log 2026-07-14).
 
 ### Health check
 ```bash

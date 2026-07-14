@@ -248,8 +248,16 @@ function ContributePanel({ session }: { session: Session }) {
       });
       if (result.type === 'hearthold/kb-error') setErr(result.reason);
       else if (result.action === 'update') {
-        setMsg(spaces && scope === 'private' ? '✓ saved to your private notes (only you can see it)' : '✓ contributed to the shared Knowledge Base');
-        setText('');
+        // Trust the Warden's word on where this landed, NOT the button the user clicked. If a `scope`
+        // was dropped anywhere on the wire (e.g. a stale relay), the server's echo won't match what we
+        // asked for — surface that loudly instead of pretending the private write succeeded.
+        const requested = spaces ? scope : 'shared';
+        if (result.scope !== requested) {
+          setErr(`Warning: asked to save this as ${requested}, but the Warden stored it as ${result.scope}. It was NOT saved where you intended — please verify before relying on this.`);
+        } else {
+          setMsg(result.scope === 'private' ? '✓ saved to your private notes (only you can see it)' : '✓ contributed to the shared Knowledge Base');
+          setText('');
+        }
       }
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
