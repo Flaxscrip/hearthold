@@ -7,9 +7,10 @@ managing trust-registry authorizations, or doing day-2 ops on an existing instal
 repo. Where a command's exact syntax matters, it is quoted from the CLI source, not reconstructed
 from memory.
 
-**Read this first, once:** `/Users/flaxscrip/hearthold/CLAUDE.md` (or the project's `CLAUDE.md`) for
-the architecture and the non-negotiable invariants. This guide operationalizes that document; it does
-not restate the reasoning behind each invariant — see `docs/security-model.md` and
+**Read this first, once:** the project's `CLAUDE.md` at the repo root (on the live host,
+`/opt/hearthold/CLAUDE.md`) for the architecture and the non-negotiable invariants. This guide
+operationalizes that document; it does not restate the reasoning behind each invariant — see
+`docs/security-model.md` and
 `docs/architecture.md` for that.
 
 ---
@@ -30,14 +31,20 @@ mistake this architecture exists to prevent.
 
 **Read this before running a single `init`, `kb-init`, `kb-seed`, or e2e script.** This is the
 single most common mistake an agent operating Hearthold will make, and it already happened once for
-real (see `REGISTRY-HYGIENE-BRIEF.md` and `did-creation-source.md` in the repo root — a two-week
-incident that put ~800 net-new agent DIDs on the public hyperswarm registry from test/demo runs whose
-identities were never meant to be public).
+real: a two-week incident that put ~800 net-new agent DIDs on the public hyperswarm registry from
+test/demo runs whose identities were never meant to be public.
+
+> **Note:** the write-ups of that incident (`REGISTRY-HYGIENE-BRIEF.md`, `did-creation-source.md`) are
+> **not committed to this repo** — they exist in no git ref, so don't send an agent looking for them.
+> If you still have them, committing them here would give this section its evidence back. The rule
+> below stands on its own regardless, and is verifiable from `packages/core/src/config.ts` in one line.
 
 **The rule:** every `did:cid` you create is a permanent, public, gossiped registration unless you
-explicitly opt it into the `local` registry. Agent DIDs have no `validUntil` — there is no automatic
-expiry or garbage collection. A DID registration is itself a disclosure (its existence and creation
-timing are visible to every peer on the network), so registry egress deserves the same deny-by-default
+explicitly opt it into the `local` registry. Verify the stake yourself — `packages/core/src/config.ts:37`
+declares `DEFAULT_REGISTRY = 'hyperswarm'`, so *unset* means *public*. Agent DIDs have no
+`validUntil` — there is no automatic expiry or garbage collection. A DID registration is itself a
+disclosure (its existence and creation timing are visible to every peer on the network), so registry
+egress deserves the same deny-by-default
 posture the data plane already has: **a DID is born local, and promoted to a public registry only
 deliberately.**
 
@@ -49,8 +56,8 @@ Concretely:
   die with that node's DB — they cannot leak.
 - **Only a real, permanently-serving identity** (a production Warden or Emissary meant to be publicly
   resolvable, e.g. the ones backing `kb.archon.social`) should use the default/public registry
-  (`hyperswarm`, or whatever `HEARTHOLD_REGISTRY` / `DEFAULT_REGISTRY` resolves to in `core/config.ts`
-  when unset).
+  (`hyperswarm`, or whatever `HEARTHOLD_REGISTRY` / `DEFAULT_REGISTRY` resolves to in
+  `packages/core/src/config.ts` when unset).
 - If you are unsure whether a given `init`/`kb-init`/seed operation is "real" or "test," treat it as
   test and use `local`. Promoting to public is cheap to do later and expensive to undo (agent DIDs
   cannot be deleted from the gossip log — only revoked, which tombstones but does not remove them).
@@ -62,14 +69,15 @@ Concretely:
   or a comment.
 - `Keymaster.createAsset` and everything built on it (credentials, schemas, groups, vaults,
   challenges, responses, polls, dmail) reads the Keymaster instance's `defaultRegistry`, which is a
-  **different knob** than the per-call `createId({ registry })` option Hearthold's own `identity.ts`
-  passes. Setting `HEARTHOLD_REGISTRY=local` before opening the Keymaster handle should cover both, but
-  if you are provisioning many auxiliary assets (KB access groups, schemas) and are unsure, verify with
+  **different knob** than the per-call `createId({ registry })` option Hearthold's own
+  `packages/core/src/identity.ts` passes. Setting `HEARTHOLD_REGISTRY=local` before opening the
+  Keymaster handle should cover both, but if you are provisioning many auxiliary assets (KB access
+  groups, schemas) and are unsure, verify with
   `warden status` / a DID resolution that `didDocumentRegistration.registry === 'local'`.
 
 **If you suspect you polluted the public registry:** do not panic-delete anything (you can't). Identify
 the controller DID for the affected fixtures, run `revoke_did` on what you still control to mark them
-dead, and record the incident the way `REGISTRY-HYGIENE-BRIEF.md` does — root cause, fix, guard. Ask
+dead, and record the incident in `deploy/OPERATIONS.md`'s change log — root cause, fix, guard. Ask
 before doing bulk revocation if you're not certain which DIDs are test fixtures versus live
 infrastructure.
 
@@ -106,7 +114,7 @@ KB contribution "disappeared."
 | `HEARTHOLD_PASSPHRASE` | every agent | — | required; unlocks that agent's wallet. Separate wallets per agent, so a shared dev value is fine, but never reuse a prod passphrase in a test run. |
 | `HEARTHOLD_NODE_URL` | every agent | `http://flaxlap.local:4222` | the Archon node (Drawbridge) |
 | `HEARTHOLD_DATA_ROOT` | every agent | `~/.hearthold` | wallets + vault; **use a throwaway dir for anything test-related** — never point a test run at a real data root |
-| `HEARTHOLD_REGISTRY` | every agent | `hyperswarm` (unless config default was flipped — check `core/config.ts`) | **see §1 — set to `local` for anything non-production** |
+| `HEARTHOLD_REGISTRY` | every agent | `hyperswarm` (unless config default was flipped — check `packages/core/src/config.ts`) | **see §1 — set to `local` for anything non-production** |
 | `HEARTHOLD_WARDEN_DID` | Emissary | — | required for `submit` and for pointing a KB bridge at its Warden |
 | `HEARTHOLD_CLASSIFIER` | Warden | `ollama` | `quarantine` disables the model and fails everything safe to `SEALED` |
 | `HEARTHOLD_CLASSIFIER_MODEL` | Warden | `qwen3:8b` | local classifier model, must be `ollama pull`ed |
@@ -172,10 +180,14 @@ writes `warden/wallet.json`. A live `warden serve` process holds that same walle
 second writer concurrently risks corrupting it.** Every time you need to run a mutating command against
 a *live* deployment:
 
+`deploy/OPERATIONS.md` holds the authoritative procedure — follow it there rather than the sketch below,
+so there is only one copy to keep current. The shape of it:
+
 ```bash
-sudo systemctl stop hearthold-warden
-tar czf ~/infra-backups/hearthold-warden/hearthold-warden-PRE-<change>-$(date +%Y%m%d-%H%M%S).tgz \
-  -C <warden-data-root> warden
+sudo systemctl stop hearthold-warden            # stop FIRST — a stopped service gives a consistent snapshot
+BK=~/infra-backups/hearthold-warden/hearthold-warden-PRE-<change>-$(date +%Y%m%d-%H%M%S).tgz
+tar czf "$BK" -C <warden-data-root> warden
+tar tzf "$BK" | grep -qx warden/vault.json || echo "⚠ BACKUP INCOMPLETE — STOP, do not mutate"
 set -a; . /opt/hearthold/.env.warden; set +a
 node packages/warden/dist/index.js <command>
 node packages/warden/dist/index.js kb-status     # verify before restarting
@@ -183,8 +195,17 @@ sudo systemctl start hearthold-warden
 ```
 
 Never skip the backup step to save time — it is one `tar` command, and the wallet holds the only copy
-of the Sovereign-facing keys and every KB's group state. Backups live **outside the repo**, under
-`~/infra-backups/` — never `git add` a backup archive or an env file; both contain secrets.
+of the Sovereign-facing keys and every KB's group state.
+
+**And never skip *verifying* it.** `tar czf` exits 0 whether or not it archived what you meant; on
+2026-07-15 an ad-hoc backup captured the wallet, index, KB config and partitions but **not the vault**,
+and reported nothing. The vault survived only because a second, malformed invocation happened to include
+it. Quote `"$BK"`, keep the whole `warden` dir in one `-C` (hand-listing files is how the vault got left
+out), and list the archive before you mutate anything. A backup that silently lacks the vault is worse
+than none: it reads as protection you do not have.
+
+Backups live **outside the repo**, under `~/infra-backups/` — never `git add` a backup archive or an env
+file; both contain secrets.
 
 ---
 
@@ -201,9 +222,22 @@ live, authoritative list — this table exists so you don't have to grep the sou
 | `kb-grant` / `kb-revoke` | `kb-grant <sovereignDid> [read\|write\|both] [--kb <kbId>]` | Adds/removes a DID from the read and/or write group. **If the KB has member partitions on, `kb-grant` also auto-provisions that member's private partition** — no separate step needed. Revoke does *not* delete the partition or its data; deletion is a deliberate, separate operation. |
 | `kb-spaces enable` | `kb-spaces enable [--default-scope shared\|private] [--kb <kbId>]` | Retrofits member partitions onto an existing plain-shared KB: flips the flag and backfills a private partition for every *current* member. **Non-destructive** (existing shared content untouched) and **idempotent** (safe to re-run). Every future `kb-grant` after this provisions automatically. |
 | `kb-status` | `kb-status` | Lists every KB on this Warden: read/write member counts and DIDs, and the current assurance tier per action. Read-only — the standard first move before and after any mutation. |
-| `kb-seed` | `kb-seed [--set <name>]` | Loads a fixed demo card set into the KB. **Use only with `HEARTHOLD_REGISTRY=local` and a throwaway data root** — this is exactly the kind of operation that caused the registry-hygiene incident when pointed at a real registry/deployment. |
-| `kb-reset` | `kb-reset [--kb <kbId>]` | Removes every artefact + index entry from the KB. Identity, access groups, and policy chain are untouched. Irreversible for the content — confirm you have a backup or truly mean to clear it before running against a live KB. |
-| `kb-reindex` | `kb-reindex [--kb <kbId>]` | Backfills the recall index for any stored-but-unindexed artefacts (e.g. a contribution whose embed dropped because the embedder was overloaded). Idempotent, never duplicates. Safe to run any time; omit `--kb` to sweep every KB on the Warden. |
+| `kb-seed` | `kb-seed [--kb <kbId>] [--set <name>]` | Loads a fixed demo card set into the KB. **Use only with `HEARTHOLD_REGISTRY=local` and a throwaway data root** — this is exactly the kind of operation that caused the registry-hygiene incident when pointed at a real registry/deployment. |
+| `kb-reset` | `kb-reset [--kb <kbId>]` | Removes every artefact + index entry from the KB — the shared partition **and** every member's private one. Identity, access groups, policy chain, and the partition records themselves are untouched. Reports the shared/private split. Irreversible for the content — confirm you have a *verified* backup (§4) or truly mean to clear it before running against a live KB. **See the ⚠ below if you are on an older build.** |
+| `kb-reindex` | `kb-reindex [--kb <kbId>]` | Backfills the recall index for any stored-but-unindexed artefacts (e.g. a contribution whose embed dropped because the embedder was overloaded). Idempotent, never duplicates. Safe to run any time; omit `--kb` to sweep every KB on the Warden. **See the ⚠ below if you are on an older build.** |
+
+> ⚠️ **Both commands under-scoped to the shared partition before `fix(kb): space-scoped sweeps must
+> include member private partitions`.** They filtered on `metadata.kb === kbId`, which matches only the
+> shared partition — member private partitions are tagged `<kbId>::priv:<sha16(ownerDid)>` and were
+> skipped. Consequences on an older build:
+> - `kb-reset` cleared shared content, silently left **every member private partition intact**, and
+>   still reported success. If you reset a KB to honour a deletion request, the private data survived
+>   and you were told it worked. **Re-run `kb-reset` on a fixed build to actually clear it.**
+> - `kb-reindex --kb <id>` never backfilled private content, leaving an owner's own contributions
+>   permanently unsearchable *to them*.
+>
+> Check with `git log --oneline -- packages/warden/src/kb-seed.ts` before trusting a reset on an
+> unfamiliar deployment.
 
 ### Creating a new KB, end to end
 
@@ -422,7 +456,7 @@ sudo rm /etc/nginx/sites-enabled/<host>.conf && sudo systemctl reload nginx
 | First-time install | `deploy/INSTALL.md` |
 | Live change history + maintenance runbook | `deploy/OPERATIONS.md` |
 | Manual CLI walkthroughs, full command tables | `docs/manual-testing.md` |
-| The registry-hygiene incident (read before seeding demo data) | `REGISTRY-HYGIENE-BRIEF.md`, `did-creation-source.md` |
+| The registry-hygiene rule (read before seeding demo data) | §1 above — the incident write-ups (`REGISTRY-HYGIENE-BRIEF.md`, `did-creation-source.md`) are **not in this repo** |
 
 This guide is meant to be kept current the way `deploy/OPERATIONS.md` is — if you learn an operational
 lesson the hard way, add it here (or to the troubleshooting table) rather than letting it live only in
