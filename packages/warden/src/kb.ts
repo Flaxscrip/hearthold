@@ -241,8 +241,9 @@ export class KbService {
     return approved ? null : `${action} was not authorized by the Sovereign (${required} step-up declined)`;
   }
 
-  /** Seal + classify + index a contribution into partition `kb`. */
-  private async storeContribution(did: string, kind: string, text: string, kb: string): Promise<KbResultMessage> {
+  /** Seal + classify + index a contribution into partition `kb`. `scope` is echoed back so the client
+   *  learns which partition the write authoritatively landed in (never assuming from its own request). */
+  private async storeContribution(did: string, kind: string, text: string, kb: string, scope: 'shared' | 'private'): Promise<KbResultMessage> {
     const ciphertext = await sealForWarden(this.warden, this.opts.wardenDid, JSON.stringify({ text }));
     const classification = await createClassifier(this.config).classify({ kind, text });
     const id = contentId(ciphertext, this.warden.cipher);
@@ -270,7 +271,7 @@ export class KbService {
           `NOT searchable until \`warden kb-reindex --kb ${kb}\`\n`,
       );
     }
-    return { type: 'hearthold/kb-result', version: PROTOCOL_VERSION, action: 'update', artefactId: id, indexed };
+    return { type: 'hearthold/kb-result', version: PROTOCOL_VERSION, action: 'update', artefactId: id, scope, indexed };
   }
 
   /**
@@ -318,14 +319,14 @@ export class KbService {
       if (!own) return kbErr('no private partition for you on this KB (the space may not grant member partitions)');
       const stepUp = await this.clearAssurance(did, 'write', `contribute (private) to ${this.opts.kbId}: “${req.text.slice(0, 80)}”`);
       if (stepUp) return kbErr(stepUp);
-      return this.storeContribution(did, req.kind, req.text, own.id);
+      return this.storeContribution(did, req.kind, req.text, own.id, 'private');
     }
     // shared partition — INVARIANT I: shared knowledge, contributor-attributed; not a personal vault.
     const sharedWrite = (await this.opts.registry.authorize({ entity_id: did, action: 'write', resource: this.opts.kbId })).authorized;
     if (!sharedWrite) return kbErr('not authorized to write this KB');
     const stepUp = await this.clearAssurance(did, 'write', `contribute to ${this.opts.kbId}: “${req.text.slice(0, 80)}”`);
     if (stepUp) return kbErr(stepUp);
-    return this.storeContribution(did, req.kind, req.text, this.opts.kbId);
+    return this.storeContribution(did, req.kind, req.text, this.opts.kbId, 'shared');
   }
 }
 

@@ -75,12 +75,20 @@ async function main(): Promise<void> {
   const aShared = await contribute(alice, aliceId.did, 'family-dinner', 'shared');
   const bPriv = await contribute(bob, bobId.did, 'bob-secret');                // default = private
   assert([aPriv, aShared, bPriv].every((r) => (r as { type: string }).type === 'hearthold/kb-result'), 'all three contributions succeed');
+  // The Warden's AUTHORITATIVE echo of where each write landed — the field the client renders its
+  // success message from (never the button it clicked). A scope silently dropped on the wire (the
+  // stale-relay bug) would surface here as a mismatch instead of a false "saved privately".
+  const scopeOf = (r: unknown): string | undefined => (r as { scope?: string }).scope;
+  assert(scopeOf(aPriv) === 'private', "Alice's scope-less update RESULT echoes scope:'private' (space default)");
+  assert(scopeOf(aShared) === 'shared', "Alice's scope:'shared' update RESULT echoes scope:'shared'");
+  assert(scopeOf(bPriv) === 'private', "Bob's scope-less update RESULT echoes scope:'private'");
 
   process.stdout.write('\n▸ A member with no private partition is refused a private write\n');
   const carolPriv = await contribute(carol, carolId.did, 'carol-try'); // default = private, but Carol has none
   assert((carolPriv as { type: string; reason?: string }).type === 'hearthold/kb-error', 'Carol (shared-only) is refused a private contribution');
   const carolShared = await contribute(carol, carolId.did, 'carol-shared', 'shared');
   assert((carolShared as { type: string }).type === 'hearthold/kb-result', 'Carol can still contribute to the shared partition');
+  assert(scopeOf(carolShared) === 'shared', "Carol's shared update RESULT echoes scope:'shared'");
 
   // Snapshot the vault AFTER all contributes — the partition tag is metadata.kb (deterministic).
   const vault = await new VaultStore(warden.dataFolder).list();

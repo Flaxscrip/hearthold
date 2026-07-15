@@ -49,7 +49,7 @@ export interface KbCitation {
 /** The Warden's reply, relayed verbatim by the Mage. */
 export type KbResult =
   | { type: 'hearthold/kb-result'; action: 'query'; answer: string; citations: KbCitation[] }
-  | { type: 'hearthold/kb-result'; action: 'update'; artefactId: string }
+  | { type: 'hearthold/kb-result'; action: 'update'; artefactId: string; scope: 'shared' | 'private' }
   | { type: 'hearthold/kb-error'; reason: string };
 
 export interface SessionRequestBody {
