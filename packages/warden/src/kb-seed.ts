@@ -13,6 +13,7 @@ import { sealForWarden, contentId, type KeymasterHandle, type HearthholdConfig }
 import { createClassifier } from './classifier.js';
 import { VaultStore, type Artefact } from './store.js';
 import { IndexStore } from './index-store.js';
+import { belongsToSpace } from './partition-store.js';
 import { OllamaEmbedder } from './recall.js';
 
 export interface DemoFact {
@@ -79,11 +80,17 @@ export async function seedKb(
   return { loaded, set: setName };
 }
 
-/** Remove every artefact + index entry belonging to `kbId` (identity, groups, policy untouched). */
-export async function resetKb(warden: KeymasterHandle, kbId: string): Promise<{ removed: number }> {
+/**
+ * Remove every artefact + index entry belonging to `kbId` — its shared partition *and* every member's
+ * private one (identity, groups, policy, and the partition records themselves untouched). Reports the
+ * split so an operator can see private content was actually cleared rather than skipped.
+ */
+export async function resetKb(warden: KeymasterHandle, kbId: string): Promise<{ removed: number; shared: number; private: number }> {
   const store = new VaultStore(warden.dataFolder);
-  const ids = (await store.list()).filter((a) => a.metadata?.kb === kbId).map((a) => a.id);
+  const doomed = (await store.list()).filter((a) => belongsToSpace(a.metadata?.kb as string | undefined, kbId));
+  const ids = doomed.map((a) => a.id);
   const removed = await store.remove(ids);
   await new IndexStore(warden.dataFolder).remove(ids);
-  return { removed };
+  const shared = doomed.filter((a) => a.metadata?.kb === kbId).length;
+  return { removed, shared, private: doomed.length - shared };
 }
