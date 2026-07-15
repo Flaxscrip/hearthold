@@ -413,8 +413,12 @@ async function main(): Promise<void> {
     case 'kb-reset': {
       await ensureIdentity(handle, config);
       const kb = await resolveKb(new KbConfigStore(handle.dataFolder));
-      const { removed } = await resetKb(handle, kb.kbId);
-      process.stdout.write(`Reset "${kb.kbId}": removed ${removed} artefact(s) + index entries. Identity, access groups, and policy are untouched.\n`);
+      const { removed, shared, private: priv } = await resetKb(handle, kb.kbId);
+      process.stdout.write(
+        `Reset "${kb.kbId}": removed ${removed} artefact(s) + index entries ` +
+          `(${shared} shared · ${priv} in member private partitions). ` +
+          `Identity, access groups, and member partitions are untouched.\n`,
+      );
       break;
     }
     case 'kb-reindex': {

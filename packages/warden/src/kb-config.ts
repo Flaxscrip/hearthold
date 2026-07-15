@@ -20,7 +20,7 @@ import {
 } from '@hearthold/core';
 
 import { KbService, type KbActionApprover } from './kb.js';
-import { PartitionStore, type PartitionRecord } from './partition-store.js';
+import { PartitionStore, partitionIdFor, type PartitionRecord } from './partition-store.js';
 
 /**
  * Persisted KB provisioning for a Warden: the resource (a KB *space*), its shared-partition access
@@ -57,7 +57,7 @@ export async function provisionMemberPartition(
   const partitions = new PartitionStore(handle.dataFolder);
   const existing = await partitions.get(spaceId, ownerDid);
   if (existing) return existing;
-  const id = `${spaceId}::priv:${sha16(ownerDid)}`;
+  const id = partitionIdFor(spaceId, ownerDid);
   const group = await createRegistryGroup(handle, `kb-priv-${sha16(spaceId + ownerDid)}`, config.registry);
   await grantAuthorization(handle, group, ownerDid);
   const rec: PartitionRecord = { spaceId, owner: ownerDid, id, group, location: { kind: 'local' }, createdAt: new Date().toISOString() };
