@@ -6,6 +6,9 @@ three identities (Warden / Emissary / Sovereign); [feature-summary.md](feature-s
 
 Live: the Knowledge Portal at <https://kb.archon.social/>.
 
+## Operations
+- [ai-deployment-guide.md](ai-deployment-guide.md) — operational reference for an AI agent creating/managing a Hearthold deployment: registry hygiene, KB lifecycle commands, trust-registry management, the release ladder, day-2 ops, troubleshooting.
+
 ## Design & architecture
 - [PLAN.md](PLAN.md) — the concept, the three separated identities, and the milestone roadmap.
 - [architecture.md](architecture.md) — actors & their exclusive purposes; components and communication lines.
