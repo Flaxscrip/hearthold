@@ -22,14 +22,47 @@ Durable operational backups live **outside this repo, under `~/infra-backups/`**
 the Warden data root contains the encrypted wallet, and configs reference secrets. **Never commit
 backup archives or env files** — only reference them here.
 
+> ⚠️ **Verify every archive before you rely on it — `tar czf` succeeding proves nothing.** Run
+> `tar tzf <archive>` and confirm `warden/vault.json` is in the list. Both failures seen so far were
+> silent: on 2026-07-15 an ad-hoc backup archived the wallet, index, KB config and partitions but
+> **not the vault**, and a sibling invocation lost its `$(date …)` expansion and landed as a literal
+> `%` in the filename. Neither errored; the vault survived only because the malformed one happened to
+> contain it. A backup that silently lacks the vault is worse than none — it reads as protection you
+> do not have.
+
 | What | Location |
 |------|----------|
 | Warden data root (wallet + vault + KB config + partitions), pre-KB-Spaces | `~/infra-backups/hearthold-warden/hearthold-warden-PRE-kbspaces-20260713-204144.tgz` |
+| Warden data root, last state holding the pre-reset KB content (see 2026-07-15 change log) | `~/infra-backups/hearthold-warden/hearthold-warden-VAULT-55-artefacts-20260715-202857.tgz` |
+| Warden data root, immediately before the 2026-07-15 clean reset (verified complete) | `~/infra-backups/hearthold-warden/hearthold-warden-PRE-cleanreset-20260715-210736.tgz` |
 | `archon.technology` nginx vhost, pre/post rate-limit bump + note | `~/infra-backups/nginx/archon.technology.conf.{PRE,POST}-ratelimit-20260713-203110`, `README-20260713-203110.txt` |
 
 ---
 
 ## Change log (newest first)
+
+### 2026-07-15 — Clean reset of `hearthold-kb`; default scope → private; `kb-reset` found to skip private partitions
+- **What**: cleared the KB's content and made the scope-less default fail safe —
+  `warden kb-reset --kb hearthold-kb`, then
+  `warden kb-spaces enable --default-scope private --kb hearthold-kb`. Members, both access groups,
+  the policy asset, and all 5 member partition records were preserved; content only was removed.
+- **Why `private`**: with `defaultScope: shared` (set 2026-07-13, below), a contribution that arrives
+  without an explicit `scope` lands in the **shared** partition. The 2026-07-14 fix closed that from the
+  wire side; setting the default to `private` also makes the scope-less case fail *safe* rather than
+  over-share, per the deny-by-default ladder in `docs/security-model.md`. The trade-off: a scope-less
+  contribution is now invisible to other members rather than over-shared. The portal sends `scope`
+  explicitly, so this only governs misbehaving or outdated clients.
+- **🐞 Bug found mid-operation — `kb-reset` under-deleted silently.** It filtered on
+  `metadata.kb === kbId`, which matches only the shared partition, so it cleared shared content, left
+  **every member private partition intact**, and still reported success. `kb-reindex --kb <id>` had the
+  same blind spot (private content whose embed dropped could never be backfilled, leaving it
+  permanently unsearchable to its own owner). Fixed in PR #1 (`fix/kb-reset-private-partitions`); the
+  reset above was completed with the fixed build and verified to zero the vault and index.
+  **If you ran `kb-reset` before that fix landed, it did not clear private partitions — re-run it.**
+- **Data**: the pre-reset content was deliberately not carried forward; the last state holding it is the
+  archive listed under Backups. Retained rather than deleted, in case that call is revisited.
+- **Procedure**: service stopped first; backup taken **and verified to contain `warden/vault.json`**
+  before mutating (see the runbook — this step is new, and is why the reset was safe to run).
 
 ### 2026-07-13 — Upgrade to KB Spaces; enable per-member private partitions on `hearthold-kb`
 - **Commit**: pulled `ad62411` (`warden: kb-spaces enable`), rebuilt `dist/`.
@@ -89,9 +122,18 @@ Any command that creates keys/groups/DIDs in the Warden wallet (`kb-init`, `kb-g
 `kb-spaces enable`, `delegate`, …) writes `warden/wallet.json`. The live `warden serve` also owns that
 wallet — running a second writer concurrently risks corruption. Always:
 ```bash
-sudo systemctl stop hearthold-warden
-tar czf ~/infra-backups/hearthold-warden/hearthold-warden-PRE-<change>-$(date +%Y%m%d-%H%M%S).tgz \
-  -C ~/.hearthold-warden warden                 # back up before mutating
+sudo systemctl stop hearthold-warden            # stop FIRST: a stopped service gives a consistent snapshot
+
+# Back up, then prove the backup is real. Quote "$BK" and keep the whole `warden` dir in one -C:
+# hand-listing files is how the vault got left out on 2026-07-15.
+BK=~/infra-backups/hearthold-warden/hearthold-warden-PRE-<change>-$(date +%Y%m%d-%H%M%S).tgz
+tar czf "$BK" -C ~/.hearthold-warden warden
+tar tzf "$BK"                                   # eyeball the list — expect wallet/vault/index/kb/partitions
+for f in warden/wallet.json warden/vault.json warden/index.json; do
+  tar tzf "$BK" | grep -qx "$f" || echo "⚠ BACKUP INCOMPLETE: $f missing — STOP, do not mutate"
+done
+case "$BK" in *%*) echo "⚠ FILENAME HAS A LITERAL % — the date expansion was eaten; rename before relying on it";; esac
+
 set -a; . /opt/hearthold/.env.warden; set +a
 node packages/warden/dist/index.js <command>    # e.g. kb-spaces enable --default-scope shared --kb hearthold-kb
 node packages/warden/dist/index.js kb-status     # verify
