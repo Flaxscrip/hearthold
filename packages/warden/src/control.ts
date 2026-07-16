@@ -65,6 +65,8 @@ import { makeWardenHandler } from './handler.js';
 import { ControlSessionStore } from './control-session.js';
 import { SessionKeyStore } from './session-keys.js';
 import { unlockSessionPartitions, type RewrapChannel } from './rewrap.js';
+import { HouseholdConfigStore } from './household-config.js';
+import { admitMember, removeMember, shareToHousehold } from './household.js';
 
 const sensitivityName = (s: number): SensitivityName => SENSITIVITY_NAMES[s] ?? 'SEALED';
 
@@ -86,6 +88,7 @@ export async function runWardenControl(
   const store = new VaultStore(handle.dataFolder);
   const delegations = new DelegationStore(handle);
   const kbStore = new KbConfigStore(handle.dataFolder);
+  const householdStore = new HouseholdConfigStore(handle.dataFolder);
   // Control-plane sessions: a member proves DID control at login; the Table rides an opaque bearer token.
   const sessions = new ControlSessionStore(config.sessionTtlMs);
   // The read-guest keys: transient partition keys held only for the session (in memory; zeroized at its end).
@@ -383,6 +386,49 @@ export async function runWardenControl(
         const result = await claimMark(handle, { candidate, subjectDid });
         if (result.issued) server.emit('mark-issued', { result }, { owner: subjectDid });
         return { result };
+      },
+
+      // ── Household governance (Phase 4) — the Warden EXECUTES; the Master-Sovereign AUTHORIZES at their
+      // Signet (PVM separation). Admit/remove are governor-authorized; share is owner-driven under a tier.
+      'POST /api/household/admit': async (ctx) => {
+        const { memberDid } = (ctx.body ?? {}) as { memberDid?: string };
+        if (!memberDid) throw new Error('memberDid is required');
+        const hh = await householdStore.get();
+        if (!hh) throw new Error('no household provisioned (run `warden household-init`)');
+        const gov = makeDidcommActionApprover(transport, config.stepUpTimeoutMs.factor2);
+        const ok = await gov.requestActionApproval({ member: hh.governorDid, action: 'admit-member', resource: hh.householdId, summary: `Admit ${memberDid.slice(0, 20)}… to the household` });
+        if (!ok) throw new Error('admission declined by the Master-Sovereign');
+        const partition = await admitMember(handle, config, hh, memberDid);
+        server.emit('household-changed', { admitted: memberDid });
+        return { admitted: memberDid, partition: partition.id };
+      },
+      'POST /api/household/remove': async (ctx) => {
+        const { memberDid } = (ctx.body ?? {}) as { memberDid?: string };
+        if (!memberDid) throw new Error('memberDid is required');
+        const hh = await householdStore.get();
+        if (!hh) throw new Error('no household provisioned');
+        const gov = makeDidcommActionApprover(transport, config.stepUpTimeoutMs.factor2);
+        const ok = await gov.requestActionApproval({ member: hh.governorDid, action: 'remove-member', resource: hh.householdId, summary: `Remove ${memberDid.slice(0, 20)}… from the household` });
+        if (!ok) throw new Error('removal declined by the Master-Sovereign');
+        // removeMember zeroizes the removed member's live read-guest keys immediately (§4.3, watch-item #1).
+        const result = await removeMember(handle, config, hh, memberDid, sessions, sessionKeys);
+        server.emit('household-changed', { removed: memberDid });
+        return { removed: memberDid, ...result };
+      },
+      // Share a member's OWN item to the household — owner-only, contributor-tier, sensitivity-scaled step-up.
+      'POST /api/vault/share': async (ctx) => {
+        const { artefactId } = (ctx.body ?? {}) as { artefactId?: string };
+        if (!artefactId) throw new Error('artefactId is required');
+        const hh = await householdStore.get();
+        if (!hh) throw new Error('no household provisioned');
+        const viewer = effectiveViewer(ctx);
+        if (!viewer) throw new Error('no session — log in');
+        const stepUp = makeDidcommActionApprover(transport, config.stepUpTimeoutMs.factor2);
+        const result = await shareToHousehold(handle, config, hh, artefactId, viewer, (sensitivity) =>
+          stepUp.requestActionApproval({ member: viewer, action: 'share', resource: artefactId, summary: `Share a ${sensitivityName(sensitivity)} note to the household` }),
+        );
+        if (result.shared) server.emit('household-changed', { shared: artefactId }, { scope: 'shared' });
+        return result;
       },
 
       // ── Knowledge Base membership + assurance policy (many KBs per Warden) ──

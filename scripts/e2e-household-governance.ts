@@ -16,11 +16,13 @@ import {
   ensureIdentity,
   createRegistryGroup,
   sealToKey,
+  sealForWarden,
   openWithKey,
   unwrapKey,
 } from '@hearthold/core';
 import { HouseholdVault } from '@hearthold/warden/household-vault';
-import { admitMember, removeMember } from '@hearthold/warden/household';
+import { admitMember, removeMember, shareToHousehold } from '@hearthold/warden/household';
+import { VaultStore } from '@hearthold/warden/store';
 import { ControlSessionStore } from '@hearthold/warden/control-session';
 import { SessionKeyStore } from '@hearthold/warden/session-keys';
 import type { HouseholdConfig } from '@hearthold/warden/household-config';
@@ -35,10 +37,12 @@ async function main(): Promise<void> {
   const pass = 'hearthold-e2e-household';
 
   const warden = await openKeymaster('warden', config, pass);
-  const alice = await openKeymaster('sovereign', config, pass); // a household member
+  const alice = await openKeymaster('sovereign', config, pass); // an admitted household member (contributor)
+  const bob = await openKeymaster('verifier', config, pass); // NOT admitted (a non-contributor)
   const wardenId = await ensureIdentity(warden, config);
   const gov = wardenId.did; // (governor role tested in e2e-governor-overreach; here we exercise execution)
   const aliceDid = (await ensureIdentity(alice, config)).did;
+  const bobDid = (await ensureIdentity(bob, config)).did;
 
   // Provision a household: a Warden-owned shared Vault + read/write rosters + config.
   const vault = await HouseholdVault.create(warden, config);
@@ -66,6 +70,22 @@ async function main(): Promise<void> {
   sessionKeys.put(token, partition.id, await unwrapKey(alice, partition.wrappedKey!));
   assert(sessions.resolve(token) === aliceDid, 'Alice has a live session');
   assert(openWithKey(warden.cipher, sessionKeys.get(token, partition.id)!, ct) === secret, 'the Warden can transiently RAG Alice’s content during her session');
+
+  process.stdout.write('\n▸ Share-to-household — owner-only, contributor-tier, visible to all\n');
+  const store = new VaultStore(warden.dataFolder);
+  const seedNote = async (id: string, owner: string) =>
+    store.put({ id, kind: 'document', observedAt: '2026-07-16T12:00:00Z', storedAt: '2026-07-16T12:00:00Z', sensitivity: 1, ciphertext: await sealForWarden(warden, wardenId.did, JSON.stringify({ text: `note ${id}` })), metadata: {}, owner, scope: 'private' });
+  await seedNote('a-note', aliceDid);
+  await seedNote('b-note', bobDid);
+  const noStepUp = async () => true; // LOW items don't step up anyway
+  const aShare = await shareToHousehold(warden, config, household, 'a-note', aliceDid, noStepUp);
+  assert(aShare.shared, 'Alice (a contributor, via admit) shares her own note to the household');
+  assert((await store.get('a-note'))?.scope === 'shared', 'the shared item is now scope:shared (every member sees it)');
+  assert((await vault.read('a-note')) !== null, 'the plaintext is in the shared Vault (encrypted to all members)');
+  const bobOwn = await shareToHousehold(warden, config, household, 'b-note', bobDid, noStepUp);
+  assert(!bobOwn.shared && /read-only|contribut/.test(bobOwn.reason ?? ''), 'a non-contributor (read-only) member cannot share');
+  const bobOnAlice = await shareToHousehold(warden, config, household, 'a-note', bobDid, noStepUp);
+  assert(!bobOnAlice.shared, 'a non-owner cannot share someone else’s item (owner-only)');
 
   process.stdout.write('\n▸ Remove — decryption dies ON REMOVAL, not at TTL (watch-item #1)\n');
   const result = await removeMember(warden, config, household, aliceDid, sessions, sessionKeys);
