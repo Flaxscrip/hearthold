@@ -36,6 +36,13 @@ export class SessionKeyStore {
   /**
    * Drop ALL keys for a session — logout / expiry / removal. Best-effort scrub of the in-memory JWK fields
    * before dropping the references, so the key material doesn't linger in a live map. Returns the count.
+   *
+   * Scope of the scrub (Fable review 2026-07-16 — a documented limit, not a guarantee): the fields are
+   * overwritten IN PLACE on the JWK object, so the scrub reaches *any* live holder of that same reference
+   * (e.g. a rewrap consumer still pointing at it), not merely this map's slot. It CANNOT reach a private
+   * copy a crypto library may have made, and because JS strings are immutable the original secret string
+   * remains until GC. That residency is the ceiling for in-memory secrets in a GC'd runtime; the true cut
+   * is that decryption via this store dies synchronously here, not at TTL.
    */
   zeroize(token: string): number {
     const m = this.keys.get(token);

@@ -93,6 +93,27 @@ async function main(): Promise<void> {
   const emancipated: SignedRuleset[] = [acked[0] as SignedRuleset, revoke]; // revoke is self-restricting → no ack needed
   assert(!(await read(emancipated, 'loc-low')).granted, 'emancipation (a signed revoke supersession) cuts access off');
 
+  process.stdout.write('\n▸ Same-subject widening still needs the member (Fable review — no silent seizure)\n');
+  const NEAR = '2026-08-01T00:00:00Z'; // the window M actually consented to
+  const BETWEEN = '2026-09-01T00:00:00Z'; // past the acked window, before the attempted extension
+  const g1 = await signRuleset(governor, edge(NEAR, Sensitivity.MEDIUM));
+  const g1acked: SignedRuleset = { ...g1, memberAck: await signMemberAck(member, g1) };
+  // The governor ALONE tries to stretch validUntil to FUTURE — no new kind, no higher ceiling. This slipped
+  // through the old enumeration; under the inverted default it is access-widening and needs M's ack.
+  const extendUnacked = await signRuleset(governor, { ...edge(FUTURE, Sensitivity.MEDIUM), version: 2, previous: rulesetId(g1acked) });
+  const seizeWindow: SignedRuleset[] = [g1acked, extendUnacked];
+  const opHead = await operativeRuleset(warden, seizeWindow, { expectedSigner: gov });
+  assert(opHead?.validUntil === NEAR, 'a governor-alone validUntil EXTENSION is refused — the operative head stays the acked window');
+  assert(!(await guardianRead(warden, config, seizeWindow, gov, M, 'loc-low', BETWEEN)).granted, 'a read past the ACKED window is refused, though the seized v2 would have allowed it');
+  // Same class: a governor-alone ADDED VERB (slipping in `write`) is also access-widening.
+  const addVerbUnacked = await signRuleset(governor, { ...edge(NEAR, Sensitivity.MEDIUM), version: 2, previous: rulesetId(g1acked), capabilities: { kinds: ['location'], verbs: ['read', 'write'] } });
+  const opHead2 = await operativeRuleset(warden, [g1acked, addVerbUnacked], { expectedSigner: gov });
+  assert(!(opHead2?.capabilities.verbs ?? []).includes('write'), 'a governor-alone ADDED VERB is refused — the operative head stays read-only');
+  // And the SAME extension WITH M's ack is accepted — grantable, with consent (never seizable without it).
+  const extendAcked: SignedRuleset = { ...extendUnacked, memberAck: await signMemberAck(member, extendUnacked) };
+  const opHead3 = await operativeRuleset(warden, [g1acked, extendAcked], { expectedSigner: gov });
+  assert(opHead3?.validUntil === FUTURE, 'the same window extension WITH M’s ack is accepted (grantable, with consent)');
+
   process.stdout.write('\n▸ The store surfaces active edges to the watched, and drops them on revoke\n');
   const gs = new GuardianshipStore(warden.dataFolder);
   await gs.replaceChain(gov, M, acked); // persist the acknowledged edge

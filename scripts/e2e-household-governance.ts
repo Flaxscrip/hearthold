@@ -67,7 +67,8 @@ async function main(): Promise<void> {
   const sessionKeys = new SessionKeyStore();
   const { token } = sessions.issue(aliceDid);
   // Alice unlocks (rewrap proven in e2e:partition-rewrap; here we place her unwrapped key directly).
-  sessionKeys.put(token, partition.id, await unwrapKey(alice, partition.wrappedKey!));
+  const heldKey = await unwrapKey(alice, partition.wrappedKey!); // a live holder of the same JWK reference
+  sessionKeys.put(token, partition.id, heldKey);
   assert(sessions.resolve(token) === aliceDid, 'Alice has a live session');
   assert(openWithKey(warden.cipher, sessionKeys.get(token, partition.id)!, ct) === secret, 'the Warden can transiently RAG Alice’s content during her session');
 
@@ -98,6 +99,9 @@ async function main(): Promise<void> {
   const gone = sessionKeys.get(token, partition.id);
   if (gone) { try { stillReadable = openWithKey(warden.cipher, gone, ct) === secret; } catch { stillReadable = false; } }
   assert(!stillReadable, 'the Warden can NO LONGER decrypt Alice’s partition note — decryption died on removal, not at TTL');
+  // The scrub is IN PLACE (Fable review): a live holder of the same JWK reference sees its private field
+  // emptied, not merely the map slot cleared. (Immutable-string residue until GC is the documented limit.)
+  assert((heldKey as unknown as Record<string, unknown>).d === '', 'the held key reference itself was scrubbed in place (private field emptied on zeroize)');
 
   process.stdout.write('\n✓ Household governance: admit grants shared+private; remove revokes AND kills live decryption at once\n');
   process.exit(0);
