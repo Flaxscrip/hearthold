@@ -103,6 +103,14 @@ export async function runWardenControl(
     const h = ctx.req.headers['x-hearthold-session'];
     return Array.isArray(h) ? h[0] ?? null : h ?? null;
   };
+  // ── The G-grade boundary (Phase 3): every scoped route computes its visible set from the SESSION DID,
+  // server-side, never from anything the client sends. The viewer is the authenticated session member, or
+  // the configured Sovereign when unauthenticated (single-Sovereign back-compat). Pre-family artefacts
+  // (no owner) belong to the Sovereign. An artefact is visible iff the viewer owns it or it is shared.
+  const effectiveViewer = (ctx: { req: { headers: Record<string, string | string[] | undefined> } }): string | undefined =>
+    sessions.resolve(sessionToken(ctx)) ?? config.sovereignDid;
+  const ownerOf = (a: Artefact): string | undefined => a.owner ?? config.sovereignDid;
+  const visibleTo = (a: Artefact, viewer: string | undefined): boolean => ownerOf(a) === viewer || a.scope === 'shared';
 
   const members = async (group: string): Promise<string[]> => {
     const g = (await handle.keymaster.getGroup(group).catch(() => null)) as { members?: string[] } | null;
@@ -170,19 +178,22 @@ export async function runWardenControl(
     serving: true,
   });
 
-  const snapshot = async (): Promise<WardenSnapshot> => ({
+  const snapshot = async (viewer: string | undefined): Promise<WardenSnapshot> => ({
     status: await status(),
-    vault: (await store.list()).map(toVaultItem),
+    vault: (await store.list()).filter((a) => visibleTo(a, viewer)).map(toVaultItem),
     delegations: await delegations.list(),
   });
 
   const server = startControlServer({
     port,
+    // SSE audience filtering (Phase 3): resolve each console's viewer DID so a member's events don't reach
+    // another member's stream. Falls back to undefined (broadcast-eligible) when unauthenticated.
+    resolveSession: (token) => sessions.resolve(token ?? null) ?? undefined,
     routes: {
       'GET /api/status': async (ctx) => ({
         status: { ...(await status()), sessionDid: sessions.resolve(sessionToken(ctx)) ?? undefined },
       }),
-      'GET /api/snapshot': async () => await snapshot(),
+      'GET /api/snapshot': async (ctx) => await snapshot(effectiveViewer(ctx)),
 
       // ── Control-plane session (Phase 2) — proven identity only (no client-asserted DID). The member's
       // wallet/Signet createResponse()s the challenge; keys never leave it. The Table rides the bearer
@@ -246,19 +257,24 @@ export async function runWardenControl(
           needsHumanConfirmation: r.needsHumanConfirmation,
         };
       },
-      'POST /api/recall': async ({ body }) => {
-        const { query, k } = (body ?? {}) as RecallRequest;
+      'POST /api/recall': async (ctx) => {
+        const { query, k } = (ctx.body ?? {}) as RecallRequest;
         if (!query) throw new Error('query is required');
-        // Private RAG over the vault — the query, retrieval, and answer all stay on this device.
-        const result = await RecallService.forWarden(handle, config).recall(query, k ? { k } : {});
+        // Private RAG over the SESSION member's vault — their own artefacts ∪ shared-to-household, and only
+        // the personal vault (kb:null), not the KBs. Query, retrieval, and answer stay on this device.
+        const viewer = effectiveViewer(ctx);
+        const result = await RecallService.forWarden(handle, config).recall(query, { ...(k ? { k } : {}), kb: null, owner: viewer });
         return { result };
       },
       // Forge (Sevenfold) — mint an Attestation scroll from a divination. Reuses the evidence flow: a
       // MEDIUM+ forge triggers the same out-of-band Signet evidence-approval the DIDComm path uses;
       // LOW/witnessed clears at STANDING with no step-up. The browser holds no key.
-      'POST /api/forge': async ({ body }) => {
-        const { claim, kind, from, to, structured, validForMinutes } = (body ?? {}) as ProveRequest;
+      'POST /api/forge': async (ctx) => {
+        const { claim, kind, from, to, structured, validForMinutes } = (ctx.body ?? {}) as ProveRequest;
         if (!claim || !kind) throw new Error('claim and kind are required');
+        // The forge subject is the SESSION member (Phase 3) — a MEDIUM+ forge then step-ups to THAT
+        // member's own Signet (the per-member approver, Phase 2), never config.sovereignDid.
+        const subjectDid = effectiveViewer(ctx);
         const at = new Date().toISOString();
         const req: EvidenceRequest = {
           type: 'hearthold/evidence-request',
@@ -266,10 +282,10 @@ export async function runWardenControl(
           claim,
           disclosureMode: 'ATTESTATION',
           spec: { kind: kind as never, from, to, structured },
-          ...(config.sovereignDid ? { subjectDid: config.sovereignDid } : {}),
+          ...(subjectDid ? { subjectDid } : {}),
           ...(validForMinutes ? { validForMinutes } : {}),
         };
-        // Home-plane forge: the Sovereign proves from their own vault (delegationValid = true).
+        // Home-plane forge: the member proves from their own vault (delegationValid = true).
         const r = await evidenceService.handle(req, id.did, true);
         const proof: ProofRecord =
           r.status === 'granted'
@@ -290,7 +306,7 @@ export async function runWardenControl(
             : { id: randomUUID(), claim, kind, status: 'denied', reason: r.reason, at };
         if (proof.status === 'granted' && proof.credentialDid) {
           forgeLedger.set(proof.credentialDid, proof.validUntil);
-          server.emit('scroll-forged', { proof });
+          server.emit('scroll-forged', { proof }, { owner: subjectDid });
         }
         return { proof };
       },
@@ -312,22 +328,43 @@ export async function runWardenControl(
       },
 
       // Card-face hydration for the Sevenfold Table — crosses decideRelease; a refusal is `granted:false`
-      // (obsidian), not an error. The face is unsealed transiently and never cached (G2).
-      'POST /api/card/face': async ({ body }) => {
-        const { artefactId, tier } = (body ?? {}) as CardFaceRequest;
+      // (obsidian), not an error. The face is unsealed transiently and never cached (G2). Phase 3 fix: the
+      // face is computed for the SESSION member (cross-member cards never render) and the tier is
+      // server-determined — a MEDIUM+ face requires a REAL step-up to that member's own Signet, never a
+      // client-claimed `tier`.
+      'POST /api/card/face': async (ctx) => {
+        const { artefactId } = (ctx.body ?? {}) as CardFaceRequest;
         if (!artefactId) throw new Error('artefactId is required');
-        const t = (tier ?? AuthzTier.STANDING) as AuthzTier;
-        const card = await hydrateCardFace(handle, { artefactId, tier: t });
+        const viewer = effectiveViewer(ctx);
+        const stepUp = makeDidcommActionApprover(transport, config.stepUpTimeoutMs.factor1);
+        const achievedTier = async (sensitivity: Sensitivity): Promise<AuthzTier> => {
+          if (sensitivity < Sensitivity.MEDIUM) return AuthzTier.STANDING; // authenticated session clears ≤LOW
+          if (!viewer) return AuthzTier.STANDING; // no member to step up → MEDIUM+ will refuse
+          const ok = await stepUp.requestActionApproval({
+            member: viewer,
+            action: 'render',
+            resource: artefactId,
+            summary: `Reveal a ${sensitivityName(sensitivity)} card face`,
+          });
+          return ok ? AuthzTier.CHALLENGE : AuthzTier.STANDING; // insufficient → the ladder refuses
+        };
+        const card = await hydrateCardFace(handle, { artefactId, visible: (a) => visibleTo(a, viewer), achievedTier });
         return { card };
       },
 
-      // Triage — the born-obsidian confirmation queue.
-      'GET /api/triage': async () => ({ queue: await triageQueue(handle) }),
-      'POST /api/triage/confirm': async ({ body }) => {
-        const { artefactId, sensitivity } = (body ?? {}) as TriageConfirmRequest;
+      // Triage — the born-obsidian confirmation queue, scoped to the session member's own quarantine.
+      'GET /api/triage': async (ctx) => {
+        const viewer = effectiveViewer(ctx);
+        return { queue: await triageQueue(handle, (a) => visibleTo(a, viewer)) };
+      },
+      'POST /api/triage/confirm': async (ctx) => {
+        const { artefactId, sensitivity } = (ctx.body ?? {}) as TriageConfirmRequest;
         if (!artefactId || sensitivity === undefined) throw new Error('artefactId and sensitivity are required');
+        // A member confirms only their OWN quarantine — refuse a cross-member confirm.
+        const target = await store.get(artefactId);
+        if (!target || !visibleTo(target, effectiveViewer(ctx))) throw new Error('not available');
         const item = await confirmTriage(handle, { artefactId, sensitivity: sensitivity as Sensitivity });
-        server.emit('triage-confirmed', { item });
+        server.emit('triage-confirmed', { item }, { owner: effectiveViewer(ctx) });
         return { item };
       },
 
@@ -336,15 +373,15 @@ export async function runWardenControl(
         const { candidates } = (body ?? {}) as { candidates?: MarkCandidate[] };
         return { marks: await claimableMarks(handle, candidates ?? []) };
       },
-      'POST /api/marks/claim': async ({ body }) => {
-        const { candidate, subjectDid: bodyDid } = (body ?? {}) as MarkClaimRequest;
-        // Default the subject to the configured Sovereign (mirrors /api/forge), so the front-end can
-        // send just `{ candidate }` and never needs to know the Sovereign's DID.
-        const subjectDid = bodyDid ?? config.sovereignDid;
+      'POST /api/marks/claim': async (ctx) => {
+        const { candidate } = (ctx.body ?? {}) as MarkClaimRequest;
+        // The Mark is issued to the SESSION member (Phase 3) — never a client-asserted subject. This
+        // subsumes the old `subjectDid ?? config.sovereignDid` default.
+        const subjectDid = effectiveViewer(ctx);
         if (!candidate) throw new Error('candidate is required');
-        if (!subjectDid) throw new Error('subjectDid is required (no Sovereign configured on this Warden)');
+        if (!subjectDid) throw new Error('no session and no Sovereign configured on this Warden');
         const result = await claimMark(handle, { candidate, subjectDid });
-        if (result.issued) server.emit('mark-issued', { result });
+        if (result.issued) server.emit('mark-issued', { result }, { owner: subjectDid });
         return { result };
       },
 
@@ -415,14 +452,18 @@ export async function runWardenControl(
     ) {
       const receipt = result as SubmissionReceipt;
       const sub = message as WitnessSubmission;
+      // The stored artefact carries the attributed owner/scope — scope the event so only that member's
+      // console sees their own `submission-stored` (activity metadata is a disclosure, Fable amendment 3).
+      const stored = await store.get(receipt.artefactId);
       const item: VaultItem = {
         id: receipt.artefactId,
         kind: sub.kind,
         sensitivity: receipt.assignedSensitivity,
         sensitivityName: sensitivityName(receipt.assignedSensitivity),
         observedAt: sub.observedAt,
+        ...(stored?.scope ? { scope: stored.scope } : {}),
       };
-      server.emit('submission-stored', { item, from: fromDid });
+      server.emit('submission-stored', { item, from: fromDid }, { owner: stored?.owner ?? config.sovereignDid, scope: stored?.scope });
     }
     return result;
   };

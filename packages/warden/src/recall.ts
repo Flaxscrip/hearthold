@@ -83,6 +83,8 @@ export interface RecallOptions {
   /** Scope retrieval: one KB id, an array of ids (a member's visible set of partitions), `null` for the
    *  personal vault only, or omit for all. */
   kb?: string | string[] | null;
+  /** Scope the personal vault to a household member: their own artefacts ∪ shared-to-household (Phase 3). */
+  owner?: string;
 }
 
 export class RecallService {
@@ -130,7 +132,7 @@ export class RecallService {
       return { query, answer: 'Nothing has been indexed yet.', citations: [], descriptionSource: 'machine-derived' };
     }
     const queryEmbedding = await this.embedder.embed(query);
-    const ranked = rankByQuery(queryEmbedding, entries, { k: opts.k ?? 5, maxSensitivity: opts.maxSensitivity, kb: opts.kb });
+    const ranked = rankByQuery(queryEmbedding, entries, { k: opts.k ?? 5, maxSensitivity: opts.maxSensitivity, kb: opts.kb, owner: opts.owner });
 
     const passages: { observedAt: string; text: string }[] = [];
     const citations: RecallCitation[] = [];
@@ -138,7 +140,7 @@ export class RecallService {
       const text = await this.resolve(entry.artefactId);
       if (!text) continue;
       passages.push({ observedAt: entry.observedAt, text });
-      citations.push({ artefactId: entry.artefactId, kind: entry.kind, observedAt: entry.observedAt, score, kb: entry.kb });
+      citations.push({ artefactId: entry.artefactId, kind: entry.kind, observedAt: entry.observedAt, score, kb: entry.kb, scope: entry.scope });
     }
 
     if (passages.length === 0) {
