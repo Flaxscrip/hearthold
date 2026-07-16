@@ -43,12 +43,17 @@ export interface ControlEvent<T = unknown> {
 
 // ─────────────────────────────── Warden ───────────────────────────────
 
+/** Which household partition an item belongs to: the shared pool, or a member's private partition. */
+export type PartitionScope = 'shared' | 'private';
+
 export interface VaultItem {
   id: string;
   kind: string;
   sensitivity: number;
   sensitivityName: SensitivityName;
   observedAt: string;
+  /** Partition origin for the card frame. Populated once session-scoping lands (Phase 3); undefined pre-family. */
+  scope?: PartitionScope;
 }
 
 export interface DelegationRecord {
@@ -64,6 +69,8 @@ export interface WardenStatus {
   artefactCount: number;
   delegationCount: number;
   serving: boolean;
+  /** Whose view this is — the authenticated session member DID. Undefined when unauthenticated / single-Sovereign. */
+  sessionDid?: string;
 }
 
 export interface WardenSnapshot {
@@ -119,6 +126,8 @@ export interface RecallCitationView {
   kind: string;
   observedAt: string;
   score: number;
+  /** shared-pool vs the member's private partition, for the Divination citation badge (Phase 3). */
+  scope?: PartitionScope;
 }
 export interface RecallResultView {
   query: string;

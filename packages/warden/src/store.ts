@@ -13,6 +13,11 @@ export interface Artefact {
   /** Sealed payload — bare ciphertext addressed to the Warden. Never plaintext. */
   ciphertext: string;
   metadata: Record<string, unknown>;
+  /** Household member DID this artefact belongs to. Attributed on submit (Phase 1); backfilled to the
+   *  configured Sovereign for pre-family data. Undefined = not yet attributed (treated as the Sovereign's). */
+  owner?: string;
+  /** Partition origin: the shared household pool, or the owner's private partition. Default 'private'. */
+  scope?: 'shared' | 'private';
 }
 
 /**

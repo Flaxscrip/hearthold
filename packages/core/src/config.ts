@@ -31,6 +31,11 @@ export interface HearthholdConfig {
   indexMode: 'ollama' | 'off';
   /** Signet: PIN that gates the Sovereign's approval of a disclosure (the first proof-of-human). */
   signetPin?: string;
+  /**
+   * Step-up (Signet approval) timeout in ms, per assurance level. The default 180s can lapse for a live
+   * human tap, so it is configurable; clamped to a hard cap so a session can never hang indefinitely.
+   */
+  stepUpTimeoutMs: { factor1: number; factor2: number };
 }
 
 const DEFAULT_NODE_URL = 'http://flaxlap.local:4222';
@@ -39,9 +44,19 @@ const DEFAULT_DATA_ROOT = join(homedir(), '.hearthold');
 const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
 const DEFAULT_CLASSIFIER_MODEL = 'qwen3:8b';
 const DEFAULT_EMBEDDING_MODEL = 'nomic-embed-text';
+const DEFAULT_STEPUP_TIMEOUT_MS = 180_000;
+const STEPUP_TIMEOUT_HARD_CAP_MS = 600_000;
+
+/** Parse a positive-ms env value, clamp to the hard cap, else fall back. */
+function resolveTimeout(value: string | undefined, fallback: number): number {
+  const n = value !== undefined ? Number(value) : fallback;
+  return Number.isFinite(n) && n > 0 ? Math.min(n, STEPUP_TIMEOUT_HARD_CAP_MS) : fallback;
+}
 
 /** Build config from environment with sensible local-node defaults. */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): HearthholdConfig {
+  // HEARTHOLD_STEPUP_TIMEOUT_MS sets both levels; per-level overrides are also available.
+  const stepUpBase = resolveTimeout(env.HEARTHOLD_STEPUP_TIMEOUT_MS, DEFAULT_STEPUP_TIMEOUT_MS);
   return {
     nodeUrl: env.HEARTHOLD_NODE_URL ?? DEFAULT_NODE_URL,
     registry: env.HEARTHOLD_REGISTRY ?? DEFAULT_REGISTRY,
@@ -54,6 +69,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): HearthholdConf
     embeddingModel: env.HEARTHOLD_EMBEDDING_MODEL ?? DEFAULT_EMBEDDING_MODEL,
     indexMode: env.HEARTHOLD_INDEX === 'off' ? 'off' : 'ollama',
     signetPin: env.HEARTHOLD_SIGNET_PIN,
+    stepUpTimeoutMs: {
+      factor1: resolveTimeout(env.HEARTHOLD_STEPUP_TIMEOUT_FACTOR1_MS, stepUpBase),
+      factor2: resolveTimeout(env.HEARTHOLD_STEPUP_TIMEOUT_FACTOR2_MS, stepUpBase),
+    },
   };
 }
 
