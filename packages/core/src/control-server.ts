@@ -46,7 +46,7 @@ const sse = new Set<ServerResponse>();
 function cors(res: ServerResponse): void {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Hearthold-Session');
 }
 
 function sendJson(res: ServerResponse, status: number, payload: unknown): void {

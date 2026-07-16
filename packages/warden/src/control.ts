@@ -62,6 +62,7 @@ import { triageQueue, confirmTriage } from './triage.js';
 import { claimableMarks, claimMark } from './marks.js';
 import { buildKbServices, KbConfigStore, setKbAssurance, readKbAssurance, provisionMemberPartition } from './kb-config.js';
 import { makeWardenHandler } from './handler.js';
+import { ControlSessionStore } from './control-session.js';
 
 const sensitivityName = (s: number): SensitivityName => SENSITIVITY_NAMES[s] ?? 'SEALED';
 
@@ -83,6 +84,21 @@ export async function runWardenControl(
   const store = new VaultStore(handle.dataFolder);
   const delegations = new DelegationStore(handle);
   const kbStore = new KbConfigStore(handle.dataFolder);
+  // Control-plane sessions: a member proves DID control at login; the Table rides an opaque bearer token.
+  const sessions = new ControlSessionStore(config.sessionTtlMs);
+  const createChallenge = handle.keymaster.createChallenge.bind(handle.keymaster) as (
+    c?: Record<string, unknown>,
+    o?: Record<string, unknown>,
+  ) => Promise<string>;
+  const verifyResponse = handle.keymaster.verifyResponse.bind(handle.keymaster) as (
+    r: string,
+    o?: Record<string, unknown>,
+  ) => Promise<{ match?: boolean; responder?: string }>;
+  /** The session bearer token off the request header (the Table sends `X-Hearthold-Session`). */
+  const sessionToken = (ctx: { req: { headers: Record<string, string | string[] | undefined> } }): string | null => {
+    const h = ctx.req.headers['x-hearthold-session'];
+    return Array.isArray(h) ? h[0] ?? null : h ?? null;
+  };
 
   const members = async (group: string): Promise<string[]> => {
     const g = (await handle.keymaster.getGroup(group).catch(() => null)) as { members?: string[] } | null;
@@ -109,22 +125,26 @@ export async function runWardenControl(
   const transport = new DidCommTransport(handle, IDENTITY_NAME.warden, config.nodeUrl);
   await transport.ready();
 
-  // Direct Warden↔Sovereign approval channel: for a sensitive evidence disclosure (a forge of MEDIUM+
-  // data), the Warden asks the Sovereign's Signet directly. Hoisted here so the /api/forge route and
-  // the DIDComm evidence handler share ONE EvidenceService.
-  const approver: SovereignApprover | undefined = config.sovereignDid
-    ? {
-        async requestApproval(req) {
-          try {
-            const reply = await transport.request(config.sovereignDid as string, req, { timeoutMs: 180_000 });
-            if (reply.type === 'hearthold/approval-response') return reply;
-            return { type: 'hearthold/approval-response', version: PROTOCOL_VERSION, approved: false, reason: `unexpected reply ${reply.type}` };
-          } catch (err) {
-            return { type: 'hearthold/approval-response', version: PROTOCOL_VERSION, approved: false, reason: `Sovereign unreachable: ${err instanceof Error ? err.message : String(err)}` };
-          }
-        },
+  // Direct Warden↔Signet approval channel for a sensitive disclosure (a forge of MEDIUM+ data). Routes
+  // to the SUBJECT MEMBER's own Signet — `req.subjectDid` (Fable amendment 2 / rewrap-spec §4.2: one
+  // household ≠ one Signet), falling back to the configured Sovereign for the single-Sovereign case. The
+  // step-up timeout is configurable per assurance level (Fable: the hard 180s lapses for a live human tap).
+  const approver: SovereignApprover = {
+    async requestApproval(req) {
+      const target = req.subjectDid ?? config.sovereignDid;
+      if (!target) {
+        return { type: 'hearthold/approval-response', version: PROTOCOL_VERSION, approved: false, reason: 'no approver configured for this disclosure' };
       }
-    : undefined;
+      const timeoutMs = config.stepUpTimeoutMs[req.requiredLevel >= 2 ? 'factor2' : 'factor1'];
+      try {
+        const reply = await transport.request(target, req, { timeoutMs });
+        if (reply.type === 'hearthold/approval-response') return reply;
+        return { type: 'hearthold/approval-response', version: PROTOCOL_VERSION, approved: false, reason: `unexpected reply ${reply.type}` };
+      } catch (err) {
+        return { type: 'hearthold/approval-response', version: PROTOCOL_VERSION, approved: false, reason: `Signet unreachable: ${err instanceof Error ? err.message : String(err)}` };
+      }
+    },
+  };
   const evidenceService = new EvidenceService(handle, config, approver);
   // Forge/present (Sevenfold Divination→Forge→Burn): scroll validity by credentialDid, single-use
   // enforced verifier-side (the holder can't reset it) via the same SpentTxnStore as e2e:scroll-burn.
@@ -155,8 +175,37 @@ export async function runWardenControl(
   const server = startControlServer({
     port,
     routes: {
-      'GET /api/status': async () => ({ status: await status() }),
+      'GET /api/status': async (ctx) => ({
+        status: { ...(await status()), sessionDid: sessions.resolve(sessionToken(ctx)) ?? undefined },
+      }),
       'GET /api/snapshot': async () => await snapshot(),
+
+      // ── Control-plane session (Phase 2) — proven identity only (no client-asserted DID). The member's
+      // wallet/Signet createResponse()s the challenge; keys never leave it. The Table rides the bearer
+      // token; every scoped route (Phase 3) computes its visible set from the SESSION DID, server-side.
+      'POST /api/login/start': async ({ body }) => {
+        const { callback } = (body ?? {}) as { callback?: string };
+        const challenge = await createChallenge({ callback, purpose: 'hearthold-control' }, { registry: config.registry });
+        return { challenge };
+      },
+      'POST /api/login/complete': async ({ body }) => {
+        const { response } = (body ?? {}) as { response?: string };
+        if (!response) throw new Error('response is required');
+        const res = await verifyResponse(response).catch(() => ({ match: false } as { match?: boolean; responder?: string }));
+        if (!res.match || !res.responder) throw new Error('login response did not verify');
+        return { ...sessions.issue(res.responder), did: res.responder };
+      },
+      'GET /api/whoami': async (ctx) => {
+        const token = sessionToken(ctx);
+        const did = sessions.resolve(token);
+        if (!did) throw new Error('no active session');
+        return { did, expiresAt: sessions.expiresAt(token) };
+      },
+      'POST /api/logout': async (ctx) => {
+        const revoked = sessions.revoke(sessionToken(ctx));
+        // (Phase-2 rewrap: zeroize any partition session keys bound to `revoked` here.)
+        return { ok: true, revoked: !!revoked };
+      },
       'POST /api/delegate': async ({ body }) => {
         const { emissaryDid } = (body ?? {}) as DelegateRequest;
         if (!emissaryDid) throw new Error('emissaryDid is required');

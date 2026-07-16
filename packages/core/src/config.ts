@@ -36,6 +36,8 @@ export interface HearthholdConfig {
    * human tap, so it is configurable; clamped to a hard cap so a session can never hang indefinitely.
    */
   stepUpTimeoutMs: { factor1: number; factor2: number };
+  /** Control-plane session lifetime in ms (absolute; never slid on use). Default 30 min. */
+  sessionTtlMs: number;
 }
 
 const DEFAULT_NODE_URL = 'http://flaxlap.local:4222';
@@ -46,6 +48,7 @@ const DEFAULT_CLASSIFIER_MODEL = 'qwen3:8b';
 const DEFAULT_EMBEDDING_MODEL = 'nomic-embed-text';
 const DEFAULT_STEPUP_TIMEOUT_MS = 180_000;
 const STEPUP_TIMEOUT_HARD_CAP_MS = 600_000;
+const DEFAULT_SESSION_TTL_MS = 30 * 60_000;
 
 /** Parse a positive-ms env value, clamp to the hard cap, else fall back. */
 function resolveTimeout(value: string | undefined, fallback: number): number {
@@ -73,6 +76,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): HearthholdConf
       factor1: resolveTimeout(env.HEARTHOLD_STEPUP_TIMEOUT_FACTOR1_MS, stepUpBase),
       factor2: resolveTimeout(env.HEARTHOLD_STEPUP_TIMEOUT_FACTOR2_MS, stepUpBase),
     },
+    sessionTtlMs: (() => {
+      const n = Number(env.HEARTHOLD_SESSION_TTL_MS);
+      return Number.isFinite(n) && n > 0 ? n : DEFAULT_SESSION_TTL_MS;
+    })(),
   };
 }
 
