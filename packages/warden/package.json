@@ -111,6 +111,10 @@
     "./migrate-owner": {
       "types": "./dist/migrate-owner.d.ts",
       "import": "./dist/migrate-owner.js"
+    },
+    "./household": {
+      "types": "./dist/household.d.ts",
+      "import": "./dist/household.js"
     }
   },
   "scripts": {
