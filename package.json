@@ -73,6 +73,7 @@
     "e2e:family-isolation": "npm run build && node --experimental-strip-types scripts/e2e-family-isolation.ts",
     "e2e:governor-overreach": "npm run build && node --experimental-strip-types scripts/e2e-governor-overreach.ts",
     "e2e:household-governance": "npm run build && node --experimental-strip-types scripts/e2e-household-governance.ts",
+    "e2e:guardianship": "npm run build && node --experimental-strip-types scripts/e2e-guardianship.ts",
     "e2e:cgpr-hatpro": "npm run build && node --experimental-strip-types scripts/e2e-cgpr-hatpro.ts",
     "e2e:kb-reindex": "npm run build && node --experimental-strip-types scripts/e2e-kb-reindex.ts",
     "e2e:evidence-deterministic": "npm run build && node --experimental-strip-types scripts/e2e-evidence-deterministic.ts"

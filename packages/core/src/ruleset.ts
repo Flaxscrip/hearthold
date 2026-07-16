@@ -59,6 +59,8 @@ export interface Ruleset {
    * "Guardianship is grantable but never seizable."
    */
   subject?: string;
+  /** Guardianship expiry (ISO): a guardian read past this is refused. Emancipation = a signed supersession. */
+  validUntil?: string;
 }
 
 /**
@@ -241,6 +243,48 @@ export async function operativeRuleset(
   if (opts.expectedSigner && signer && signer !== opts.expectedSigner) return null; // governor pinning
   if (!lastValid) return null;
   return lastValid.status === 'active' ? lastValid : null;
+}
+
+export interface GuardianReadRequest {
+  /** The governor attempting the read (the guardian). */
+  governor: string;
+  /** The watched member whose data is read. */
+  subject: string;
+  /** The artefact's kind + sensitivity + the check-time clock. */
+  kind?: string;
+  sensitivity?: number;
+  at: string;
+}
+
+/**
+ * Authorize a GOVERNOR reading a MEMBER's private data under a Guardianship Ruleset (guardianship-threat-
+ * model.md §5). The ladder is not bypassed — it is *satisfied by law*: a guardian read is allowed only
+ * within an active, member-acknowledged guardianship edge that names this governor→member, is unexpired,
+ * and covers the artefact's kind + sensitivity. Because the chain runs through `operativeRuleset`, a
+ * guardianship version the member never acknowledged is invalid and reads are refused (seizure defense);
+ * a revoked/emancipated edge has no active head; and a tampered/forged chain fails closed.
+ */
+export async function authorizeGuardianRead(
+  warden: KeymasterHandle,
+  chain: SignedRuleset[],
+  req: GuardianReadRequest,
+): Promise<{ allowed: boolean; reason: string }> {
+  const operative = await operativeRuleset(warden, chain, { expectedSigner: req.governor });
+  if (!operative) return { allowed: false, reason: 'no active guardianship (unacknowledged, revoked, tampered, or not governor-signed)' };
+  if (operative.actor !== req.governor || operative.subject !== req.subject) {
+    return { allowed: false, reason: 'the active Ruleset is not a guardianship edge for this governor → member' };
+  }
+  if (operative.validUntil && req.at > operative.validUntil) {
+    return { allowed: false, reason: 'guardianship has expired' };
+  }
+  const caps = operative.capabilities;
+  if (req.kind && caps.kinds && !caps.kinds.includes(req.kind)) {
+    return { allowed: false, reason: `kind '${req.kind}' is outside the guardianship scope` };
+  }
+  if (req.sensitivity !== undefined && req.sensitivity > operative.ceiling) {
+    return { allowed: false, reason: `sensitivity ${req.sensitivity} exceeds the guardianship ceiling ${operative.ceiling}` };
+  }
+  return { allowed: true, reason: 'authorized by the guardianship Ruleset (the ladder is satisfied by law)' };
 }
 
 /**

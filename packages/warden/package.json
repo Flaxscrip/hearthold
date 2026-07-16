@@ -115,6 +115,10 @@
     "./household": {
       "types": "./dist/household.d.ts",
       "import": "./dist/household.js"
+    },
+    "./guardianship": {
+      "types": "./dist/guardianship.d.ts",
+      "import": "./dist/guardianship.js"
     }
   },
   "scripts": {
