@@ -25,6 +25,8 @@ export function makeWardenHandler(
   evidence?: EvidenceService,
   /** All KBs this Warden serves, keyed by kbId. A request is routed to the KB matching its `kbId`. */
   kbs?: Map<string, KbService>,
+  /** Owner attributed to a submission when its Emissary isn't bound to a member (single-Sovereign fallback). */
+  defaultOwner?: string,
 ): RequestHandler {
   const deny = (reason: string): HearthholdMessage => ({
     type: 'hearthold/error',
@@ -41,7 +43,9 @@ export function makeWardenHandler(
         if (!(await delegations.isAuthorized(fromDid))) {
           return deny('no valid delegation for this Emissary');
         }
-        return service.handleSubmission(message as WitnessSubmission, fromDid);
+        // Attribute the submission's OWNER: the member this Emissary serves, else the default Sovereign.
+        const owner = (await delegations.memberFor(fromDid)) ?? defaultOwner;
+        return service.handleSubmission(message as WitnessSubmission, fromDid, owner);
       }
 
       case 'hearthold/evidence-request': {

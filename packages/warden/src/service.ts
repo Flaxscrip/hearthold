@@ -36,10 +36,15 @@ export class WardenService {
     }
   }
 
-  /** Process one witness submission. `emissaryDid` is the authenticated session subject. */
+  /**
+   * Process one witness submission. `emissaryDid` is the authenticated transport subject (the witness);
+   * `owner` is the household member this submission belongs to — its OWNER for visible-set scoping. When
+   * omitted (single-Sovereign), the artefact carries no owner and is treated as the configured Sovereign's.
+   */
   async handleSubmission(
     submission: WitnessSubmission,
     emissaryDid: string,
+    owner?: string,
   ): Promise<SubmissionReceipt> {
     // Decrypt locally for classification only — the stored artefact stays sealed at rest.
     const plaintext = await unsealAsWarden(this.warden, submission.ciphertext);
@@ -58,6 +63,8 @@ export class WardenService {
       sensitivity: classification.sensitivity,
       ciphertext: submission.ciphertext,
       metadata: { ...classification.metadata, witness: emissaryDid, needsHumanConfirmation: classification.needsHumanConfirmation },
+      // A personal submission is the member's own; scope 'private'. `owner` scopes the visible set (Phase 3).
+      ...(owner ? { owner, scope: 'private' as const } : {}),
     };
     await this.store.put(artefact);
 
@@ -72,6 +79,7 @@ export class WardenService {
           observedAt: submission.observedAt,
           sensitivity: artefact.sensitivity,
           embedding,
+          ...(owner ? { owner, scope: 'private' as const } : {}),
         });
       } catch {
         /* recall index is best-effort; submission still succeeds */

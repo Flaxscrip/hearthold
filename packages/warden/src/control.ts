@@ -71,6 +71,7 @@ const toVaultItem = (a: Artefact): VaultItem => ({
   sensitivity: a.sensitivity,
   sensitivityName: sensitivityName(a.sensitivity),
   observedAt: a.observedAt,
+  ...(a.scope ? { scope: a.scope } : {}),
 });
 
 export async function runWardenControl(
@@ -340,7 +341,7 @@ export async function runWardenControl(
   const kbs = await buildKbServices(handle, config, id.did, makeDidcommActionApprover(transport));
 
   // Wrap the real handler so a stored submission is pushed to connected consoles.
-  const inner = makeWardenHandler(service, delegations, evidenceService, kbs);
+  const inner = makeWardenHandler(service, delegations, evidenceService, kbs, config.sovereignDid);
   const handler: RequestHandler = async (message, fromDid) => {
     const result = await inner(message, fromDid);
     if (

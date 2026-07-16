@@ -11,6 +11,8 @@ import {
   activeRuleset,
   selfSigner,
   Sensitivity,
+  generatePartitionKeypair,
+  wrapKeyForDid,
   type KeymasterHandle,
   type HearthholdConfig,
   type Ruleset,
@@ -60,7 +62,21 @@ export async function provisionMemberPartition(
   const id = partitionIdFor(spaceId, ownerDid);
   const group = await createRegistryGroup(handle, `kb-priv-${sha16(spaceId + ownerDid)}`, config.registry);
   await grantAuthorization(handle, group, ownerDid);
-  const rec: PartitionRecord = { spaceId, owner: ownerDid, id, group, location: { kind: 'local' }, createdAt: new Date().toISOString() };
+  // Member-key encryption (threat-model §0): mint a partition keypair; the Warden keeps the public half
+  // (seals private content, write-host) and stores the private half wrapped to the member (read-guest —
+  // it cannot open this at rest). The live seal/read cutover to this key rides Phase 2's session rewrap.
+  const kp = generatePartitionKeypair(handle.cipher);
+  const wrappedKey = await wrapKeyForDid(handle, ownerDid, kp.privateJwk);
+  const rec: PartitionRecord = {
+    spaceId,
+    owner: ownerDid,
+    id,
+    group,
+    location: { kind: 'local' },
+    createdAt: new Date().toISOString(),
+    partitionPub: kp.publicJwk,
+    wrappedKey,
+  };
   await partitions.put(rec);
   return rec;
 }

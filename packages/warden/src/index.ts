@@ -26,6 +26,7 @@ import { RecallService, OllamaEmbedder } from './recall.js';
 import { makeDidcommActionApprover, makeDidcommRulesetSigner } from './kb.js';
 import { KbConfigStore, buildKbServices, initKbAssurance, setKbAssurance, readKbAssurance, provisionMemberPartition, enableMemberPartitions } from './kb-config.js';
 import { reindexKb } from './reindex.js';
+import { backfillOwner } from './migrate-owner.js';
 import { seedKb, resetKb, DEMO_SETS, DEFAULT_DEMO_SET } from './kb-seed.js';
 import { makeWardenHandler } from './handler.js';
 
@@ -90,6 +91,7 @@ Usage:
   warden kb-seed [--kb <kbId>] [--set <name>]   Load curated demo data into a KB
   warden kb-reset [--kb <kbId>]                 Remove a KB's data (identity/groups/policy kept)
   warden kb-reindex [--kb <kbId>]              Backfill the recall index (embed stored-but-unindexed content)
+  warden migrate-owner                         Attribute pre-family vault artefacts to the Sovereign (family model)
   warden help              Show this message
 
 Env:
@@ -418,6 +420,18 @@ async function main(): Promise<void> {
         `Reset "${kb.kbId}": removed ${removed} artefact(s) + index entries ` +
           `(${shared} shared · ${priv} in member private partitions). ` +
           `Identity, access groups, and member partitions are untouched.\n`,
+      );
+      break;
+    }
+    case 'migrate-owner': {
+      // Attribute pre-family vault artefacts to the configured Sovereign (owner + scope:'private'), so
+      // session-scoped recall/snapshot show the Sovereign their own content. Idempotent. Run kb-reindex
+      // afterwards to propagate ownership to the recall index.
+      await ensureIdentity(handle, config);
+      const n = await backfillOwner(handle, config);
+      process.stdout.write(
+        `Attributed ${n} pre-family artefact(s) to the Sovereign ${config.sovereignDid?.slice(0, 24)}… (scope: private).\n` +
+          (n > 0 ? `  → run \`warden kb-reindex\` to propagate ownership into the recall index.\n` : '  (nothing to attribute — all artefacts already have an owner)\n'),
       );
       break;
     }
