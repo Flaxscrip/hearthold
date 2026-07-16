@@ -1,61 +1,49 @@
-# DRAFT — GitHub issue for the Archon repo (review before posting)
+# DRAFT rev 3 — GitHub issue for the Archon repo (review before posting)
 
-> **Status:** draft for flaxscrip's review · 2026-07-10 (rev 2: acknowledges existing HD derivation) · not yet posted
-> **Suggested title:** `Keymaster: pairwise (per-relationship) DID ergonomics — counterparty-keyed creation, registry-free option, recovery-at-scale guidance`
+> **Status:** draft for flaxscrip's review · 2026-07-13 · rev 3: softened per flaxscrip — introduces pairwise from scratch (David hasn't encountered the pattern yet), recasts asks as discussion questions, folds in the deterministic-derivation consideration, keeps the ephemeral-agents item (incident-motivated).
+> **Suggested title:** `Discussion: per-relationship ("pairwise") DIDs — derivation, recovery, and lifecycle questions from Hearthold`
 
 ---
 
 ## Summary
 
-We're building on Keymaster's existing HD-wallet foundation — `createId` already derives every identity from the master seed (`m/44'/0'/{account}'/0/0`, per-account key rotation, a dedicated DIDComm branch), which is exactly the right base for **pairwise DIDs** (a fresh DID per relationship/counterparty). What we're asking for is the last mile: a counterparty-keyed convenience API, a registry-free variant for DIDs that only ever need bilateral resolution, and guidance on recovery at relationship scale.
+Hearthold has started creating **a fresh DID per relationship/counterparty** in some flows, and we'd like to discuss what wallet- and registry-level support for that pattern could look like — nothing here is urgent, and `registry: 'local'` (thank you) already solved our testing problem. This is us describing where we're heading and asking how you'd want it done, plus one concrete proposal (ephemeral agents) motivated by the traffic incident we already discussed.
 
-This is mechanism only. Policy — *when* a pairwise DID is required — stays in the application layer (our Warden enforces it there). We are explicitly **not** asking Keymaster to force pairwise usage; stable public DIDs (communities, issuers, personas) remain essential.
+## What "pairwise" means and why we're doing it
 
-## Motivation
+A pairwise (or per-relationship) DID is a DID used with exactly **one counterparty**: Alice shows the bookshop one DID and the hotel a different one, so the two can't correlate her by identifier if they compare databases. Both DIDs are hers — same wallet, same seed — the *mapping* is private to her. The pattern is old practice in Bitcoin (fresh address per payment, standardized by HD wallets) and is now becoming normative in credential circles: the ToIP Decentralized Trust Graph draft we implement ([dtgwg-cred-tf `dtg.md`](https://github.com/trustoverip/dtgwg-cred-tf/blob/main/dtg.md), §5.1) requires *"a new, unique R-DID for every single entity they connect with,"* and the consent-gated disclosure work we're doing with the DIF H&T group wants grant subjects that aren't reusable identifiers. Under a DID-as-PII reading, this is just data minimization applied to identifiers.
 
-1. **ToIP DTG v0.3 upgraded per-relationship DIDs from best practice to a spec requirement.** The Decentralized Trust Graph credentials draft ([trustoverip/dtgwg-cred-tf `dtg.md`](https://github.com/trustoverip/dtgwg-cred-tf/blob/main/dtg.md), §5.1) now states: *"each entity MUST generate a new, unique R-DID for every single entity they connect with."* Hearthold implements the full DTG credential set on Archon (`issueVrc` … `issueRCard`, verified live on the node), so this MUST lands on us — and by extension on Keymaster's DID-creation ergonomics and cost.
-2. **Consent-gated disclosure flows (DIF H&T / A2A work) need per-audience subject DIDs.** In the A→B→C pattern we're building (a third party receives a scoped, short-lived credential about a subject), the conformance rule is "no reusable subject identifier unless the subject deliberately chooses one." Every approved grant therefore wants a fresh audience-bound DID as `credentialSubject.id`.
-3. **DID-as-PII.** Under a fault-tolerant reading (and GDPR practice), a reusable DID is a correlatable identifier. The mitigation is the same one Bitcoin standardized via BIP32 HD wallets: make fresh-identifier-per-relationship the cheap, recoverable, default-friendly path.
-
-At relationship scale this means hundreds or thousands of DIDs per wallet, which today raises three practical problems: creation ergonomics, backup/recovery, and registry cost.
+Practical consequence: a busy wallet ends up with hundreds of agent DIDs — one per relationship — which raises the derivation, recovery, and lifecycle questions below.
 
 ## What already works (acknowledged)
 
-Keymaster IDs are BIP44 HD-derived: `createId` assigns an incrementing account (`m/44'/0'/{account}'/0/0`), rotates keys within the account, and derives DIDComm key-agreement keys on a dedicated branch. So *keys* for any number of per-relationship IDs already descend from one mnemonic — the foundation for pairwise DIDs is in place. The remaining friction is naming/mapping, registry cost, and the recovery story at scale.
+Keymaster keys are already **deterministically derived**: `createId` walks an incrementing account index (`m/44'/0'/{account}'/0/0`), so key material for any number of per-relationship IDs descends from one mnemonic. And — a property we'd want to *preserve* — the **DID itself is unpredictable by construction**: it's the CID of the signed create operation, which embeds the creation time and the registry's current `blockid`, so nobody (including the wallet owner) can precompute the "next" DID. Keys deterministic, identifiers unpredictable. That split looks right to us.
 
-## Requested capabilities
+## Discussion questions
 
-**1. Counterparty-keyed creation (thin sugar over `createId`).**
-Something like:
+**Q1 — Counterparty-keyed convenience.** Today each application invents its own naming convention (we mint per-relationship IDs and keep a private counterparty→ID map application-side). Would a wallet-level idempotent helper make sense — `createPairwiseId(counterpartyTag)` returning the existing ID for a known counterparty, minting on first contact — or would you rather keep this above Keymaster (a naming convention over `wallet.ids`)? Either works for us; a shared convention would keep applications from diverging.
 
-```
-createPairwiseId(counterpartyDid | audienceTag, opts?) → did   // idempotent per counterparty
-listPairwiseIds() / resolvePairwiseId(counterparty) → did
-```
+**Q2 — Deterministic derivation for pairwise keys, and what recovery means.** flaxscrip's framing: some wallets offer deterministic "next" IDs via an incrementing index, which simplifies backup and recovery. Could pairwise keys ride the existing account counter (or a counterparty-tagged derivation), so that **seed-only recovery of keys** is possible — with DIDs staying unpredictable as they are now? Recovery would then mean: re-derive keys by walking indices, then rediscover which DIDs each key controls (registry scan by pubkey for registered DIDs; the counterparty's copy or the encrypted wallet backup for unregistered ones). Is `backup_wallet_did`/`recover_wallet_did` the recommended story at hundreds of IDs, or is a gap-scan-style recovery something you'd consider? Honest framing: **we don't expect answers here — we'd like to explore this together**, and we'll happily prototype and measure whatever direction you prefer.
 
-Today each application must invent its own name convention and keep its own counterparty→ID map. A wallet-level, idempotent, counterparty-keyed lookup would make the pattern uniform across applications and keep the pairwise→root mapping in one private place. (Possibly just a naming convention + index over the existing `wallet.ids` — we'd take that too.)
+**Q3 — The space between `local` and `hyperswarm`.** `local` resolves for nobody else; `hyperswarm` resolves for everybody. A relationship DID wants to resolve for exactly **one remote counterparty**. Is there appetite for a bilateral mode (à la `did:peer` — DID docs exchanged directly, upgradeable to a public registry if the relationship later needs standing)? This would also keep relationship-scale DID creation off the public mediator entirely — relevant to the traffic patterns you analyzed.
 
-**2. Registry-free / bilateral DIDs for relationship use** *(the substantive ask)*.
-An R-DID typically needs to be resolvable only by its one counterparty, yet each `createId` today anchors an operation on the public registry (hyperswarm). At relationship scale that means thousands of single-use identities on the registry and per-DID creation overhead. A `did:peer`-style variant — unregistered, exchanged and resolved bilaterally, upgradeable to registered if the relationship later needs public standing — would make the DTG MUST costless. If ephemeral DIDs already cover part of this, guidance on their suitability for *long-lived* bilateral relationships would help.
+## One concrete proposal — ephemeral agents (`validUntil` on `type: 'agent'`)
 
-**3. Recovery-at-scale guidance (question, not feature).**
-Keys re-derive from the seed, but the wallet's name→`{did, account, index}` map and the DIDs' registry operations are state. We understand `backup_wallet_did`/`recover_wallet_did` (encrypted wallet backup anchored on a DID) to be the intended recovery path — is that the recommendation at hundreds-to-thousands of pairwise IDs, or is a seed-only gap-scan recovery (à la Bitcoin's address gap limit) feasible/planned? We'll happily test either at scale.
-
-## Current workaround
-
-We mint ordinary IDs per grant/relationship and keep the linkage map application-side. It works — and HD derivation means key material is no burden — but every application reinvents the mapping discipline, and registry cost scales linearly with relationships.
+Assets can carry `registration.validUntil` and get garbage-collected; agents can't — `createIdOperation` has no expiry path, so every agent is permanent and revocation only appends a tombstone. The traffic analysis you did is what that asymmetry costs in practice: ~800 permanent agents in two weeks, ~99% our test and KB-provisioning fixtures (created before we adopted `registry:'local'` for tests). Extending `validUntil` + GC to agents would serve expiring test fixtures, relationship DIDs born expiring-and-renewable, and consent-grant subjects that die with the grant they anchor. Related: should the mediator be able to prune *revoked* agents' operations, so incidents like ours have a disposal path?
 
 ## Non-goals
 
-- No change to stable/public DID workflows.
-- No policy enforcement in Keymaster — "when pairwise is required" is application law (Hearthold's Warden enforces it via its Ruleset system).
+- No change to stable/public DID workflows — communities, issuers, and personas keep their permanent DIDs.
+- No policy enforcement in Keymaster — *when* pairwise is required is application law (Hearthold's Warden enforces it there).
+- No urgency — `local` unblocked us; this is direction-setting.
 
 ## We can contribute
 
-Happy to draft the API surface, contribute e2e tests against a live node (we already run `e2e:dtg-set`, `e2e:prove`, and related suites that would exercise this), and report registry-cost measurements at relationship scale.
+Prototype whichever direction you prefer, e2e tests against a live node (we already run `e2e:dtg-set`, `e2e:prove`, `e2e:pairwise-grant` and friends), and registry-cost measurements at relationship scale.
 
-## References
+## References & evidence
 
-- ToIP DTG credentials draft v0.3 — https://github.com/trustoverip/dtgwg-cred-tf/blob/main/dtg.md (R-DID rule, §5.1 "Unilateral Relationship Identification"; privacy considerations on M-DID reuse)
-- BIP32 (the precedent for deterministic per-relationship identifiers) — https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki
-- Hearthold's DTG implementation notes (running on Archon): `docs/trust-graph-and-delegation.md` §8–9 in the hearthold repo
+- ToIP DTG credentials draft v0.3 — R-DID rule §5.1 + privacy considerations on identifier reuse
+- BIP32 (the deterministic-derivation precedent) — https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki
+- `did-creation-source.md` — the mediator-log traffic analysis (2026-07-06→13), attached
+- Hearthold's DTG implementation notes: `docs/trust-graph-and-delegation.md` §8–9
