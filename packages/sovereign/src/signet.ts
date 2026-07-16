@@ -36,6 +36,11 @@ export interface ApprovalContext {
   governance?: {
     summary: string;
   };
+  /** For a partition-key rewrap: the member unlocks their own private notes for a session. */
+  rewrap?: {
+    sessionId: string;
+    partitionCount: number;
+  };
 }
 
 export interface ApprovalGate {

@@ -6,6 +6,7 @@
  */
 
 import type { Sensitivity, DisclosureMode } from './security.js';
+import type { CipherPublicJwk } from './payload.js';
 
 export const PROTOCOL_VERSION = '0.4.0' as const;
 
@@ -309,6 +310,35 @@ export interface KbSessionRequestMessage {
   scope?: 'shared' | 'private';
 }
 
+// ── Partition-key rewrap (Phase 2 / guardianship-threat-model §4a) ──────────────────────────────────
+// The read-guest handshake. The Warden holds a member's private-partition keys wrapped to the member's
+// key (it cannot open them at rest). On a member's session, the Warden asks that member's OWN Signet to
+// unwrap them and rewrap them to a Warden EPHEMERAL session key, so the Warden can transiently RAG the
+// member's own content. Warden ⇄ the member's Signet, both Hearthold — never an app, never the governor.
+export interface PartitionRewrapRequestMessage {
+  type: 'hearthold/partition-rewrap-request';
+  version: typeof PROTOCOL_VERSION;
+  /** Binds the rewrapped keys to one session (zeroized when it ends). */
+  sessionId: string;
+  /** The Warden's EPHEMERAL per-session public key — the member rewraps to it; the long-term key stays home. */
+  wardenSessionPub: CipherPublicJwk;
+  /** ONLY the session member's own partitions (scoped, §4.1): partitionId + its member-wrapped private key. */
+  partitions: { partitionId: string; wrapped: string }[];
+  /** Warden-issued single-use nonce (replay guard). */
+  nonce: string;
+}
+
+export interface PartitionRewrapResponseMessage {
+  type: 'hearthold/partition-rewrap-response';
+  version: typeof PROTOCOL_VERSION;
+  sessionId: string;
+  /** False iff the member's proof-of-human failed / they declined. */
+  approved: boolean;
+  /** Present iff approved: each partition key rewrapped to `wardenSessionPub`. */
+  rewrapped?: { partitionId: string; rewrapped: string }[];
+  reason?: string;
+}
+
 // ── KB assurance step-up (factor 2): the Warden asks the member out-of-band to authorize an action ──
 // This travels DIRECTLY Warden → the member's Signet — the Mage is never on this channel, so it can
 // neither forge nor replay the approval. Reads never trigger it; policy (the registry) decides which
@@ -429,6 +459,8 @@ export type HearthholdMessage =
   | KbLoginCompleteMessage
   | KbSessionMessage
   | KbSessionRequestMessage
+  | PartitionRewrapRequestMessage
+  | PartitionRewrapResponseMessage
   | KbApprovalRequestMessage
   | KbApprovalResponseMessage
   | RulesetSignRequestMessage

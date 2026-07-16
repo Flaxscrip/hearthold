@@ -63,6 +63,8 @@ import { claimableMarks, claimMark } from './marks.js';
 import { buildKbServices, KbConfigStore, setKbAssurance, readKbAssurance, provisionMemberPartition } from './kb-config.js';
 import { makeWardenHandler } from './handler.js';
 import { ControlSessionStore } from './control-session.js';
+import { SessionKeyStore } from './session-keys.js';
+import { unlockSessionPartitions, type RewrapChannel } from './rewrap.js';
 
 const sensitivityName = (s: number): SensitivityName => SENSITIVITY_NAMES[s] ?? 'SEALED';
 
@@ -86,6 +88,8 @@ export async function runWardenControl(
   const kbStore = new KbConfigStore(handle.dataFolder);
   // Control-plane sessions: a member proves DID control at login; the Table rides an opaque bearer token.
   const sessions = new ControlSessionStore(config.sessionTtlMs);
+  // The read-guest keys: transient partition keys held only for the session (in memory; zeroized at its end).
+  const sessionKeys = new SessionKeyStore();
   const createChallenge = handle.keymaster.createChallenge.bind(handle.keymaster) as (
     c?: Record<string, unknown>,
     o?: Record<string, unknown>,
@@ -201,9 +205,20 @@ export async function runWardenControl(
         if (!did) throw new Error('no active session');
         return { did, expiresAt: sessions.expiresAt(token) };
       },
+      // Unlock the session member's private partitions for RAG — the read-guest rewrap. Prompts the
+      // member's OWN Signet for proof-of-human; the Warden holds the rewrapped keys only for this session.
+      'POST /api/session/unlock': async (ctx) => {
+        const token = sessionToken(ctx);
+        const sessionDid = sessions.resolve(token);
+        if (!sessionDid || !token) throw new Error('no session — log in');
+        const unlocked = await unlockSessionPartitions(handle, config, transport as unknown as RewrapChannel, sessionDid, token, sessionKeys);
+        return { unlocked };
+      },
       'POST /api/logout': async (ctx) => {
-        const revoked = sessions.revoke(sessionToken(ctx));
-        // (Phase-2 rewrap: zeroize any partition session keys bound to `revoked` here.)
+        const token = sessionToken(ctx);
+        const revoked = sessions.revoke(token);
+        // Zeroize any read-guest keys the moment the session ends — decryption dies with the session (§4.3).
+        if (revoked) sessionKeys.zeroize(revoked);
         return { ok: true, revoked: !!revoked };
       },
       'POST /api/delegate': async ({ body }) => {

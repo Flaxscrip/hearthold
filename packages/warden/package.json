@@ -8,26 +8,110 @@
     "warden": "./dist/index.js"
   },
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
-    "./service": { "types": "./dist/service.d.ts", "import": "./dist/service.js" },
-    "./handler": { "types": "./dist/handler.d.ts", "import": "./dist/handler.js" },
-    "./delegations": { "types": "./dist/delegations.d.ts", "import": "./dist/delegations.js" },
-    "./pairwise-store": { "types": "./dist/pairwise-store.d.ts", "import": "./dist/pairwise-store.js" },
-    "./partition-store": { "types": "./dist/partition-store.d.ts", "import": "./dist/partition-store.js" },
-    "./store": { "types": "./dist/store.d.ts", "import": "./dist/store.js" },
-    "./evidence": { "types": "./dist/evidence.d.ts", "import": "./dist/evidence.js" },
-    "./cgpr": { "types": "./dist/cgpr.d.ts", "import": "./dist/cgpr.js" },
-    "./recall": { "types": "./dist/recall.d.ts", "import": "./dist/recall.js" },
-    "./reindex": { "types": "./dist/reindex.d.ts", "import": "./dist/reindex.js" },
-    "./index-store": { "types": "./dist/index-store.d.ts", "import": "./dist/index-store.js" },
-    "./kb": { "types": "./dist/kb.d.ts", "import": "./dist/kb.js" },
-    "./kb-config": { "types": "./dist/kb-config.d.ts", "import": "./dist/kb-config.js" },
-    "./kb-seed": { "types": "./dist/kb-seed.d.ts", "import": "./dist/kb-seed.js" },
-    "./face": { "types": "./dist/face.d.ts", "import": "./dist/face.js" },
-    "./triage": { "types": "./dist/triage.d.ts", "import": "./dist/triage.js" },
-    "./marks": { "types": "./dist/marks.d.ts", "import": "./dist/marks.js" },
-    "./ruleset-store": { "types": "./dist/ruleset-store.d.ts", "import": "./dist/ruleset-store.js" },
-    "./classifier": { "types": "./dist/classifier.d.ts", "import": "./dist/classifier.js" }
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./service": {
+      "types": "./dist/service.d.ts",
+      "import": "./dist/service.js"
+    },
+    "./handler": {
+      "types": "./dist/handler.d.ts",
+      "import": "./dist/handler.js"
+    },
+    "./delegations": {
+      "types": "./dist/delegations.d.ts",
+      "import": "./dist/delegations.js"
+    },
+    "./pairwise-store": {
+      "types": "./dist/pairwise-store.d.ts",
+      "import": "./dist/pairwise-store.js"
+    },
+    "./partition-store": {
+      "types": "./dist/partition-store.d.ts",
+      "import": "./dist/partition-store.js"
+    },
+    "./store": {
+      "types": "./dist/store.d.ts",
+      "import": "./dist/store.js"
+    },
+    "./evidence": {
+      "types": "./dist/evidence.d.ts",
+      "import": "./dist/evidence.js"
+    },
+    "./cgpr": {
+      "types": "./dist/cgpr.d.ts",
+      "import": "./dist/cgpr.js"
+    },
+    "./recall": {
+      "types": "./dist/recall.d.ts",
+      "import": "./dist/recall.js"
+    },
+    "./reindex": {
+      "types": "./dist/reindex.d.ts",
+      "import": "./dist/reindex.js"
+    },
+    "./index-store": {
+      "types": "./dist/index-store.d.ts",
+      "import": "./dist/index-store.js"
+    },
+    "./kb": {
+      "types": "./dist/kb.d.ts",
+      "import": "./dist/kb.js"
+    },
+    "./kb-config": {
+      "types": "./dist/kb-config.d.ts",
+      "import": "./dist/kb-config.js"
+    },
+    "./kb-seed": {
+      "types": "./dist/kb-seed.d.ts",
+      "import": "./dist/kb-seed.js"
+    },
+    "./face": {
+      "types": "./dist/face.d.ts",
+      "import": "./dist/face.js"
+    },
+    "./triage": {
+      "types": "./dist/triage.d.ts",
+      "import": "./dist/triage.js"
+    },
+    "./marks": {
+      "types": "./dist/marks.d.ts",
+      "import": "./dist/marks.js"
+    },
+    "./ruleset-store": {
+      "types": "./dist/ruleset-store.d.ts",
+      "import": "./dist/ruleset-store.js"
+    },
+    "./classifier": {
+      "types": "./dist/classifier.d.ts",
+      "import": "./dist/classifier.js"
+    },
+    "./control-session": {
+      "types": "./dist/control-session.d.ts",
+      "import": "./dist/control-session.js"
+    },
+    "./session-keys": {
+      "types": "./dist/session-keys.d.ts",
+      "import": "./dist/session-keys.js"
+    },
+    "./rewrap": {
+      "types": "./dist/rewrap.d.ts",
+      "import": "./dist/rewrap.js"
+    },
+    "./household-vault": {
+      "types": "./dist/household-vault.d.ts",
+      "import": "./dist/household-vault.js"
+    },
+    "./household-config": {
+      "types": "./dist/household-config.d.ts",
+      "import": "./dist/household-config.js"
+    },
+    "./migrate-owner": {
+      "types": "./dist/migrate-owner.d.ts",
+      "import": "./dist/migrate-owner.js"
+    }
   },
   "scripts": {
     "build": "tsc --build",

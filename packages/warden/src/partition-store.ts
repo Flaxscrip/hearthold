@@ -91,6 +91,11 @@ export class PartitionStore {
     return Object.values(await this.all()).filter((r) => r.spaceId === spaceId);
   }
 
+  /** Every private partition owned by a member, across spaces — the member's set to unlock on login. */
+  async listByOwner(owner: string): Promise<PartitionRecord[]> {
+    return Object.values(await this.all()).filter((r) => r.owner === owner);
+  }
+
   /** Record a freshly provisioned private partition (idempotent by (spaceId, owner)). */
   async put(rec: PartitionRecord): Promise<void> {
     const all = await this.all();
