@@ -383,6 +383,25 @@ export type RulesetSignResponseMessage =
   | { type: 'hearthold/ruleset-sign-response'; version: typeof PROTOCOL_VERSION; approved: true; signed: unknown }
   | { type: 'hearthold/ruleset-sign-response'; version: typeof PROTOCOL_VERSION; approved: false; reason: string };
 
+// ── Guardianship member-acknowledgment (Phase 5 / guardianship-threat-model §3) ──────────────────────
+// The other half of the amendment rule: a guardianship edge is authored by the GOVERNOR's Signet
+// (ruleset-sign, above) but authorizes nothing until the SUBJECT member's OWN key acknowledges it. The
+// Warden asks the subject member to co-sign the base Ruleset; the ack proof never leaves without a fresh
+// proof-of-human at the member's Signet. This is what makes guardianship grantable-but-never-seizable.
+export interface MemberAckRequestMessage {
+  type: 'hearthold/member-ack-request';
+  version: typeof PROTOCOL_VERSION;
+  /** The governor-signed guardianship Ruleset the subject member is asked to acknowledge. */
+  ruleset: unknown;
+  /** Warden-authored description shown at the member's Signet (who watches them, over what, until when). */
+  summary: string;
+}
+
+/** Subject member → Warden: their acknowledgment proof over the base Ruleset (approved), or a decline. */
+export type MemberAckResponseMessage =
+  | { type: 'hearthold/member-ack-response'; version: typeof PROTOCOL_VERSION; approved: true; memberAck: unknown }
+  | { type: 'hearthold/member-ack-response'; version: typeof PROTOCOL_VERSION; approved: false; reason: string };
+
 /** Warden → Sovereign (via Mage): the result of an authorized KB request, or a refusal. */
 export type KbResultMessage =
   | {
@@ -465,6 +484,8 @@ export type HearthholdMessage =
   | KbApprovalResponseMessage
   | RulesetSignRequestMessage
   | RulesetSignResponseMessage
+  | MemberAckRequestMessage
+  | MemberAckResponseMessage
   | KbResultMessage
   | CgprRelayRequestMessage
   | CgprRelayResponseMessage

@@ -25,7 +25,7 @@ import {
   type SignedRuleset,
 } from '@hearthold/core';
 import { VaultStore } from '@hearthold/warden/store';
-import { guardianRead, GuardianReceiptStore } from '@hearthold/warden/guardianship';
+import { guardianRead, GuardianReceiptStore, GuardianshipStore, activeGuardianships } from '@hearthold/warden/guardianship';
 
 const assert = (cond: unknown, msg: string): void => {
   if (!cond) throw new Error(`ASSERT: ${msg}`);
@@ -92,6 +92,15 @@ async function main(): Promise<void> {
   const revoke = await signRuleset(governor, { ...edge(FUTURE, Sensitivity.MEDIUM), version: 2, previous: rulesetId(acked[0] as SignedRuleset), status: 'revoked' });
   const emancipated: SignedRuleset[] = [acked[0] as SignedRuleset, revoke]; // revoke is self-restricting → no ack needed
   assert(!(await read(emancipated, 'loc-low')).granted, 'emancipation (a signed revoke supersession) cuts access off');
+
+  process.stdout.write('\n▸ The store surfaces active edges to the watched, and drops them on revoke\n');
+  const gs = new GuardianshipStore(warden.dataFolder);
+  await gs.replaceChain(gov, M, acked); // persist the acknowledged edge
+  const watched = await activeGuardianships(warden, gs, M);
+  assert(watched.length === 1 && watched[0]?.governor === gov && (watched[0]?.kinds ?? []).includes('location'), 'M’s "who watches me" surface shows the active edge + its scope');
+  assert((await gs.forGovernor(gov)).some((e) => e.subject === M), 'the governor’s "what I watch" surface lists M');
+  await gs.replaceChain(gov, M, emancipated); // the revoke supersession
+  assert((await activeGuardianships(warden, gs, M)).length === 0, 'after emancipation the edge disappears from M’s surface (nothing watches them)');
 
   process.stdout.write('\n✓ Guardianship: acknowledged, scoped, receipted, conspicuous, expiring — grantable, never seizable\n');
   process.exit(0);

@@ -3,6 +3,7 @@ import {
   presentProof,
   signEvidenceApproval,
   signRuleset,
+  signMemberAck,
   unwrapKey,
   sealToKey,
   type RequestHandler,
@@ -10,9 +11,11 @@ import {
   type ApprovalRequestMessage,
   type KbApprovalRequestMessage,
   type RulesetSignRequestMessage,
+  type MemberAckRequestMessage,
   type PartitionRewrapRequestMessage,
   type EvidenceApprovalStatement,
   type Ruleset,
+  type SignedRuleset,
   type KeymasterHandle,
 } from '@hearthold/core';
 
@@ -88,6 +91,23 @@ export function makeSovereignHandler(sovereign: KeymasterHandle, gate: ApprovalG
       }
       const signed = await signRuleset(sovereign, m.ruleset as Ruleset);
       return { type: 'hearthold/ruleset-sign-response', version: PROTOCOL_VERSION, approved: true, signed };
+    }
+
+    // Guardianship acknowledgment (Phase 5 / threat-model §3): the SUBJECT member co-signs a guardianship
+    // edge granting a governor read over their OWN private data. This is the amendment rule's member half —
+    // gated by the member's OWN fresh proof-of-human (never the governor's), it makes the edge authorize
+    // anything. The ack is a proof over the base Ruleset, distinct from the governor's signature.
+    if (message.type === 'hearthold/member-ack-request') {
+      const m = message as MemberAckRequestMessage;
+      const humanProof = await gate.approve({
+        requester: fromDid,
+        guardianship: { summary: m.summary },
+      });
+      if (!humanProof) {
+        return { type: 'hearthold/member-ack-response', version: PROTOCOL_VERSION, approved: false, reason: 'declined by the member' };
+      }
+      const memberAck = await signMemberAck(sovereign, m.ruleset as SignedRuleset);
+      return { type: 'hearthold/member-ack-response', version: PROTOCOL_VERSION, approved: true, memberAck };
     }
 
     // Partition-key rewrap (Phase 2 / threat-model §4a): the Warden asks THIS member to unlock their own

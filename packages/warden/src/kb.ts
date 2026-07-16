@@ -103,6 +103,32 @@ export function makeDidcommRulesetSigner(transport: Transport, governor: string,
 }
 
 /**
+ * Ask the SUBJECT member's Signet to acknowledge a governor-signed guardianship edge (Phase 5). The ack
+ * is the member's own co-signature over the base Ruleset — the amendment rule's member half. Routed to
+ * the member's own device and gated by their fresh proof-of-human (never the governor's). Returns the
+ * `memberAck` proof, or null on decline / timeout (fail closed — no ack ⇒ the edge authorizes nothing).
+ */
+export function makeDidcommMemberAcker(
+  transport: Transport,
+  member: string,
+  timeoutMs = 170_000,
+): (ruleset: SignedRuleset, summary: string) => Promise<unknown | null> {
+  return async (ruleset, summary) => {
+    try {
+      const reply = await transport.request(
+        member,
+        { type: 'hearthold/member-ack-request', version: PROTOCOL_VERSION, ruleset, summary },
+        { timeoutMs },
+      );
+      if (reply.type === 'hearthold/member-ack-response' && reply.approved) return reply.memberAck;
+      return null;
+    } catch {
+      return null; // unreachable Signet / timeout ⇒ not acknowledged (fail closed)
+    }
+  };
+}
+
+/**
  * A KbActionApprover backed by DIDComm: the Warden asks the member's Signet **directly** to authorize
  * the action. The Mage is not on this channel. Times out (deny) if the Signet doesn't answer.
  */
