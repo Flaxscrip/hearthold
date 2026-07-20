@@ -96,6 +96,29 @@ Fix — two minimal, isolation-preserving changes:
 
 `ARCHON_DRAWBRIDGE_PUBLIC_HOST` is left untouched (Lightning depends on it).
 
+## Sovereign Signet & the prove flow
+
+The Signet is the Sovereign's proof-of-human gate — it fields proof-requests and co-signs disclosures,
+approving each with a PIN. In this isolated environment it runs as an **interactive** `sovereign serve`
+(terminal PromptGate); the browser Signet Approver (`sovereign control` on `:4311`) can't be used because
+`internal: true` blocks published host ports.
+
+`deploy/sandbox/run-prove.sh` wires a demonstrable end-to-end prove flow — a guild manager (a distinct
+issuer identity under `/data/guild-manager`) issues a `GuildMembership` to the Sovereign, and a verifier
+challenges the Sovereign to prove it holds one:
+
+```bash
+./deploy/sandbox/run-prove.sh setup        # one-time: issuer + credential + verifier (idempotent)
+# then, in TWO terminals:
+./deploy/sandbox/run-prove.sh signet 1379  # A — the Signet: waits, prompts for the PIN on each disclosure
+./deploy/sandbox/run-prove.sh verify       # B — verifier requests → the Signet prompts in A
+#   type the PIN in A to approve → B prints ✓ VERIFIED (role=Raid-Lead, issued by the guild manager);
+#   blank denies. Trust rests on the ISSUER's signature, not the Warden's.
+```
+
+PIN handling: `signet [pin]` passes `HEARTHOLD_SIGNET_PIN` via `exec -e` (per-session); or set it in the
+gitignored `.env`. Never the committed compose. The `sovereign` + `verifier` containers are in the compose.
+
 ## Egress isolation (the load-bearing property)
 
 `run-spine.sh` proves it before the spine; each agent container, direct-IP (no DNS):
