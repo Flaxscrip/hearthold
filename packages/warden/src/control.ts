@@ -22,12 +22,15 @@ import {
   Sensitivity,
   FileSpentTxnStore,
   PROTOCOL_VERSION,
+  rulesetId,
   type HearthholdConfig,
   type KeymasterHandle,
   type RequestHandler,
   type SubmissionReceipt,
   type WitnessSubmission,
   type EvidenceRequest,
+  type Ruleset,
+  type SignedRuleset,
 } from '@hearthold/core';
 import {
   SENSITIVITY_NAMES,
@@ -56,12 +59,18 @@ import { VaultStore, type Artefact } from './store.js';
 import { DelegationStore } from './delegations.js';
 import { EvidenceService, type SovereignApprover } from './evidence.js';
 import { OllamaEmbedder, RecallService } from './recall.js';
-import { makeDidcommActionApprover, makeDidcommRulesetSigner } from './kb.js';
+import { makeDidcommActionApprover, makeDidcommRulesetSigner, makeDidcommMemberAcker } from './kb.js';
 import { hydrateCardFace } from './face.js';
 import { triageQueue, confirmTriage } from './triage.js';
 import { claimableMarks, claimMark } from './marks.js';
 import { buildKbServices, KbConfigStore, setKbAssurance, readKbAssurance, provisionMemberPartition } from './kb-config.js';
 import { makeWardenHandler } from './handler.js';
+import { ControlSessionStore } from './control-session.js';
+import { SessionKeyStore } from './session-keys.js';
+import { unlockSessionPartitions, type RewrapChannel } from './rewrap.js';
+import { HouseholdConfigStore } from './household-config.js';
+import { admitMember, removeMember, shareToHousehold } from './household.js';
+import { GuardianshipStore, GuardianReceiptStore, activeGuardianships, guardianRead } from './guardianship.js';
 
 const sensitivityName = (s: number): SensitivityName => SENSITIVITY_NAMES[s] ?? 'SEALED';
 
@@ -71,6 +80,7 @@ const toVaultItem = (a: Artefact): VaultItem => ({
   sensitivity: a.sensitivity,
   sensitivityName: sensitivityName(a.sensitivity),
   observedAt: a.observedAt,
+  ...(a.scope ? { scope: a.scope } : {}),
 });
 
 export async function runWardenControl(
@@ -82,6 +92,35 @@ export async function runWardenControl(
   const store = new VaultStore(handle.dataFolder);
   const delegations = new DelegationStore(handle);
   const kbStore = new KbConfigStore(handle.dataFolder);
+  const householdStore = new HouseholdConfigStore(handle.dataFolder);
+  // Guardianship (Phase 5): one governor↔member Ruleset chain per edge + inward access receipts.
+  const guardianships = new GuardianshipStore(handle.dataFolder);
+  const guardianReceipts = new GuardianReceiptStore(handle.dataFolder);
+  // Control-plane sessions: a member proves DID control at login; the Table rides an opaque bearer token.
+  const sessions = new ControlSessionStore(config.sessionTtlMs);
+  // The read-guest keys: transient partition keys held only for the session (in memory; zeroized at its end).
+  const sessionKeys = new SessionKeyStore();
+  const createChallenge = handle.keymaster.createChallenge.bind(handle.keymaster) as (
+    c?: Record<string, unknown>,
+    o?: Record<string, unknown>,
+  ) => Promise<string>;
+  const verifyResponse = handle.keymaster.verifyResponse.bind(handle.keymaster) as (
+    r: string,
+    o?: Record<string, unknown>,
+  ) => Promise<{ match?: boolean; responder?: string }>;
+  /** The session bearer token off the request header (the Table sends `X-Hearthold-Session`). */
+  const sessionToken = (ctx: { req: { headers: Record<string, string | string[] | undefined> } }): string | null => {
+    const h = ctx.req.headers['x-hearthold-session'];
+    return Array.isArray(h) ? h[0] ?? null : h ?? null;
+  };
+  // ── The G-grade boundary (Phase 3): every scoped route computes its visible set from the SESSION DID,
+  // server-side, never from anything the client sends. The viewer is the authenticated session member, or
+  // the configured Sovereign when unauthenticated (single-Sovereign back-compat). Pre-family artefacts
+  // (no owner) belong to the Sovereign. An artefact is visible iff the viewer owns it or it is shared.
+  const effectiveViewer = (ctx: { req: { headers: Record<string, string | string[] | undefined> } }): string | undefined =>
+    sessions.resolve(sessionToken(ctx)) ?? config.sovereignDid;
+  const ownerOf = (a: Artefact): string | undefined => a.owner ?? config.sovereignDid;
+  const visibleTo = (a: Artefact, viewer: string | undefined): boolean => ownerOf(a) === viewer || a.scope === 'shared';
 
   const members = async (group: string): Promise<string[]> => {
     const g = (await handle.keymaster.getGroup(group).catch(() => null)) as { members?: string[] } | null;
@@ -108,22 +147,26 @@ export async function runWardenControl(
   const transport = new DidCommTransport(handle, IDENTITY_NAME.warden, config.nodeUrl);
   await transport.ready();
 
-  // Direct Warden↔Sovereign approval channel: for a sensitive evidence disclosure (a forge of MEDIUM+
-  // data), the Warden asks the Sovereign's Signet directly. Hoisted here so the /api/forge route and
-  // the DIDComm evidence handler share ONE EvidenceService.
-  const approver: SovereignApprover | undefined = config.sovereignDid
-    ? {
-        async requestApproval(req) {
-          try {
-            const reply = await transport.request(config.sovereignDid as string, req, { timeoutMs: 180_000 });
-            if (reply.type === 'hearthold/approval-response') return reply;
-            return { type: 'hearthold/approval-response', version: PROTOCOL_VERSION, approved: false, reason: `unexpected reply ${reply.type}` };
-          } catch (err) {
-            return { type: 'hearthold/approval-response', version: PROTOCOL_VERSION, approved: false, reason: `Sovereign unreachable: ${err instanceof Error ? err.message : String(err)}` };
-          }
-        },
+  // Direct Warden↔Signet approval channel for a sensitive disclosure (a forge of MEDIUM+ data). Routes
+  // to the SUBJECT MEMBER's own Signet — `req.subjectDid` (Fable amendment 2 / rewrap-spec §4.2: one
+  // household ≠ one Signet), falling back to the configured Sovereign for the single-Sovereign case. The
+  // step-up timeout is configurable per assurance level (Fable: the hard 180s lapses for a live human tap).
+  const approver: SovereignApprover = {
+    async requestApproval(req) {
+      const target = req.subjectDid ?? config.sovereignDid;
+      if (!target) {
+        return { type: 'hearthold/approval-response', version: PROTOCOL_VERSION, approved: false, reason: 'no approver configured for this disclosure' };
       }
-    : undefined;
+      const timeoutMs = config.stepUpTimeoutMs[req.requiredLevel >= 2 ? 'factor2' : 'factor1'];
+      try {
+        const reply = await transport.request(target, req, { timeoutMs });
+        if (reply.type === 'hearthold/approval-response') return reply;
+        return { type: 'hearthold/approval-response', version: PROTOCOL_VERSION, approved: false, reason: `unexpected reply ${reply.type}` };
+      } catch (err) {
+        return { type: 'hearthold/approval-response', version: PROTOCOL_VERSION, approved: false, reason: `Signet unreachable: ${err instanceof Error ? err.message : String(err)}` };
+      }
+    },
+  };
   const evidenceService = new EvidenceService(handle, config, approver);
   // Forge/present (Sevenfold Divination→Forge→Burn): scroll validity by credentialDid, single-use
   // enforced verifier-side (the holder can't reset it) via the same SpentTxnStore as e2e:scroll-burn.
@@ -145,17 +188,60 @@ export async function runWardenControl(
     serving: true,
   });
 
-  const snapshot = async (): Promise<WardenSnapshot> => ({
+  const snapshot = async (viewer: string | undefined): Promise<WardenSnapshot> => ({
     status: await status(),
-    vault: (await store.list()).map(toVaultItem),
+    vault: (await store.list()).filter((a) => visibleTo(a, viewer)).map(toVaultItem),
     delegations: await delegations.list(),
   });
 
   const server = startControlServer({
     port,
+    // SSE audience filtering (Phase 3): resolve each console's viewer DID so a member's events don't reach
+    // another member's stream. Falls back to undefined (broadcast-eligible) when unauthenticated.
+    resolveSession: (token) => sessions.resolve(token ?? null) ?? undefined,
     routes: {
-      'GET /api/status': async () => ({ status: await status() }),
-      'GET /api/snapshot': async () => await snapshot(),
+      'GET /api/status': async (ctx) => ({
+        status: { ...(await status()), sessionDid: sessions.resolve(sessionToken(ctx)) ?? undefined },
+      }),
+      'GET /api/snapshot': async (ctx) => await snapshot(effectiveViewer(ctx)),
+
+      // ── Control-plane session (Phase 2) — proven identity only (no client-asserted DID). The member's
+      // wallet/Signet createResponse()s the challenge; keys never leave it. The Table rides the bearer
+      // token; every scoped route (Phase 3) computes its visible set from the SESSION DID, server-side.
+      'POST /api/login/start': async ({ body }) => {
+        const { callback } = (body ?? {}) as { callback?: string };
+        const challenge = await createChallenge({ callback, purpose: 'hearthold-control' }, { registry: config.registry });
+        return { challenge };
+      },
+      'POST /api/login/complete': async ({ body }) => {
+        const { response } = (body ?? {}) as { response?: string };
+        if (!response) throw new Error('response is required');
+        const res = await verifyResponse(response).catch(() => ({ match: false } as { match?: boolean; responder?: string }));
+        if (!res.match || !res.responder) throw new Error('login response did not verify');
+        return { ...sessions.issue(res.responder), did: res.responder };
+      },
+      'GET /api/whoami': async (ctx) => {
+        const token = sessionToken(ctx);
+        const did = sessions.resolve(token);
+        if (!did) throw new Error('no active session');
+        return { did, expiresAt: sessions.expiresAt(token) };
+      },
+      // Unlock the session member's private partitions for RAG — the read-guest rewrap. Prompts the
+      // member's OWN Signet for proof-of-human; the Warden holds the rewrapped keys only for this session.
+      'POST /api/session/unlock': async (ctx) => {
+        const token = sessionToken(ctx);
+        const sessionDid = sessions.resolve(token);
+        if (!sessionDid || !token) throw new Error('no session — log in');
+        const unlocked = await unlockSessionPartitions(handle, config, transport as unknown as RewrapChannel, sessionDid, token, sessionKeys);
+        return { unlocked };
+      },
+      'POST /api/logout': async (ctx) => {
+        const token = sessionToken(ctx);
+        const revoked = sessions.revoke(token);
+        // Zeroize any read-guest keys the moment the session ends — decryption dies with the session (§4.3).
+        if (revoked) sessionKeys.zeroize(revoked);
+        return { ok: true, revoked: !!revoked };
+      },
       'POST /api/delegate': async ({ body }) => {
         const { emissaryDid } = (body ?? {}) as DelegateRequest;
         if (!emissaryDid) throw new Error('emissaryDid is required');
@@ -181,19 +267,24 @@ export async function runWardenControl(
           needsHumanConfirmation: r.needsHumanConfirmation,
         };
       },
-      'POST /api/recall': async ({ body }) => {
-        const { query, k } = (body ?? {}) as RecallRequest;
+      'POST /api/recall': async (ctx) => {
+        const { query, k } = (ctx.body ?? {}) as RecallRequest;
         if (!query) throw new Error('query is required');
-        // Private RAG over the vault — the query, retrieval, and answer all stay on this device.
-        const result = await RecallService.forWarden(handle, config).recall(query, k ? { k } : {});
+        // Private RAG over the SESSION member's vault — their own artefacts ∪ shared-to-household, and only
+        // the personal vault (kb:null), not the KBs. Query, retrieval, and answer stay on this device.
+        const viewer = effectiveViewer(ctx);
+        const result = await RecallService.forWarden(handle, config).recall(query, { ...(k ? { k } : {}), kb: null, owner: viewer });
         return { result };
       },
       // Forge (Sevenfold) — mint an Attestation scroll from a divination. Reuses the evidence flow: a
       // MEDIUM+ forge triggers the same out-of-band Signet evidence-approval the DIDComm path uses;
       // LOW/witnessed clears at STANDING with no step-up. The browser holds no key.
-      'POST /api/forge': async ({ body }) => {
-        const { claim, kind, from, to, structured, validForMinutes } = (body ?? {}) as ProveRequest;
+      'POST /api/forge': async (ctx) => {
+        const { claim, kind, from, to, structured, validForMinutes } = (ctx.body ?? {}) as ProveRequest;
         if (!claim || !kind) throw new Error('claim and kind are required');
+        // The forge subject is the SESSION member (Phase 3) — a MEDIUM+ forge then step-ups to THAT
+        // member's own Signet (the per-member approver, Phase 2), never config.sovereignDid.
+        const subjectDid = effectiveViewer(ctx);
         const at = new Date().toISOString();
         const req: EvidenceRequest = {
           type: 'hearthold/evidence-request',
@@ -201,10 +292,10 @@ export async function runWardenControl(
           claim,
           disclosureMode: 'ATTESTATION',
           spec: { kind: kind as never, from, to, structured },
-          ...(config.sovereignDid ? { subjectDid: config.sovereignDid } : {}),
+          ...(subjectDid ? { subjectDid } : {}),
           ...(validForMinutes ? { validForMinutes } : {}),
         };
-        // Home-plane forge: the Sovereign proves from their own vault (delegationValid = true).
+        // Home-plane forge: the member proves from their own vault (delegationValid = true).
         const r = await evidenceService.handle(req, id.did, true);
         const proof: ProofRecord =
           r.status === 'granted'
@@ -225,7 +316,7 @@ export async function runWardenControl(
             : { id: randomUUID(), claim, kind, status: 'denied', reason: r.reason, at };
         if (proof.status === 'granted' && proof.credentialDid) {
           forgeLedger.set(proof.credentialDid, proof.validUntil);
-          server.emit('scroll-forged', { proof });
+          server.emit('scroll-forged', { proof }, { owner: subjectDid });
         }
         return { proof };
       },
@@ -247,22 +338,43 @@ export async function runWardenControl(
       },
 
       // Card-face hydration for the Sevenfold Table — crosses decideRelease; a refusal is `granted:false`
-      // (obsidian), not an error. The face is unsealed transiently and never cached (G2).
-      'POST /api/card/face': async ({ body }) => {
-        const { artefactId, tier } = (body ?? {}) as CardFaceRequest;
+      // (obsidian), not an error. The face is unsealed transiently and never cached (G2). Phase 3 fix: the
+      // face is computed for the SESSION member (cross-member cards never render) and the tier is
+      // server-determined — a MEDIUM+ face requires a REAL step-up to that member's own Signet, never a
+      // client-claimed `tier`.
+      'POST /api/card/face': async (ctx) => {
+        const { artefactId } = (ctx.body ?? {}) as CardFaceRequest;
         if (!artefactId) throw new Error('artefactId is required');
-        const t = (tier ?? AuthzTier.STANDING) as AuthzTier;
-        const card = await hydrateCardFace(handle, { artefactId, tier: t });
+        const viewer = effectiveViewer(ctx);
+        const stepUp = makeDidcommActionApprover(transport, config.stepUpTimeoutMs.factor1);
+        const achievedTier = async (sensitivity: Sensitivity): Promise<AuthzTier> => {
+          if (sensitivity < Sensitivity.MEDIUM) return AuthzTier.STANDING; // authenticated session clears ≤LOW
+          if (!viewer) return AuthzTier.STANDING; // no member to step up → MEDIUM+ will refuse
+          const ok = await stepUp.requestActionApproval({
+            member: viewer,
+            action: 'render',
+            resource: artefactId,
+            summary: `Reveal a ${sensitivityName(sensitivity)} card face`,
+          });
+          return ok ? AuthzTier.CHALLENGE : AuthzTier.STANDING; // insufficient → the ladder refuses
+        };
+        const card = await hydrateCardFace(handle, { artefactId, visible: (a) => visibleTo(a, viewer), achievedTier });
         return { card };
       },
 
-      // Triage — the born-obsidian confirmation queue.
-      'GET /api/triage': async () => ({ queue: await triageQueue(handle) }),
-      'POST /api/triage/confirm': async ({ body }) => {
-        const { artefactId, sensitivity } = (body ?? {}) as TriageConfirmRequest;
+      // Triage — the born-obsidian confirmation queue, scoped to the session member's own quarantine.
+      'GET /api/triage': async (ctx) => {
+        const viewer = effectiveViewer(ctx);
+        return { queue: await triageQueue(handle, (a) => visibleTo(a, viewer)) };
+      },
+      'POST /api/triage/confirm': async (ctx) => {
+        const { artefactId, sensitivity } = (ctx.body ?? {}) as TriageConfirmRequest;
         if (!artefactId || sensitivity === undefined) throw new Error('artefactId and sensitivity are required');
+        // A member confirms only their OWN quarantine — refuse a cross-member confirm.
+        const target = await store.get(artefactId);
+        if (!target || !visibleTo(target, effectiveViewer(ctx))) throw new Error('not available');
         const item = await confirmTriage(handle, { artefactId, sensitivity: sensitivity as Sensitivity });
-        server.emit('triage-confirmed', { item });
+        server.emit('triage-confirmed', { item }, { owner: effectiveViewer(ctx) });
         return { item };
       },
 
@@ -271,16 +383,157 @@ export async function runWardenControl(
         const { candidates } = (body ?? {}) as { candidates?: MarkCandidate[] };
         return { marks: await claimableMarks(handle, candidates ?? []) };
       },
-      'POST /api/marks/claim': async ({ body }) => {
-        const { candidate, subjectDid: bodyDid } = (body ?? {}) as MarkClaimRequest;
-        // Default the subject to the configured Sovereign (mirrors /api/forge), so the front-end can
-        // send just `{ candidate }` and never needs to know the Sovereign's DID.
-        const subjectDid = bodyDid ?? config.sovereignDid;
+      'POST /api/marks/claim': async (ctx) => {
+        const { candidate } = (ctx.body ?? {}) as MarkClaimRequest;
+        // The Mark is issued to the SESSION member (Phase 3) — never a client-asserted subject. This
+        // subsumes the old `subjectDid ?? config.sovereignDid` default.
+        const subjectDid = effectiveViewer(ctx);
         if (!candidate) throw new Error('candidate is required');
-        if (!subjectDid) throw new Error('subjectDid is required (no Sovereign configured on this Warden)');
+        if (!subjectDid) throw new Error('no session and no Sovereign configured on this Warden');
         const result = await claimMark(handle, { candidate, subjectDid });
-        if (result.issued) server.emit('mark-issued', { result });
+        if (result.issued) server.emit('mark-issued', { result }, { owner: subjectDid });
         return { result };
+      },
+
+      // ── Household governance (Phase 4) — the Warden EXECUTES; the Master-Sovereign AUTHORIZES at their
+      // Signet (PVM separation). Admit/remove are governor-authorized; share is owner-driven under a tier.
+      'POST /api/household/admit': async (ctx) => {
+        const { memberDid } = (ctx.body ?? {}) as { memberDid?: string };
+        if (!memberDid) throw new Error('memberDid is required');
+        const hh = await householdStore.get();
+        if (!hh) throw new Error('no household provisioned (run `warden household-init`)');
+        const gov = makeDidcommActionApprover(transport, config.stepUpTimeoutMs.factor2);
+        const ok = await gov.requestActionApproval({ member: hh.governorDid, action: 'admit-member', resource: hh.householdId, summary: `Admit ${memberDid.slice(0, 20)}… to the household` });
+        if (!ok) throw new Error('admission declined by the Master-Sovereign');
+        const partition = await admitMember(handle, config, hh, memberDid);
+        server.emit('household-changed', { admitted: memberDid });
+        return { admitted: memberDid, partition: partition.id };
+      },
+      'POST /api/household/remove': async (ctx) => {
+        const { memberDid } = (ctx.body ?? {}) as { memberDid?: string };
+        if (!memberDid) throw new Error('memberDid is required');
+        const hh = await householdStore.get();
+        if (!hh) throw new Error('no household provisioned');
+        const gov = makeDidcommActionApprover(transport, config.stepUpTimeoutMs.factor2);
+        const ok = await gov.requestActionApproval({ member: hh.governorDid, action: 'remove-member', resource: hh.householdId, summary: `Remove ${memberDid.slice(0, 20)}… from the household` });
+        if (!ok) throw new Error('removal declined by the Master-Sovereign');
+        // removeMember zeroizes the removed member's live read-guest keys immediately (§4.3, watch-item #1).
+        const result = await removeMember(handle, config, hh, memberDid, sessions, sessionKeys);
+        server.emit('household-changed', { removed: memberDid });
+        return { removed: memberDid, ...result };
+      },
+      // Share a member's OWN item to the household — owner-only, contributor-tier, sensitivity-scaled step-up.
+      'POST /api/vault/share': async (ctx) => {
+        const { artefactId } = (ctx.body ?? {}) as { artefactId?: string };
+        if (!artefactId) throw new Error('artefactId is required');
+        const hh = await householdStore.get();
+        if (!hh) throw new Error('no household provisioned');
+        const viewer = effectiveViewer(ctx);
+        if (!viewer) throw new Error('no session — log in');
+        const stepUp = makeDidcommActionApprover(transport, config.stepUpTimeoutMs.factor2);
+        const result = await shareToHousehold(handle, config, hh, artefactId, viewer, (sensitivity) =>
+          stepUp.requestActionApproval({ member: viewer, action: 'share', resource: artefactId, summary: `Share a ${sensitivityName(sensitivity)} note to the household` }),
+        );
+        if (result.shared) server.emit('household-changed', { shared: artefactId }, { scope: 'shared' });
+        return result;
+      },
+
+      // ── Guardianship (Phase 5) — governor access to member DATA, grantable but never seizable. Every
+      // edge is a governor↔member Ruleset chain: the governor signs at their Signet, the SUBJECT member
+      // acknowledges at THEIRS (the amendment rule), reads are scoped + receipted inward, and the member
+      // sees who watches them. A grant with no member ack authorizes nothing.
+      //
+      // Grant a guardianship edge — the household governor proposes read access over a member. Governor-
+      // signed (their own Signet); it is PENDING until the subject acknowledges (POST /api/guardian/ack).
+      'POST /api/guardian/grant': async (ctx) => {
+        const { subjectDid, kinds, ceiling, validUntil } = (ctx.body ?? {}) as {
+          subjectDid?: string; kinds?: string[]; ceiling?: number; validUntil?: string;
+        };
+        if (!subjectDid) throw new Error('subjectDid is required');
+        const viewer = effectiveViewer(ctx);
+        const hh = await householdStore.get();
+        if (!hh) throw new Error('no household provisioned');
+        if (viewer !== hh.governorDid) throw new Error('only the household governor may grant guardianship');
+        const chain = await guardianships.chain(viewer, subjectDid);
+        const head = chain[chain.length - 1];
+        const next: Ruleset = {
+          actor: viewer, actorKind: 'guardianship', resource: `guard:${subjectDid}`,
+          version: (head?.version ?? 0) + 1, previous: head ? rulesetId(head) : null,
+          capabilities: { kinds: kinds ?? [], verbs: ['read'] },
+          ceiling: ceiling ?? Sensitivity.LOW, status: 'active', subject: subjectDid,
+          ...(validUntil ? { validUntil } : {}),
+        };
+        const signer = makeDidcommRulesetSigner(transport, viewer, config.stepUpTimeoutMs.factor2);
+        const summary = `Watch ${subjectDid.slice(0, 20)}… — ${(kinds ?? []).join(', ') || 'no kinds'} ≤ ${sensitivityName(ceiling ?? Sensitivity.LOW)}${validUntil ? `, until ${validUntil.slice(0, 10)}` : ''}`;
+        const signed = await signer.sign(next, summary);
+        if (!signed) throw new Error('guardianship grant declined by the governor');
+        await guardianships.append(viewer, subjectDid, signed);
+        // Conspicuous, always: tell the subject a guardianship was proposed over them.
+        server.emit('guardianship-proposed', { governor: viewer, subject: subjectDid }, { owner: subjectDid });
+        return { proposed: true, governor: viewer, subject: subjectDid, acknowledged: false };
+      },
+      // Acknowledge a pending guardianship — the SUBJECT member co-signs at their own Signet, activating it.
+      'POST /api/guardian/acknowledge': async (ctx) => {
+        const { governorDid } = (ctx.body ?? {}) as { governorDid?: string };
+        if (!governorDid) throw new Error('governorDid is required');
+        const viewer = effectiveViewer(ctx);
+        if (!viewer) throw new Error('no session — log in');
+        const chain = await guardianships.chain(governorDid, viewer);
+        const head = chain[chain.length - 1];
+        if (!head) throw new Error('no guardianship to acknowledge');
+        const acker = makeDidcommMemberAcker(transport, viewer, config.stepUpTimeoutMs.factor2);
+        const summary = `Acknowledge being watched by ${governorDid.slice(0, 20)}… — ${(head.capabilities?.kinds ?? []).join(', ') || 'no kinds'} ≤ ${sensitivityName(head.ceiling ?? Sensitivity.LOW)}`;
+        const memberAck = await acker(head, summary);
+        if (!memberAck) throw new Error('acknowledgment declined by the member');
+        const acked: SignedRuleset = { ...head, memberAck };
+        await guardianships.replaceChain(governorDid, viewer, [...chain.slice(0, -1), acked]);
+        return { acknowledged: true, governor: governorDid, subject: viewer };
+      },
+      // A governor reads a member's artefact under an active, acknowledged, in-scope guardianship. Every
+      // ALLOWED read is receipted to the member; a refusal reveals nothing.
+      'POST /api/guardian/read': async (ctx) => {
+        const { subjectDid, artefactId } = (ctx.body ?? {}) as { subjectDid?: string; artefactId?: string };
+        if (!subjectDid || !artefactId) throw new Error('subjectDid and artefactId are required');
+        const viewer = effectiveViewer(ctx);
+        if (!viewer) throw new Error('no session — log in');
+        const chain = await guardianships.chain(viewer, subjectDid);
+        const at = new Date().toISOString();
+        const result = await guardianRead(handle, config, chain, viewer, subjectDid, artefactId, at);
+        // The watched sees the watching, live — an inward disclosure to the subject only.
+        if (result.granted) server.emit('guardian-read', { governor: viewer, artefactId, at }, { owner: subjectDid });
+        return result;
+      },
+      // Revoke a guardianship (emancipation / offboarding) — a governor-signed, self-restricting
+      // supersession. Self-restricting ⇒ no member ack needed (reduces access; §3).
+      'POST /api/guardian/revoke': async (ctx) => {
+        const { subjectDid } = (ctx.body ?? {}) as { subjectDid?: string };
+        if (!subjectDid) throw new Error('subjectDid is required');
+        const viewer = effectiveViewer(ctx);
+        const chain = await guardianships.chain(viewer ?? '', subjectDid);
+        const head = chain[chain.length - 1];
+        if (!head) throw new Error('no guardianship to revoke');
+        const next: Ruleset = {
+          actor: head.actor, actorKind: head.actorKind, resource: head.resource,
+          version: head.version + 1, previous: rulesetId(head),
+          capabilities: head.capabilities, ceiling: head.ceiling, status: 'revoked', subject: head.subject,
+          ...(head.validUntil ? { validUntil: head.validUntil } : {}),
+        };
+        const signer = makeDidcommRulesetSigner(transport, viewer!, config.stepUpTimeoutMs.factor2);
+        const signed = await signer.sign(next, `End guardianship over ${subjectDid.slice(0, 20)}…`);
+        if (!signed) throw new Error('revocation declined by the governor');
+        await guardianships.append(viewer!, subjectDid, signed);
+        server.emit('guardianship-proposed', { governor: viewer, subject: subjectDid, revoked: true }, { owner: subjectDid });
+        return { revoked: true, governor: viewer, subject: subjectDid };
+      },
+      // The conspicuous surface: who watches ME (active edges over the session member), what I watch (as a
+      // governor), and every guardian read performed over me (the inward receipt log).
+      'GET /api/guardianships': async (ctx) => {
+        const viewer = effectiveViewer(ctx);
+        if (!viewer) throw new Error('no session — log in');
+        const watchedBy = await activeGuardianships(handle, guardianships, viewer);
+        const watching = await guardianships.forGovernor(viewer);
+        const receipts = await guardianReceipts.forSubject(viewer);
+        return { watchedBy, watching: watching.map((w) => ({ subject: w.subject })), receipts };
       },
 
       // ── Knowledge Base membership + assurance policy (many KBs per Warden) ──
@@ -337,10 +590,10 @@ export async function runWardenControl(
 
   // Serve a provisioned Knowledge Base over DIDComm too (a public Mage relays to this mailbox).
   // The step-up approver reaches the member's Signet directly (out-of-band from the Mage).
-  const kbs = await buildKbServices(handle, config, id.did, makeDidcommActionApprover(transport));
+  const kbs = await buildKbServices(handle, config, id.did, makeDidcommActionApprover(transport), transport as unknown as RewrapChannel);
 
   // Wrap the real handler so a stored submission is pushed to connected consoles.
-  const inner = makeWardenHandler(service, delegations, evidenceService, kbs);
+  const inner = makeWardenHandler(service, delegations, evidenceService, kbs, config.sovereignDid);
   const handler: RequestHandler = async (message, fromDid) => {
     const result = await inner(message, fromDid);
     if (
@@ -350,14 +603,18 @@ export async function runWardenControl(
     ) {
       const receipt = result as SubmissionReceipt;
       const sub = message as WitnessSubmission;
+      // The stored artefact carries the attributed owner/scope — scope the event so only that member's
+      // console sees their own `submission-stored` (activity metadata is a disclosure, Fable amendment 3).
+      const stored = await store.get(receipt.artefactId);
       const item: VaultItem = {
         id: receipt.artefactId,
         kind: sub.kind,
         sensitivity: receipt.assignedSensitivity,
         sensitivityName: sensitivityName(receipt.assignedSensitivity),
         observedAt: sub.observedAt,
+        ...(stored?.scope ? { scope: stored.scope } : {}),
       };
-      server.emit('submission-stored', { item, from: fromDid });
+      server.emit('submission-stored', { item, from: fromDid }, { owner: stored?.owner ?? config.sovereignDid, scope: stored?.scope });
     }
     return result;
   };

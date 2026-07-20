@@ -36,6 +36,17 @@ export interface ApprovalContext {
   governance?: {
     summary: string;
   };
+  /** For a guardianship acknowledgment: the SUBJECT member co-signs an edge granting a governor read over
+   *  their OWN private data. Distinct from `governance` (the governor's own signing) — this is the watched
+   *  member consenting to be watched (the amendment rule's member half). */
+  guardianship?: {
+    summary: string;
+  };
+  /** For a partition-key rewrap: the member unlocks their own private notes for a session. */
+  rewrap?: {
+    sessionId: string;
+    partitionCount: number;
+  };
 }
 
 export interface ApprovalGate {

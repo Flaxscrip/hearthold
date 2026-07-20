@@ -23,9 +23,15 @@ export interface ControlContext {
 /** A route handler returns a JSON-serialisable value (sent as `{ ok: true, ...value }`). */
 export type ControlHandler = (ctx: ControlContext) => Promise<unknown> | unknown;
 
+/** Who an SSE frame is for. Absent = broadcast; otherwise a member (owner) and/or the shared pool. */
+export interface EventAudience {
+  owner?: string;
+  scope?: 'shared' | 'private';
+}
+
 export interface ControlServer {
-  /** Push an event to every connected SSE client. */
-  emit(type: string, data: unknown): void;
+  /** Push an event to connected SSE clients — all, or only the `audience` (session-filtered, Phase 3). */
+  emit(type: string, data: unknown, audience?: EventAudience): void;
   /** Number of connected SSE clients. */
   clientCount(): number;
   close(): void;
@@ -39,14 +45,14 @@ export interface ControlServerOptions {
   routes: Record<string, ControlHandler>;
   /** Called once the server is listening. */
   onListening?: (port: number) => void;
+  /** Resolve an SSE connection's viewer DID from its `X-Hearthold-Session` token (for audience filtering). */
+  resolveSession?: (token: string | undefined) => string | undefined;
 }
-
-const sse = new Set<ServerResponse>();
 
 function cors(res: ServerResponse): void {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Hearthold-Session');
 }
 
 function sendJson(res: ServerResponse, status: number, payload: unknown): void {
@@ -76,6 +82,9 @@ function readBody(req: IncomingMessage): Promise<unknown> {
 /** Start the control server. Returns a handle with `emit` for pushing SSE events. */
 export function startControlServer(options: ControlServerOptions): ControlServer {
   const host = options.host ?? '127.0.0.1';
+  // Per-server (not module-global — one Warden's events never reach another's console), and each client
+  // carries its resolved session DID so `emit` can scope frames to their audience.
+  const sse = new Set<{ res: ServerResponse; did?: string }>();
 
   const server: Server = createServer((req, res) => {
     void handle(req, res);
@@ -102,8 +111,11 @@ export function startControlServer(options: ControlServerOptions): ControlServer
         Connection: 'keep-alive',
       });
       res.write(`event: hello\ndata: ${JSON.stringify({ at: new Date().toISOString() })}\n\n`);
-      sse.add(res);
-      req.on('close', () => sse.delete(res));
+      const hdr = req.headers['x-hearthold-session'];
+      const did = options.resolveSession?.(Array.isArray(hdr) ? hdr[0] : hdr);
+      const client = { res, did };
+      sse.add(client);
+      req.on('close', () => sse.delete(client));
       return;
     }
 
@@ -127,13 +139,18 @@ export function startControlServer(options: ControlServerOptions): ControlServer
 
   return {
     port: options.port,
-    emit(type: string, data: unknown): void {
+    emit(type: string, data: unknown, audience?: EventAudience): void {
       const frame = `data: ${JSON.stringify({ type, at: new Date().toISOString(), data })}\n\n`;
-      for (const client of sse) client.write(frame);
+      for (const client of sse) {
+        // Deliver iff: broadcast (no audience), or the frame is shared, or this client owns it. A member
+        // never receives another member's activity frames (Fable amendment 3 — metadata is a disclosure).
+        const deliver = !audience || audience.scope === 'shared' || (!!audience.owner && client.did === audience.owner);
+        if (deliver) client.res.write(frame);
+      }
     },
     clientCount: () => sse.size,
     close(): void {
-      for (const client of sse) client.end();
+      for (const client of sse) client.res.end();
       sse.clear();
       server.close();
     },

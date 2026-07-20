@@ -52,10 +52,23 @@ export interface Ruleset {
   /** Max Sensitivity this actor may reach. */
   ceiling: number;
   status: RulesetStatus;
+  /**
+   * Guardianship (guardianship-threat-model.md §3): the household MEMBER whose PRIVATE scope this version
+   * grants `actor` (a governor) access into. Its presence marks the version access-widening — such a
+   * transition is invalid unless this member's own acknowledgment signature (`memberAck`) is in it.
+   * "Guardianship is grantable but never seizable."
+   */
+  subject?: string;
+  /** Guardianship expiry (ISO): a guardian read past this is refused. Emancipation = a signed supersession. */
+  validUntil?: string;
 }
 
-/** A Ruleset plus the Sovereign's detached signature. */
-export type SignedRuleset = Ruleset & { proof?: unknown };
+/**
+ * A Ruleset plus the governor's detached signature (`proof`). A guardianship version ALSO carries the
+ * `subject` member's acknowledgment signature (`memberAck`) — both are over the same base ruleset, so
+ * neither invalidates the other.
+ */
+export type SignedRuleset = Ruleset & { proof?: unknown; memberAck?: unknown };
 
 const sha256hex = (s: string): string => createHash('sha256').update(s).digest('hex');
 const short = (did: string): string => (did.length > 24 ? `${did.slice(0, 24)}…` : did);
@@ -101,15 +114,98 @@ export interface RulesetCheck {
   signer?: string;
 }
 
-/** Verify a single Ruleset version's signature (valid + signed by the DID in its proof). */
+/** The base ruleset — the body both the governor and the member sign, with no signatures attached. */
+function baseRuleset(signed: SignedRuleset): Ruleset {
+  const { proof: _p, memberAck: _m, ...base } = signed;
+  return base as Ruleset;
+}
+
+/** Verify a single Ruleset version's governor signature (valid + signed by the DID in its proof). */
 export async function verifyRuleset(warden: KeymasterHandle, signed: SignedRuleset): Promise<RulesetCheck> {
   if (!signed?.proof) return { ok: false, reason: 'ruleset is not signed' };
   const proof = signed.proof as { verificationMethod?: string };
   const signer = String(proof.verificationMethod ?? '').split('#')[0] ?? '';
   if (!signer) return { ok: false, reason: 'no signer in proof' };
+  // Verify the governor proof over the BASE ruleset (exclude the member ack, which is a second signature
+  // over the same base — including it would break this verification).
+  const toVerify = { ...baseRuleset(signed), proof: signed.proof };
   const verifyProof = warden.keymaster.verifyProof.bind(warden.keymaster) as (o: unknown) => Promise<boolean>;
-  if (!(await verifyProof(signed).catch(() => false))) return { ok: false, reason: 'signature does not verify' };
+  if (!(await verifyProof(toVerify).catch(() => false))) return { ok: false, reason: 'signature does not verify' };
   return { ok: true, reason: 'signed', signer };
+}
+
+/** The `subject` member co-signs a guardianship version: their acknowledgment over the same base ruleset. */
+export async function signMemberAck(member: KeymasterHandle, ruleset: SignedRuleset): Promise<unknown> {
+  const signed = (await member.keymaster.addProof(baseRuleset(ruleset))) as { proof?: unknown };
+  return signed.proof;
+}
+
+/** Verify a guardianship version's member acknowledgment: the `subject` themselves signed this base ruleset. */
+async function verifyMemberAck(warden: KeymasterHandle, signed: SignedRuleset): Promise<boolean> {
+  if (!signed.memberAck || !signed.subject) return false;
+  const toVerify = { ...baseRuleset(signed), proof: signed.memberAck };
+  const verifyProof = warden.keymaster.verifyProof.bind(warden.keymaster) as (o: unknown) => Promise<boolean>;
+  if (!(await verifyProof(toVerify).catch(() => false))) return false;
+  const signer = String((signed.memberAck as { verificationMethod?: string }).verificationMethod ?? '').split('#')[0];
+  return signer === signed.subject;
+}
+
+/**
+ * Does the transition `prev → next` WIDEN a principal's read/authorization reach into another principal's
+ * private scope (guardianship-threat-model §3)? True iff `next` grants a governor access into a member's
+ * private scope (`subject` set) that the prior version did not already grant at ≥ this reach — a NEW or
+ * BROADENED guardianship. Narrowing, re-stating, or non-guardianship changes are not access-widening.
+ */
+export function widensIntoPrivateScope(prev: Ruleset | undefined, next: Ruleset): boolean {
+  if (!next.subject) return false; // not a guardianship grant → governor-domain / self-restricting
+  if (!prev || prev.subject !== next.subject) return true; // introduces access into this member's scope
+  // Inverted default (Fable review, 2026-07-16): a guardianship version requires the subject's fresh ack
+  // UNLESS it is a strict narrowing or a byte-identical restatement of the prior guardianship. Enumerating
+  // widening axes proved *under*-inclusive — it missed `validUntil` extension (a ~4-year seizure of the
+  // surveillance window), added verbs, and lowered per-verb assurance, each a broadening of the declared
+  // scope the member never consented to. "Require ack for anything not provably a narrowing" cannot be
+  // under-inclusive by construction; acks are cheap and version-bound, so the member co-signs every
+  // expansion of their own watch — the clean statement of *grantable but never seizable*.
+  return !guardianshipNarrowsOrEqual(prev, next);
+}
+
+/** factor2 > factor1 > (no step-up). Absent required assurance is the weakest — no step-up demanded. */
+const assuranceLevel = (t?: AssuranceTier): number => (t === 'factor2' ? 2 : t === 'factor1' ? 1 : 0);
+
+/** Did any verb's required assurance DROP from `prev` to `next` (a step-up weakened = a widening)? */
+function assuranceLowered(
+  prev: Partial<Record<string, AssuranceTier>> | undefined,
+  next: Partial<Record<string, AssuranceTier>> | undefined,
+): boolean {
+  const verbs = new Set([...Object.keys(prev ?? {}), ...Object.keys(next ?? {})]);
+  for (const v of verbs) if (assuranceLevel(next?.[v]) < assuranceLevel(prev?.[v])) return true;
+  return false;
+}
+
+/** A guardianship `validUntil` narrows-or-holds iff the window only shrinks. Absent = no expiry (broadest):
+ *  a prior with no expiry is never narrowed by adding one is *tightening* (ok); dropping an expiry broadens. */
+function validUntilNarrowsOrEqual(prev: string | undefined, next: string | undefined): boolean {
+  if (prev === undefined) return true; // prior had no expiry (broadest) — any next window is ≤
+  if (next === undefined) return false; // prior expired; next removes the expiry → broadens the window
+  return next <= prev; // both set: the window may only shrink (or hold)
+}
+
+/**
+ * Is `next` a strict narrowing (or byte-identical restatement) of the prior guardianship `prev` over the
+ * SAME subject? Every scope axis — ceiling, kinds, verbs, `validUntil`, per-verb assurance — must be
+ * equal-or-tighter; any broadening on any single axis makes the transition access-widening (ack required).
+ * A `revoked` status is the ultimate narrowing (access → none).
+ */
+function guardianshipNarrowsOrEqual(prev: Ruleset, next: Ruleset): boolean {
+  if (next.status === 'revoked') return true; // ending guardianship narrows to nothing
+  if ((next.ceiling ?? 0) > (prev.ceiling ?? 0)) return false; // ceiling raised
+  const priorKinds = new Set(prev.capabilities?.kinds ?? []);
+  if ((next.capabilities?.kinds ?? []).some((k) => !priorKinds.has(k))) return false; // kind added
+  const priorVerbs = new Set(prev.capabilities?.verbs ?? []);
+  if ((next.capabilities?.verbs ?? []).some((v) => !priorVerbs.has(v))) return false; // verb added
+  if (!validUntilNarrowsOrEqual(prev.validUntil, next.validUntil)) return false; // window extended
+  if (assuranceLowered(prev.capabilities?.assurance, next.capabilities?.assurance)) return false; // step-up weakened
+  return true;
 }
 
 /**
@@ -144,6 +240,13 @@ export async function verifyRulesetChain(
     } else if (r.previous !== rulesetId(ordered[i - 1] as SignedRuleset)) {
       return { ok: false, reason: `v${r.version}: broken previous link` };
     }
+    // THE AMENDMENT RULE (hoisted into the shared verifier — Fable review 2026-07-16): an access-widening
+    // guardianship version without the subject's own acknowledgment is invalid here too, so no consumer
+    // that routes a chain through verifyRulesetChain / activeRuleset / authorizeActor can accept a seizure
+    // that operativeRuleset would reject. Non-guardianship versions (no `subject`) are unaffected.
+    if (widensIntoPrivateScope(ordered[i - 1] as Ruleset | undefined, r) && !(await verifyMemberAck(warden, r))) {
+      return { ok: false, reason: `v${r.version}: access-widening guardianship without the subject's acknowledgment` };
+    }
   }
   // Governor pinning: the whole point of Signet governance. A reader that expects a specific governing
   // Sovereign rejects any chain not signed by them — so a compromised Warden cannot self-sign policy.
@@ -151,6 +254,88 @@ export async function verifyRulesetChain(
     return { ok: false, reason: `chain not signed by the governing DID (${short(opts.expectedSigner)})` };
   }
   return { ok: true, reason: `chain valid (head v${head.version}, ${head.status})`, signer };
+}
+
+/**
+ * The operative Ruleset under the AMENDMENT RULE (guardianship-threat-model §3) — the household governance
+ * verifier. It walks the chain applying signature, contiguity, link, and governor-pin checks AND the
+ * amendment rule: a version that **widens a governor's reach into a member's private scope without that
+ * member's own acknowledgment signature is invalid, and the operative head falls back to the PRIOR
+ * version** (exactly as an unsigned downgrade is rejected today). This is what makes guardianship
+ * *grantable but never seizable* — a governor cannot route around consent by editing the constitution,
+ * because the verifier rejects the edit and serves the last version the member's key participated in.
+ *
+ * Returns the operative head (last valid `active` version), or null if even the genesis is invalid.
+ */
+export async function operativeRuleset(
+  warden: KeymasterHandle,
+  chain: SignedRuleset[],
+  opts: { expectedSigner?: string } = {},
+): Promise<SignedRuleset | null> {
+  const ordered = [...chain].sort((a, b) => a.version - b.version);
+  let lastValid: SignedRuleset | null = null;
+  let signer: string | undefined;
+  for (let i = 0; i < ordered.length; i++) {
+    const r = ordered[i] as SignedRuleset;
+    const check = await verifyRuleset(warden, r);
+    if (!check.ok) break; // unsigned/tampered → stop; serve the last valid version
+    if (i === 0) signer = check.signer;
+    else if (check.signer !== signer) break; // governor changed mid-chain
+    if (r.version !== i + 1) break; // non-contiguous
+    if (i === 0) {
+      if (r.previous !== null) break;
+    } else if (r.previous !== rulesetId(ordered[i - 1] as SignedRuleset)) break; // broken link
+    // THE AMENDMENT RULE: access-widening into a member's private scope requires that member's ack.
+    if (widensIntoPrivateScope(ordered[i - 1] as Ruleset | undefined, r) && !(await verifyMemberAck(warden, r))) {
+      break; // seizure attempt → fail closed to the prior version
+    }
+    lastValid = r;
+  }
+  if (opts.expectedSigner && signer && signer !== opts.expectedSigner) return null; // governor pinning
+  if (!lastValid) return null;
+  return lastValid.status === 'active' ? lastValid : null;
+}
+
+export interface GuardianReadRequest {
+  /** The governor attempting the read (the guardian). */
+  governor: string;
+  /** The watched member whose data is read. */
+  subject: string;
+  /** The artefact's kind + sensitivity + the check-time clock. */
+  kind?: string;
+  sensitivity?: number;
+  at: string;
+}
+
+/**
+ * Authorize a GOVERNOR reading a MEMBER's private data under a Guardianship Ruleset (guardianship-threat-
+ * model.md §5). The ladder is not bypassed — it is *satisfied by law*: a guardian read is allowed only
+ * within an active, member-acknowledged guardianship edge that names this governor→member, is unexpired,
+ * and covers the artefact's kind + sensitivity. Because the chain runs through `operativeRuleset`, a
+ * guardianship version the member never acknowledged is invalid and reads are refused (seizure defense);
+ * a revoked/emancipated edge has no active head; and a tampered/forged chain fails closed.
+ */
+export async function authorizeGuardianRead(
+  warden: KeymasterHandle,
+  chain: SignedRuleset[],
+  req: GuardianReadRequest,
+): Promise<{ allowed: boolean; reason: string }> {
+  const operative = await operativeRuleset(warden, chain, { expectedSigner: req.governor });
+  if (!operative) return { allowed: false, reason: 'no active guardianship (unacknowledged, revoked, tampered, or not governor-signed)' };
+  if (operative.actor !== req.governor || operative.subject !== req.subject) {
+    return { allowed: false, reason: 'the active Ruleset is not a guardianship edge for this governor → member' };
+  }
+  if (operative.validUntil && req.at > operative.validUntil) {
+    return { allowed: false, reason: 'guardianship has expired' };
+  }
+  const caps = operative.capabilities;
+  if (req.kind && caps.kinds && !caps.kinds.includes(req.kind)) {
+    return { allowed: false, reason: `kind '${req.kind}' is outside the guardianship scope` };
+  }
+  if (req.sensitivity !== undefined && req.sensitivity > operative.ceiling) {
+    return { allowed: false, reason: `sensitivity ${req.sensitivity} exceeds the guardianship ceiling ${operative.ceiling}` };
+  }
+  return { allowed: true, reason: 'authorized by the guardianship Ruleset (the ladder is satisfied by law)' };
 }
 
 /**

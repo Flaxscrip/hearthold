@@ -24,6 +24,10 @@ export interface IndexEntry {
   embedding: number[];
   /** Which Knowledge Base this entry belongs to; absent = the Warden's own (personal) vault. */
   kb?: string;
+  /** Personal-vault ownership: the household member DID this entry belongs to (absent = the Sovereign's). */
+  owner?: string;
+  /** Personal-vault partition origin: shared household pool vs the owner's private partition. */
+  scope?: 'shared' | 'private';
 }
 
 /** Cosine similarity of two equal-length vectors (0 if either is degenerate). */
@@ -54,11 +58,16 @@ export interface ScoredEntry {
  * their shared partition + their own private partition, for KB Spaces), or `null` for the personal vault
  * only. This is what keeps one KB's (or one member's private partition's) content from surfacing in
  * another's query on a multi-KB Warden.
+ *
+ * `owner` scopes the PERSONAL vault (entries with no `kb` tag) for the household model: when set, a
+ * personal-vault entry is visible only if the caller owns it or it is shared to the household. KB entries
+ * remain governed by `kb` (partition membership), not `owner`. Omitting `owner` = single-Sovereign, all
+ * personal-vault entries visible (backward compatible).
  */
 export function rankByQuery(
   queryEmbedding: number[],
   entries: IndexEntry[],
-  opts: { k?: number; maxSensitivity?: number; kb?: string | string[] | null } = {},
+  opts: { k?: number; maxSensitivity?: number; kb?: string | string[] | null; owner?: string } = {},
 ): ScoredEntry[] {
   const k = opts.k ?? 5;
   const ceiling = opts.maxSensitivity ?? Number.POSITIVE_INFINITY;
@@ -69,8 +78,13 @@ export function rankByQuery(
     if (kbSet) return e.kb !== undefined && kbSet.has(e.kb); // visible set (union of partitions)
     return e.kb === opts.kb; // exactly this KB
   };
+  const ownerMatch = (e: IndexEntry): boolean => {
+    if (opts.owner === undefined) return true; // no owner scoping → single-Sovereign, all visible
+    if (e.kb !== undefined) return true; // KB entries governed by the `kb` visible set, not owner
+    return e.owner === opts.owner || e.scope === 'shared'; // personal vault: own ∪ shared-to-household
+  };
   return entries
-    .filter((e) => e.sensitivity <= ceiling && kbMatch(e))
+    .filter((e) => e.sensitivity <= ceiling && kbMatch(e) && ownerMatch(e))
     .map((entry) => ({ entry, score: cosineSimilarity(queryEmbedding, entry.embedding) }))
     .sort((a, b) => b.score - a.score)
     .slice(0, k);
@@ -84,6 +98,8 @@ export interface RecallCitation {
   score: number;
   /** The partition (index `kb` tag) this citation came from — lets callers label shared vs private. */
   kb?: string;
+  /** shared-pool vs the member's private partition — the citation-badge label (populated in Phase 3). */
+  scope?: 'shared' | 'private';
 }
 
 /** The answer to a recall query, with the artefacts it drew on. Machine-derived; local-only. */

@@ -11,6 +11,8 @@ import {
   activeRuleset,
   selfSigner,
   Sensitivity,
+  generatePartitionKeypair,
+  wrapKeyForDid,
   type KeymasterHandle,
   type HearthholdConfig,
   type Ruleset,
@@ -21,6 +23,8 @@ import {
 
 import { KbService, type KbActionApprover } from './kb.js';
 import { PartitionStore, partitionIdFor, type PartitionRecord } from './partition-store.js';
+import { SessionKeyStore } from './session-keys.js';
+import type { RewrapChannel } from './rewrap.js';
 
 /**
  * Persisted KB provisioning for a Warden: the resource (a KB *space*), its shared-partition access
@@ -60,7 +64,21 @@ export async function provisionMemberPartition(
   const id = partitionIdFor(spaceId, ownerDid);
   const group = await createRegistryGroup(handle, `kb-priv-${sha16(spaceId + ownerDid)}`, config.registry);
   await grantAuthorization(handle, group, ownerDid);
-  const rec: PartitionRecord = { spaceId, owner: ownerDid, id, group, location: { kind: 'local' }, createdAt: new Date().toISOString() };
+  // Member-key encryption (threat-model §0): mint a partition keypair; the Warden keeps the public half
+  // (seals private content, write-host) and stores the private half wrapped to the member (read-guest —
+  // it cannot open this at rest). The live seal/read cutover to this key rides Phase 2's session rewrap.
+  const kp = generatePartitionKeypair(handle.cipher);
+  const wrappedKey = await wrapKeyForDid(handle, ownerDid, kp.privateJwk);
+  const rec: PartitionRecord = {
+    spaceId,
+    owner: ownerDid,
+    id,
+    group,
+    location: { kind: 'local' },
+    createdAt: new Date().toISOString(),
+    partitionPub: kp.publicJwk,
+    wrappedKey,
+  };
   await partitions.put(rec);
   return rec;
 }
@@ -205,7 +223,14 @@ export class KbConfigStore {
 }
 
 /** Build a live `KbService` from one KB config. */
-function serviceFor(handle: KeymasterHandle, config: HearthholdConfig, wardenDid: string, kb: KbConfig, approver?: KbActionApprover): KbService {
+function serviceFor(
+  handle: KeymasterHandle,
+  config: HearthholdConfig,
+  wardenDid: string,
+  kb: KbConfig,
+  approver?: KbActionApprover,
+  readGuest?: { sessionKeys: SessionKeyStore; rewrapChannel: RewrapChannel },
+): KbService {
   // Governance policy (required assurance per action) is a Sovereign-signed Ruleset chain on the
   // ledger; the Warden reads + verifies it, PINNED to the governing DID (fail-closed on tamper or a
   // forged self-signature — a compromised Warden cannot rewrite policy it doesn't govern).
@@ -227,6 +252,8 @@ function serviceFor(handle: KeymasterHandle, config: HearthholdConfig, wardenDid
     memberPartitions: kb.memberPartitions,
     defaultScope: kb.defaultScope,
     partitions: kb.memberPartitions ? new PartitionStore(handle.dataFolder) : undefined,
+    sessionKeys: readGuest?.sessionKeys,
+    rewrapChannel: readGuest?.rewrapChannel,
   });
 }
 
@@ -239,7 +266,12 @@ export async function buildKbServices(
   config: HearthholdConfig,
   wardenDid: string,
   approver?: KbActionApprover,
+  rewrapChannel?: RewrapChannel,
 ): Promise<Map<string, KbService>> {
   const kbs = await new KbConfigStore(handle.dataFolder).list();
-  return new Map(kbs.map((kb) => [kb.kbId, serviceFor(handle, config, wardenDid, kb, approver)]));
+  // One read-guest key store shared across this Warden's KB services (tokens are unique per login, so the
+  // (token, partition) keying never collides). Present only when a rewrap channel is wired — the Phase-6
+  // member-key read path; without it, KB reads use the pre-cutover Warden-sealed path.
+  const readGuest = rewrapChannel ? { sessionKeys: new SessionKeyStore(), rewrapChannel } : undefined;
+  return new Map(kbs.map((kb) => [kb.kbId, serviceFor(handle, config, wardenDid, kb, approver, readGuest)]));
 }

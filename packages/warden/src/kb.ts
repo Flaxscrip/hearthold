@@ -21,11 +21,13 @@ import { randomBytes } from 'node:crypto';
 import {
   verifyKbRequestSignature,
   sealForWarden,
+  sealToKey,
   contentId,
   PROTOCOL_VERSION,
   type KeymasterHandle,
   type HearthholdConfig,
   type TrustEvaluator,
+  type CipherPublicJwk,
   meetsAssurance,
   type Transport,
   type RulesetSigner,
@@ -42,7 +44,10 @@ import { VaultStore, type Artefact } from './store.js';
 import { IndexStore } from './index-store.js';
 import { RecallService } from './recall.js';
 import { OllamaEmbedder } from './recall.js';
+import type { PartitionKeyLookup } from './recall.js';
 import type { PartitionStore } from './partition-store.js';
+import type { SessionKeyStore } from './session-keys.js';
+import { unlockSessionPartitions, type RewrapChannel } from './rewrap.js';
 
 interface KbServiceOptions {
   kbId: string;
@@ -62,6 +67,14 @@ interface KbServiceOptions {
   defaultScope?: 'shared' | 'private';
   /** The Warden-side store of per-member private partitions (present when `memberPartitions`). */
   partitions?: PartitionStore;
+  /**
+   * Read-guest keys (Phase 6): transient partition private keys held for a live session so the Warden can
+   * RAG the member's OWN member-key-sealed private content. Populated at login via `rewrapChannel`, keyed
+   * by session token, zeroized when the session ends. Absent ⇒ no member-key reads (the pre-cutover path).
+   */
+  sessionKeys?: SessionKeyStore;
+  /** The channel the login rewrap round-trip rides (the Warden↔member Signet transport). */
+  rewrapChannel?: RewrapChannel;
 }
 
 /**
@@ -99,6 +112,32 @@ export function makeDidcommRulesetSigner(transport: Transport, governor: string,
         return null; // unreachable Signet / timeout ⇒ not signed (fail closed)
       }
     },
+  };
+}
+
+/**
+ * Ask the SUBJECT member's Signet to acknowledge a governor-signed guardianship edge (Phase 5). The ack
+ * is the member's own co-signature over the base Ruleset — the amendment rule's member half. Routed to
+ * the member's own device and gated by their fresh proof-of-human (never the governor's). Returns the
+ * `memberAck` proof, or null on decline / timeout (fail closed — no ack ⇒ the edge authorizes nothing).
+ */
+export function makeDidcommMemberAcker(
+  transport: Transport,
+  member: string,
+  timeoutMs = 170_000,
+): (ruleset: SignedRuleset, summary: string) => Promise<unknown | null> {
+  return async (ruleset, summary) => {
+    try {
+      const reply = await transport.request(
+        member,
+        { type: 'hearthold/member-ack-request', version: PROTOCOL_VERSION, ruleset, summary },
+        { timeoutMs },
+      );
+      if (reply.type === 'hearthold/member-ack-response' && reply.approved) return reply.memberAck;
+      return null;
+    } catch {
+      return null; // unreachable Signet / timeout ⇒ not acknowledged (fail closed)
+    }
   };
 }
 
@@ -199,6 +238,18 @@ export class KbService {
     const token = randomBytes(24).toString('hex');
     const exp = Date.now() + (this.opts.sessionTtlMs ?? 30 * 60_000);
     this.sessions.set(token, { did: res.responder, exp });
+    // Read-guest unlock (Phase 6): if this space grants member partitions and a rewrap channel is wired,
+    // ask the member's Signet to rewrap their OWN partition keys to a Warden ephemeral key for this
+    // session (the member authorizes with their own proof-of-human). Best-effort: a decline / unreachable
+    // Signet / a member with no member-key partitions unlocks 0 and login still succeeds — the read side
+    // simply falls back to whatever the artefact is sealed to (Warden-sealed content is unaffected).
+    if (this.opts.memberPartitions && this.opts.sessionKeys && this.opts.rewrapChannel) {
+      try {
+        await unlockSessionPartitions(this.warden, this.config, this.opts.rewrapChannel, res.responder, token, this.opts.sessionKeys);
+      } catch {
+        /* rewrap declined / Signet unreachable → 0 unlocked; login is not blocked on it */
+      }
+    }
     return {
       type: 'hearthold/kb-session',
       version: PROTOCOL_VERSION,
@@ -217,18 +268,20 @@ export class KbService {
     if (!s) return kbErr('unknown session — please log in');
     if (Date.now() > s.exp) {
       this.sessions.delete(req.token);
+      this.opts.sessionKeys?.zeroize(req.token); // read-guest keys die with the session, not at some later GC
       return kbErr('session expired — please log in again');
     }
-    return this.execute(s.did, req);
+    return this.execute(s.did, req, req.token);
   }
 
-  /** The member's own private partition in this space, if provisioned + they are still its member. */
-  private async ownPartition(did: string): Promise<{ id: string } | null> {
+  /** The member's own private partition in this space, if provisioned + they are still its member. Carries
+   *  the partition PUBLIC key (write-host): a private write seals to it so the Warden can't read at rest. */
+  private async ownPartition(did: string): Promise<{ id: string; partitionPub?: CipherPublicJwk } | null> {
     if (!this.opts.partitions) return null;
     const p = await this.opts.partitions.get(this.opts.kbId, did);
     if (!p || p.location.kind !== 'local') return null; // Phase 1: local partitions only
     const member = await this.warden.keymaster.testGroup(p.group, did).catch(() => false);
-    return member ? { id: p.id } : null;
+    return member ? { id: p.id, partitionPub: p.partitionPub } : null;
   }
 
   /** Run the assurance step-up if the space's policy requires more than factor1 for `action`. */
@@ -241,9 +294,13 @@ export class KbService {
     return approved ? null : `${action} was not authorized by the Sovereign (${required} step-up declined)`;
   }
 
-  /** Seal + classify + index a contribution into partition `kb`. */
-  private async storeContribution(did: string, kind: string, text: string, kb: string): Promise<KbResultMessage> {
-    const ciphertext = await sealForWarden(this.warden, this.opts.wardenDid, JSON.stringify({ text }));
+  /** Seal + classify + index a contribution into partition `kb`. When `sealTo` (a member partition's
+   *  public key) is given, the payload is sealed to it (write-host: the Warden cannot open it at rest, and
+   *  the artefact is marked `sealedTo` so recall opens it with the member's session-rewrapped key); else it
+   *  is sealed to the Warden as before. Classification runs on the plaintext in memory, before sealing. */
+  private async storeContribution(did: string, kind: string, text: string, kb: string, sealTo?: CipherPublicJwk): Promise<KbResultMessage> {
+    const payload = JSON.stringify({ text });
+    const ciphertext = sealTo ? sealToKey(this.warden.cipher, sealTo, payload) : await sealForWarden(this.warden, this.opts.wardenDid, payload);
     const classification = await createClassifier(this.config).classify({ kind, text });
     const id = contentId(ciphertext, this.warden.cipher);
     const artefact: Artefact = {
@@ -253,6 +310,7 @@ export class KbService {
       storedAt: new Date().toISOString(),
       sensitivity: classification.sensitivity,
       ciphertext,
+      ...(sealTo ? { sealedTo: { partition: kb } } : {}),
       metadata: { ...classification.metadata, kb, contributor: did },
     };
     await this.store.put(artefact);
@@ -281,6 +339,7 @@ export class KbService {
   private async execute(
     did: string,
     req: { action: 'query' | 'update'; query?: string; k?: number; kind?: string; text?: string; scope?: 'shared' | 'private' },
+    sessionToken?: string,
   ): Promise<KbResultMessage> {
     const own = await this.ownPartition(did);
 
@@ -297,7 +356,12 @@ export class KbService {
       if (stepUp) return kbErr(stepUp);
       // INVARIANT II — no query attribution retained. The query and `did` are read in memory only to
       // answer; nothing about who-asked-what-when is persisted. Do not add query/requester logging here.
-      const result = await RecallService.forWarden(this.warden, this.config).recall(req.query, { k: req.k, kb: visible });
+      // Read-guest key lookup (Phase 6): the caller's own member-key partition content is opened with the
+      // key their session rewrapped at login; shared/Warden-sealed content needs none. Bound to THIS
+      // session token, so a query can only reach the partitions this member unlocked (never another's).
+      const keyFor: PartitionKeyLookup | undefined =
+        sessionToken && this.opts.sessionKeys ? (pid) => this.opts.sessionKeys?.get(sessionToken, pid) : undefined;
+      const result = await RecallService.forWarden(this.warden, this.config, keyFor).recall(req.query, { k: req.k, kb: visible });
       // Label each citation by partition so the portal can show where an answer came from.
       const citations = result.citations.map((c) => ({
         artefactId: c.artefactId,
@@ -318,7 +382,9 @@ export class KbService {
       if (!own) return kbErr('no private partition for you on this KB (the space may not grant member partitions)');
       const stepUp = await this.clearAssurance(did, 'write', `contribute (private) to ${this.opts.kbId}: “${req.text.slice(0, 80)}”`);
       if (stepUp) return kbErr(stepUp);
-      return this.storeContribution(did, req.kind, req.text, own.id);
+      // Write-host: seal to the partition's PUBLIC key when the partition carries one (member-key) — the
+      // Warden writes it but cannot read at rest. Legacy partitions (no pub) stay Warden-sealed.
+      return this.storeContribution(did, req.kind, req.text, own.id, own.partitionPub);
     }
     // shared partition — INVARIANT I: shared knowledge, contributor-attributed; not a personal vault.
     const sharedWrite = (await this.opts.registry.authorize({ entity_id: did, action: 'write', resource: this.opts.kbId })).authorized;

@@ -7,6 +7,11 @@ interface DelegationRecord {
   subjectDid: string;
   credentialDid: string;
   issuedAt: string;
+  /**
+   * The household member (Sovereign) this Emissary submits on behalf of — the OWNER attributed to its
+   * submissions. Absent on single-Sovereign delegations (owner then defaults to the configured Sovereign).
+   */
+  memberDid?: string;
 }
 
 /**
@@ -39,12 +44,17 @@ export class DelegationStore {
     }));
   }
 
-  /** Record a freshly issued delegation. */
-  async record(subjectDid: string, credentialDid: string): Promise<void> {
+  /** Record a freshly issued delegation. `memberDid` binds the Emissary to the member it serves (family model). */
+  async record(subjectDid: string, credentialDid: string, memberDid?: string): Promise<void> {
     await mkdir(this.warden.dataFolder, { recursive: true });
     const all = await this.readAll();
-    all.push({ subjectDid, credentialDid, issuedAt: new Date().toISOString() });
+    all.push({ subjectDid, credentialDid, issuedAt: new Date().toISOString(), memberDid });
     await writeFile(this.file, JSON.stringify(all, null, 2), 'utf8');
+  }
+
+  /** The household member (Sovereign) an Emissary submits for, or undefined (single-Sovereign). */
+  async memberFor(emissaryDid: string): Promise<string | undefined> {
+    return (await this.readAll()).find((r) => r.subjectDid === emissaryDid)?.memberDid;
   }
 
   /** Authorized iff we issued this DID a delegation whose credential still resolves (not revoked). */

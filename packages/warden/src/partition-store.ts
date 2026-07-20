@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import type { KeymasterHandle } from '@hearthold/core';
+import type { KeymasterHandle, CipherPublicJwk } from '@hearthold/core';
 
 /** Marks a member's private partition within a space: `<spaceId>::priv:<sha16(ownerDid)>`. */
 const PARTITION_MARKER = '::priv:';
@@ -44,6 +44,17 @@ export interface PartitionRecord {
   group: string;
   location: PartitionLocation;
   createdAt: string;
+  /**
+   * Member-key encryption (guardianship-threat-model.md §0/§4a). The partition's PUBLIC key: the Warden
+   * seals private content to it (write-host) but cannot decrypt at rest. Absent on pre-family partitions.
+   */
+  partitionPub?: CipherPublicJwk;
+  /**
+   * The partition PRIVATE key wrapped to the owner's DID key — only the member can unwrap it (or, per
+   * session, rewrap it to a Warden ephemeral key for transient RAG). The Warden holds this blob but,
+   * lacking the member's key, cannot open it.
+   */
+  wrappedKey?: string;
 }
 
 /**
@@ -78,6 +89,11 @@ export class PartitionStore {
   /** Every private partition in a space (operator view — e.g. for reset/teardown). */
   async listBySpace(spaceId: string): Promise<PartitionRecord[]> {
     return Object.values(await this.all()).filter((r) => r.spaceId === spaceId);
+  }
+
+  /** Every private partition owned by a member, across spaces — the member's set to unlock on login. */
+  async listByOwner(owner: string): Promise<PartitionRecord[]> {
+    return Object.values(await this.all()).filter((r) => r.owner === owner);
   }
 
   /** Record a freshly provisioned private partition (idempotent by (spaceId, owner)). */

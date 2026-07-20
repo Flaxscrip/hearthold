@@ -20,7 +20,7 @@ import {
   type KeymasterHandle,
 } from '@hearthold/core';
 
-import { VaultStore } from './store.js';
+import { VaultStore, type Artefact } from './store.js';
 import type { CardFace } from '@hearthold/control-types';
 
 const SENSITIVITY_NAMES = ['PUBLIC', 'LOW', 'MEDIUM', 'HIGH', 'SEALED'] as const;
@@ -28,25 +28,40 @@ type SensitivityName = (typeof SENSITIVITY_NAMES)[number];
 const sensitivityName = (s: number): SensitivityName => SENSITIVITY_NAMES[s] ?? 'SEALED';
 
 /**
- * Hydrate one card's face at the tier the session has satisfied. Throws only on a *real* failure
- * (unknown artefact, unseal error); a ladder refusal returns `{ granted: false }` for the UI to render
- * obsidian.
+ * Hydrate one card's face for the SESSION member. Two server-side gates the client cannot bypass:
+ *
+ *  1. **Visibility** (`args.visible`) — a card the member does not own and that isn't shared to the
+ *     household never renders. A cross-member (or unknown) artefact returns a uniform obsidian refusal
+ *     that does not reveal the artefact's existence.
+ *  2. **Tier** (`args.achievedTier`) — the release tier is computed SERVER-SIDE (the authenticated session
+ *     clears ≤LOW; MEDIUM+ requires a real step-up to the member's own Signet), NEVER a tier the client
+ *     claimed. This closes the old gap where the caller asserted its own tier.
+ *
+ * A ladder refusal returns `{ granted: false }` for the UI to render obsidian; throws only on a real
+ * unseal error.
  */
 export async function hydrateCardFace(
   warden: KeymasterHandle,
-  args: { artefactId: string; tier: AuthzTier },
+  args: {
+    artefactId: string;
+    visible: (a: Artefact) => boolean;
+    achievedTier: (sensitivity: Sensitivity) => Promise<AuthzTier>;
+  },
 ): Promise<CardFace> {
   const artefact = await new VaultStore(warden.dataFolder).get(args.artefactId);
-  if (!artefact) throw new Error(`no such artefact ${args.artefactId}`);
+  // Not this member's, or unknown → obsidian, uniform shape (no existence leak, G-grade).
+  if (!artefact || !args.visible(artefact)) {
+    return { artefactId: args.artefactId, sensitivity: 0, sensitivityName: 'PUBLIC', granted: false, reason: 'not available' };
+  }
 
   const sensitivity = artefact.sensitivity as Sensitivity;
   const base = { artefactId: args.artefactId, sensitivity, sensitivityName: sensitivityName(sensitivity) };
 
-  // Every render crosses the release decision. The Sovereign is the principal at home (no delegation),
-  // so the gate is the TIER — proof-of-presence scaling with sensitivity (SEALED ⇒ MULTIFACTOR).
+  // The tier is what the session member has ACTUALLY satisfied (server-computed), fed to the ladder.
+  const tier = await args.achievedTier(sensitivity);
   const decision = decideRelease({
     sensitivity,
-    tier: args.tier,
+    tier,
     delegationValid: true,
     mode: DisclosureMode.LOCAL_RENDER,
     disclosureSatisfiable: true,

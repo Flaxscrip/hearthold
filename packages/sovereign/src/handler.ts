@@ -2,14 +2,20 @@ import {
   PROTOCOL_VERSION,
   presentProof,
   signEvidenceApproval,
-  type RequestHandler,
   signRuleset,
+  signMemberAck,
+  unwrapKey,
+  sealToKey,
+  type RequestHandler,
   type ProofRequestMessage,
   type ApprovalRequestMessage,
   type KbApprovalRequestMessage,
   type RulesetSignRequestMessage,
+  type MemberAckRequestMessage,
+  type PartitionRewrapRequestMessage,
   type EvidenceApprovalStatement,
   type Ruleset,
+  type SignedRuleset,
   type KeymasterHandle,
 } from '@hearthold/core';
 
@@ -85,6 +91,49 @@ export function makeSovereignHandler(sovereign: KeymasterHandle, gate: ApprovalG
       }
       const signed = await signRuleset(sovereign, m.ruleset as Ruleset);
       return { type: 'hearthold/ruleset-sign-response', version: PROTOCOL_VERSION, approved: true, signed };
+    }
+
+    // Guardianship acknowledgment (Phase 5 / threat-model §3): the SUBJECT member co-signs a guardianship
+    // edge granting a governor read over their OWN private data. This is the amendment rule's member half —
+    // gated by the member's OWN fresh proof-of-human (never the governor's), it makes the edge authorize
+    // anything. The ack is a proof over the base Ruleset, distinct from the governor's signature.
+    if (message.type === 'hearthold/member-ack-request') {
+      const m = message as MemberAckRequestMessage;
+      const humanProof = await gate.approve({
+        requester: fromDid,
+        guardianship: { summary: m.summary },
+      });
+      if (!humanProof) {
+        return { type: 'hearthold/member-ack-response', version: PROTOCOL_VERSION, approved: false, reason: 'declined by the member' };
+      }
+      const memberAck = await signMemberAck(sovereign, m.ruleset as SignedRuleset);
+      return { type: 'hearthold/member-ack-response', version: PROTOCOL_VERSION, approved: true, memberAck };
+    }
+
+    // Partition-key rewrap (Phase 2 / threat-model §4a): the Warden asks THIS member to unlock their own
+    // private notes for a session. The member's proof-of-human authorizes it (never the governor, §4.1);
+    // then, entirely at the Signet, each partition key is unwrapped with the member's OWN key and rewrapped
+    // to the Warden's ephemeral session key. The member's long-term key never leaves this device. A wrapped
+    // key that isn't this member's simply fails to unwrap and is skipped (scoped).
+    if (message.type === 'hearthold/partition-rewrap-request') {
+      const m = message as PartitionRewrapRequestMessage;
+      const humanProof = await gate.approve({
+        requester: fromDid,
+        rewrap: { sessionId: m.sessionId, partitionCount: m.partitions.length },
+      });
+      if (!humanProof) {
+        return { type: 'hearthold/partition-rewrap-response', version: PROTOCOL_VERSION, sessionId: m.sessionId, approved: false, reason: 'declined by the member' };
+      }
+      const rewrapped: { partitionId: string; rewrapped: string }[] = [];
+      for (const p of m.partitions) {
+        try {
+          const priv = await unwrapKey(sovereign, p.wrapped); // the member's own current-id key
+          rewrapped.push({ partitionId: p.partitionId, rewrapped: sealToKey(sovereign.cipher, m.wardenSessionPub, JSON.stringify(priv)) });
+        } catch {
+          /* not this member's partition key — skip (scoped, §4.1) */
+        }
+      }
+      return { type: 'hearthold/partition-rewrap-response', version: PROTOCOL_VERSION, sessionId: m.sessionId, approved: true, rewrapped };
     }
 
     // KB assurance step-up: the Warden asks the member (this Sovereign) to authorize a factor2 action,

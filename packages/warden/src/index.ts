@@ -25,7 +25,11 @@ import { EvidenceService } from './evidence.js';
 import { RecallService, OllamaEmbedder } from './recall.js';
 import { makeDidcommActionApprover, makeDidcommRulesetSigner } from './kb.js';
 import { KbConfigStore, buildKbServices, initKbAssurance, setKbAssurance, readKbAssurance, provisionMemberPartition, enableMemberPartitions } from './kb-config.js';
+import type { RewrapChannel } from './rewrap.js';
 import { reindexKb } from './reindex.js';
+import { backfillOwner } from './migrate-owner.js';
+import { HouseholdConfigStore } from './household-config.js';
+import { HouseholdVault } from './household-vault.js';
 import { seedKb, resetKb, DEMO_SETS, DEFAULT_DEMO_SET } from './kb-seed.js';
 import { makeWardenHandler } from './handler.js';
 
@@ -90,6 +94,8 @@ Usage:
   warden kb-seed [--kb <kbId>] [--set <name>]   Load curated demo data into a KB
   warden kb-reset [--kb <kbId>]                 Remove a KB's data (identity/groups/policy kept)
   warden kb-reindex [--kb <kbId>]              Backfill the recall index (embed stored-but-unindexed content)
+  warden migrate-owner                         Attribute pre-family vault artefacts to the Sovereign (family model)
+  warden household-init <id> [--governor <did>]  Provision a household: shared Vault + rosters + genesis Ruleset
   warden help              Show this message
 
 Env:
@@ -209,7 +215,7 @@ async function main(): Promise<void> {
       const id = await ensureIdentity(handle, config);
       const transport = new DidCommTransport(handle, IDENTITY_NAME.warden, config.nodeUrl);
       await transport.ready();
-      const kbs = await buildKbServices(handle, config, id.did, makeDidcommActionApprover(transport));
+      const kbs = await buildKbServices(handle, config, id.did, makeDidcommActionApprover(transport), transport as unknown as RewrapChannel);
       const handler = makeWardenHandler(
         new WardenService(handle, createClassifier(config), makeEmbedder(config)),
         new DelegationStore(handle),
@@ -418,6 +424,41 @@ async function main(): Promise<void> {
         `Reset "${kb.kbId}": removed ${removed} artefact(s) + index entries ` +
           `(${shared} shared · ${priv} in member private partitions). ` +
           `Identity, access groups, and member partitions are untouched.\n`,
+      );
+      break;
+    }
+    case 'household-init': {
+      // Provision a household: a Warden-owned shared Archon Vault + read/write rosters + a governor-signed
+      // genesis Ruleset. Members are admitted via the daemon's /api/household/admit (governor-authorized).
+      const householdId = process.argv[3];
+      if (!householdId || householdId.startsWith('--')) throw new Error('usage: warden household-init <householdId> [--governor <sovereignDid>]');
+      const gi = process.argv.indexOf('--governor');
+      const governorDid = gi > 0 ? process.argv[gi + 1] : config.sovereignDid;
+      const id = await ensureIdentity(handle, config);
+      const hstore = new HouseholdConfigStore(handle.dataFolder);
+      if (await hstore.get(householdId)) throw new Error(`household "${householdId}" already exists`);
+      const vault = await HouseholdVault.create(handle, config);
+      const readGroup = await createRegistryGroup(handle, `hh-read-${householdId}`, config.registry);
+      const writeGroup = await createRegistryGroup(handle, `hh-write-${householdId}`, config.registry);
+      const { signer } = await cliRulesetSigner(handle, config, id.did, governorDid);
+      const policyAsset = await initKbAssurance(handle, config, householdId, signer);
+      await hstore.put({ householdId, sharedVaultDid: vault.did, governorDid: governorDid ?? id.did, policyAsset, readGroup, writeGroup, memberPartitions: true, governorObservesActivity: false });
+      process.stdout.write(
+        `Household "${householdId}" provisioned\n  shared vault: ${vault.did}\n` +
+          `  governor:     ${governorDid ? `${governorDid.slice(0, 24)}… (signs at the Signet)` : 'self-governed (Warden)'}\n` +
+          `  → admit a member:  POST /api/household/admit { memberDid }  (governor-authorized, warden control)\n`,
+      );
+      break;
+    }
+    case 'migrate-owner': {
+      // Attribute pre-family vault artefacts to the configured Sovereign (owner + scope:'private'), so
+      // session-scoped recall/snapshot show the Sovereign their own content. Idempotent. Run kb-reindex
+      // afterwards to propagate ownership to the recall index.
+      await ensureIdentity(handle, config);
+      const n = await backfillOwner(handle, config);
+      process.stdout.write(
+        `Attributed ${n} pre-family artefact(s) to the Sovereign ${config.sovereignDid?.slice(0, 24)}… (scope: private).\n` +
+          (n > 0 ? `  → run \`warden kb-reindex\` to propagate ownership into the recall index.\n` : '  (nothing to attribute — all artefacts already have an owner)\n'),
       );
       break;
     }
