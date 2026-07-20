@@ -13,6 +13,18 @@ export interface HearthholdConfig {
   nodeUrl: string;
   /** Registry used when anchoring operations (e.g. 'hyperswarm' on the local node). */
   registry: string;
+  /**
+   * Registry for EPHEMERAL DIDs — challenge/response (auth + VP presentation), where the DID is a
+   * throwaway. A challenge/response DID is CONTROLLED BY the agent's identity DID (which lives on
+   * `registry`), and the gatekeeper correctly refuses to anchor it on a registry whose peers can't resolve
+   * that controller — a `hyperswarm` peer has no access to a `local` identity, so it can't validate the
+   * response. Keymaster hardcodes the ephemeral default to `hyperswarm` (it does NOT inherit
+   * `defaultRegistry`), so an identity on `local` + a response on `hyperswarm` is rejected with an opaque
+   * "Upstream gatekeeper error". We default this to `registry` so the ephemeral DID lives on the SAME
+   * registry as the identity that controls it (resolvable, consistent). A public deployment whose
+   * identities are on hyperswarm can leave it, or set it distinctly, via HEARTHOLD_EPHEMERAL_REGISTRY.
+   */
+  ephemeralRegistry: string;
   /** Root folder holding per-agent wallets, vault, and index. */
   dataRoot: string;
   /** Emissary: the Warden's DID to address over DIDComm. */
@@ -45,6 +57,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): HearthholdConf
   return {
     nodeUrl: env.HEARTHOLD_NODE_URL ?? DEFAULT_NODE_URL,
     registry: env.HEARTHOLD_REGISTRY ?? DEFAULT_REGISTRY,
+    ephemeralRegistry: env.HEARTHOLD_EPHEMERAL_REGISTRY ?? env.HEARTHOLD_REGISTRY ?? DEFAULT_REGISTRY,
     dataRoot: env.HEARTHOLD_DATA_ROOT ?? DEFAULT_DATA_ROOT,
     wardenDid: env.HEARTHOLD_WARDEN_DID,
     sovereignDid: env.HEARTHOLD_SOVEREIGN_DID,

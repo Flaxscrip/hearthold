@@ -35,6 +35,14 @@ export async function openKeymaster(
     cipher,
     defaultRegistry: config.registry,
   });
+  // A challenge/response DID is controlled by this agent's identity DID (on config.registry). Keymaster
+  // hardcodes the ephemeral default to `hyperswarm` and does NOT inherit `defaultRegistry`, so a `local`
+  // identity minting a response on `hyperswarm` is refused — the gatekeeper won't anchor a DID on a
+  // registry whose peers can't resolve its controller (an opaque "Upstream gatekeeper error"). Align the
+  // ephemeral registry with the identity's registry so the response is controlled by a same-registry,
+  // resolvable DID. The field is a plain writable instance field at runtime; the .d.ts hides it, so we
+  // assign past the type (an upstream `ephemeralRegistry` constructor option would remove the need to cast).
+  (keymaster as unknown as { ephemeralRegistry: string }).ephemeralRegistry = config.ephemeralRegistry;
 
   return { role, keymaster, cipher, dataFolder };
 }
