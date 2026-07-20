@@ -17,7 +17,11 @@ trust registry) — that's follow-on work.
 | `docker-compose.hearthold.yml` (repo root) | Joins `archon_default` (`external: true`); warden/emissary/sovereign as idle containers we `exec` into |
 | `.dockerignore` (repo root) | Keeps `node_modules`/`dist`/`*.tsbuildinfo` out of the build context |
 | `.env` (repo root, gitignored) | `HEARTHOLD_PASSPHRASE` for compose substitution — copy from `.env.example` |
+| `deploy/sandbox/run-demo.sh` | **Full contained walkthrough** — preflight, isolation proof, provisioning, then the TUI handoff (`reset` to wipe) |
 | `deploy/sandbox/run-spine.sh` | Drives the spine + egress proof, printing every DID/receipt |
+| `deploy/sandbox/run-prove.sh` | Prove flow — issue a credential + verifier; drive the Signet (setup/signet/verify) |
+| `deploy/sandbox/run-signet-tui.sh` | Signet TUI (`packages/signet-tui`) — approvals, over the localhost control plane |
+| `deploy/sandbox/run-emissary-tui.sh` | Emissary TUI (`packages/emissary-tui`) — submit observations |
 
 ## Prerequisites
 
@@ -53,7 +57,7 @@ Each agent's wallet/vault/index persists to `./data/<role>` (bind mount, Archon'
 |---|---|---|
 | `HEARTHOLD_NODE_URL` | `http://drawbridge:4222` | The node by container hostname (not a host port — those don't work under `internal: true`) |
 | `HEARTHOLD_REGISTRY` | `local` | The offline node's DB-only registry |
-| `HEARTHOLD_CLASSIFIER` | `quarantine` | No Ollama this pass — everything seals to SEALED (sensitivity `4`) |
+| `HEARTHOLD_OLLAMA_URL` | `http://ollama:11434` | On-device classification (`qwen3:8b`) + recall embeddings (`nomic-embed-text`) via the sandbox's `ollama` container — no egress. (Unset `HEARTHOLD_CLASSIFIER` ⇒ `ollama` mode; set it to `quarantine` to seal everything to SEALED instead.) |
 | `HEARTHOLD_PASSPHRASE` | from `.env` | Unlocks each agent's wallet; sandbox dev value, never committed |
 | `HEARTHOLD_DIDCOMM_ENDPOINT` | `http://drawbridge:4222/didcomm` | See **DIDComm endpoint** |
 

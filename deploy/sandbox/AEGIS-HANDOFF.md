@@ -99,11 +99,46 @@ Warden vault:  [4] location observed 2026-07-20T19:30:09Z · 5d5e9d5670b9…
 
 ---
 
-## Out of scope this pass (follow-on)
+## Terminal UIs (no web interface exposed to the host)
 
-The full `e2e:*` suite (evidence graphs + Signet step-up, KB spaces, CGPR, trust registry) and real
-on-device classification (Ollama) are next. The `sovereign` container is already staged (idle) for the
-prove/step-up flow. None of that changes the isolation posture — same network, same registry.
+Because the sandbox deliberately publishes nothing to the host, the two operator UIs are **TUIs**
+(Ink — React-for-the-terminal), not browser apps. Each is a terminal port of its web counterpart,
+reusing the exact control-API contract (`@hearthold/control-types`) — same logic, terminal render —
+and running as a **client of the agent's localhost control plane** inside the container (never a
+published port). Both are driven via `docker compose exec -it`.
+
+| TUI | Package | Replaces | Talks to | Does |
+|---|---|---|---|---|
+| 🔑 Signet | `packages/signet-tui` | `apps/signet-approver` | `sovereign control` (127.0.0.1:4311) | live pending-approvals list · masked-PIN approve/deny |
+| 📡 Emissary | `packages/emissary-tui` | `apps/emissary` | `emissary control` (127.0.0.1:4312) | pick a kind · type an observation · submit → receipt |
+
+Each has a one-command helper that starts the needed daemon(s) + the TUI:
+`deploy/sandbox/run-signet-tui.sh [pin]` and `deploy/sandbox/run-emissary-tui.sh`.
+
+## The full contained walkthrough
+
+```bash
+./deploy/sandbox/run-demo.sh        # preflight → egress-isolation proof → provision the prove flow → TUI handoff
+./deploy/sandbox/run-demo.sh reset  # tear down + wipe ./data for a clean re-run
+```
+
+`run-demo.sh` runs everything automatable and prints the exact commands for the two interactive TUIs
+(each in its own terminal). It keeps the slow classifier off the automated path so it stays fast.
+
+## Classification note (for you, Aegis)
+
+Your Ollama layer works and is wired correctly (the Warden reaches the `ollama` container; `qwen3:8b`
+classifies, `nomic-embed-text` embeds the recall index; no egress). One practical issue for **live**
+demos: 8B inference is slow here — ~2+ min per artefact — so the Emissary's receipt shows instantly
+(provisional) but its *sensitivity* fills in minutes later. flaxscrip is having you research a lighter,
+faster classification model; a smaller instruct model (or a warm/keep-alive) would make the sensitivity
+land in seconds. No change needed on the Hearthold side — it's purely the model behind `HEARTHOLD_OLLAMA_URL`.
+
+## Still to come (follow-on)
+
+The full `e2e:*` suite (evidence graphs, KB spaces, CGPR, trust registry) is next. None of it changes
+the isolation posture — same network, same registry, same two node-side settings
+(`ARCHON_DIDCOMM_ALLOW_PRIVATE_EGRESS=true`, and `ARCHON_DRAWBRIDGE_PUBLIC_HOST` left as-is for Lightning).
 
 Thanks for the clean sandbox — the isolation held at every step, and nothing had to be relaxed to make
-the spine pass (only the one in-network SSRF opt-in, which keeps internet egress blocked). — GenitriX
+any of it pass (only the one in-network SSRF opt-in, which keeps internet egress blocked). — GenitriX
