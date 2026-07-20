@@ -68,9 +68,17 @@ export class DidCommTransport implements Transport {
    * the keymaster points at the Drawbridge root.
    */
   async ready(): Promise<void> {
-    const endpoint = await fetch(`${this.nodeUrl}/api/v1/didcomm-endpoint`)
-      .then((r) => r.json())
-      .then((j: unknown) => (j as { endpoint: string }).endpoint);
+    // The DIDComm endpoint OTHERS deliver to (written into this identity's DID document). Normally the
+    // node's own advertised endpoint (`/api/v1/didcomm-endpoint`). `HEARTHOLD_DIDCOMM_ENDPOINT` overrides
+    // it for topologies where the node advertises an address the agents can't reach — e.g. an offline
+    // sandbox where the node advertises its EXTERNAL host (https://sandbox.archon.local/didcomm) but the
+    // agents reach it IN-NETWORK at http://drawbridge:4222/didcomm. Delivery resolves the recipient's
+    // published endpoint, so it must be the address reachable from where senders actually run.
+    const fromNode = (): Promise<string> =>
+      fetch(`${this.nodeUrl}/api/v1/didcomm-endpoint`)
+        .then((r) => r.json())
+        .then((j: unknown) => (j as { endpoint: string }).endpoint);
+    const endpoint: string = process.env.HEARTHOLD_DIDCOMM_ENDPOINT ?? (await fromNode());
     if (await this.hasEndpoint(endpoint)) return; // already advertised — avoid DID-doc churn
     await this.handle.keymaster.publishDidComm(endpoint, this.idName);
   }
