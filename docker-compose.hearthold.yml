@@ -42,9 +42,14 @@ x-hearthold-common: &hearthold-common
     # so nothing attempts hyperswarm — the one thing that would break on an offline
     # node. See deploy/sandbox/README.md "Registry".
     HEARTHOLD_REGISTRY: local
-    # No local LLM this pass: the classifier fails safe, sealing every artefact
-    # to SEALED (no Ollama dependency). Real classification is follow-on work.
-    HEARTHOLD_CLASSIFIER: quarantine
+    # Real on-device classification: a containerized Ollama on archon_default
+    # (~/isolation/archon/docker-compose.ollama.yml), reusing the host's
+    # already-pulled qwen3:8b (classifier) and nomic-embed-text (recall index
+    # embeddings) via a read-only bind mount — no model pull, no egress.
+    # config.ts: classifierMode is 'quarantine' only if HEARTHOLD_CLASSIFIER
+    # is exactly that string; anything else (including unset) means 'ollama',
+    # so simply not setting it here is enough — no separate on/off flag.
+    HEARTHOLD_OLLAMA_URL: http://ollama:11434
     # The DIDComm endpoint each agent PUBLISHES into its DID doc (where others deliver).
     # This node's /api/v1/didcomm-endpoint advertises an EXTERNAL/dummy host
     # (https://sandbox.archon.local/didcomm) that is unreachable from inside the isolated
@@ -72,11 +77,17 @@ services:
     <<: *hearthold-common
     container_name: hearthold-emissary
 
-  # Staged for the follow-on prove flow (Signet step-up) — out of scope this pass,
-  # but same image + wiring, so it's here and idle, ready when that work starts.
+  # The Sovereign holds the Signet: it fields proof-requests and co-signs disclosures, gated by a PIN.
+  # Run its serve loop interactively:  ./deploy/sandbox/run-prove.sh signet <pin>
   sovereign:
     <<: *hearthold-common
     container_name: hearthold-sovereign
+
+  # A relying party (verifier) for the prove flow — challenges the Sovereign to prove it holds a
+  # credential, which triggers the Signet PIN prompt.  ./deploy/sandbox/run-prove.sh {setup,verify}
+  verifier:
+    <<: *hearthold-common
+    container_name: hearthold-verifier
 
 networks:
   # Attach to the network the Archon sandbox already created; do not create/modify it.
