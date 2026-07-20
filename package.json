@@ -15,6 +15,7 @@
     "packages/sovereign",
     "packages/verifier",
     "packages/registry",
+    "packages/signet-tui",
     "apps/*"
   ],
   "scripts": {

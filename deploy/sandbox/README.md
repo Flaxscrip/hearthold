@@ -119,6 +119,22 @@ challenges the Sovereign to prove it holds one:
 PIN handling: `signet [pin]` passes `HEARTHOLD_SIGNET_PIN` via `exec -e` (per-session); or set it in the
 gitignored `.env`. Never the committed compose. The `sovereign` + `verifier` containers are in the compose.
 
+### Signet TUI (the terminal front-end)
+
+For a richer, browser-free approval UI, `deploy/sandbox/run-signet-tui.sh` runs the **Signet TUI**
+(`packages/signet-tui`) — an Ink (React-for-the-terminal) port of `apps/signet-approver`. It reuses the
+exact control-API contract (`@hearthold/control-types`, `GET /api/snapshot`, `POST /api/approve`); only
+the render layer differs (DOM → terminal). Architecturally option (a): the TUI is a client of the
+Sovereign's localhost control plane (`sovereign control` on `127.0.0.1:4311`, never published to the
+host); the helper starts that daemon and the TUI together, so it's one command.
+
+```bash
+./deploy/sandbox/run-signet-tui.sh 1379    # terminal A — live pending-approvals view; ↑/↓ · a · d · q
+./deploy/sandbox/run-prove.sh verify       # terminal B — a proof-request appears in A; 'a' + PIN approves
+```
+
+The masked PIN is entered in the TUI and checked by the daemon's `HttpGate` (same as the browser app).
+
 ## Egress isolation (the load-bearing property)
 
 `run-spine.sh` proves it before the spine; each agent container, direct-IP (no DNS):
