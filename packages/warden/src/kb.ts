@@ -21,11 +21,13 @@ import { randomBytes } from 'node:crypto';
 import {
   verifyKbRequestSignature,
   sealForWarden,
+  sealToKey,
   contentId,
   PROTOCOL_VERSION,
   type KeymasterHandle,
   type HearthholdConfig,
   type TrustEvaluator,
+  type CipherPublicJwk,
   meetsAssurance,
   type Transport,
   type RulesetSigner,
@@ -272,13 +274,14 @@ export class KbService {
     return this.execute(s.did, req, req.token);
   }
 
-  /** The member's own private partition in this space, if provisioned + they are still its member. */
-  private async ownPartition(did: string): Promise<{ id: string } | null> {
+  /** The member's own private partition in this space, if provisioned + they are still its member. Carries
+   *  the partition PUBLIC key (write-host): a private write seals to it so the Warden can't read at rest. */
+  private async ownPartition(did: string): Promise<{ id: string; partitionPub?: CipherPublicJwk } | null> {
     if (!this.opts.partitions) return null;
     const p = await this.opts.partitions.get(this.opts.kbId, did);
     if (!p || p.location.kind !== 'local') return null; // Phase 1: local partitions only
     const member = await this.warden.keymaster.testGroup(p.group, did).catch(() => false);
-    return member ? { id: p.id } : null;
+    return member ? { id: p.id, partitionPub: p.partitionPub } : null;
   }
 
   /** Run the assurance step-up if the space's policy requires more than factor1 for `action`. */
@@ -291,9 +294,13 @@ export class KbService {
     return approved ? null : `${action} was not authorized by the Sovereign (${required} step-up declined)`;
   }
 
-  /** Seal + classify + index a contribution into partition `kb`. */
-  private async storeContribution(did: string, kind: string, text: string, kb: string): Promise<KbResultMessage> {
-    const ciphertext = await sealForWarden(this.warden, this.opts.wardenDid, JSON.stringify({ text }));
+  /** Seal + classify + index a contribution into partition `kb`. When `sealTo` (a member partition's
+   *  public key) is given, the payload is sealed to it (write-host: the Warden cannot open it at rest, and
+   *  the artefact is marked `sealedTo` so recall opens it with the member's session-rewrapped key); else it
+   *  is sealed to the Warden as before. Classification runs on the plaintext in memory, before sealing. */
+  private async storeContribution(did: string, kind: string, text: string, kb: string, sealTo?: CipherPublicJwk): Promise<KbResultMessage> {
+    const payload = JSON.stringify({ text });
+    const ciphertext = sealTo ? sealToKey(this.warden.cipher, sealTo, payload) : await sealForWarden(this.warden, this.opts.wardenDid, payload);
     const classification = await createClassifier(this.config).classify({ kind, text });
     const id = contentId(ciphertext, this.warden.cipher);
     const artefact: Artefact = {
@@ -303,6 +310,7 @@ export class KbService {
       storedAt: new Date().toISOString(),
       sensitivity: classification.sensitivity,
       ciphertext,
+      ...(sealTo ? { sealedTo: { partition: kb } } : {}),
       metadata: { ...classification.metadata, kb, contributor: did },
     };
     await this.store.put(artefact);
@@ -374,7 +382,9 @@ export class KbService {
       if (!own) return kbErr('no private partition for you on this KB (the space may not grant member partitions)');
       const stepUp = await this.clearAssurance(did, 'write', `contribute (private) to ${this.opts.kbId}: “${req.text.slice(0, 80)}”`);
       if (stepUp) return kbErr(stepUp);
-      return this.storeContribution(did, req.kind, req.text, own.id);
+      // Write-host: seal to the partition's PUBLIC key when the partition carries one (member-key) — the
+      // Warden writes it but cannot read at rest. Legacy partitions (no pub) stay Warden-sealed.
+      return this.storeContribution(did, req.kind, req.text, own.id, own.partitionPub);
     }
     // shared partition — INVARIANT I: shared knowledge, contributor-attributed; not a personal vault.
     const sharedWrite = (await this.opts.registry.authorize({ entity_id: did, action: 'write', resource: this.opts.kbId })).authorized;
