@@ -11,6 +11,7 @@
 
 import {
   unsealAsWarden,
+  openWithKey,
   rankByQuery,
   type Embedder,
   type IndexEntry,
@@ -18,6 +19,7 @@ import {
   type RecallCitation,
   type KeymasterHandle,
   type HearthholdConfig,
+  type CipherPrivateJwk,
 } from '@hearthold/core';
 
 import { VaultStore } from './store.js';
@@ -45,6 +47,14 @@ export class OllamaEmbedder implements Embedder {
 
 /** Resolves an artefact's plaintext at recall time (re-unseal). Injectable for tests. */
 export type ContentResolver = (artefactId: string) => Promise<string | null>;
+
+/**
+ * A per-session lookup of the transient (rewrapped) private key for a member partition, or undefined if
+ * that partition isn't unlocked this session. Supplied by `KbService.execute` from the `SessionKeyStore`
+ * so a member's OWN private-partition content (sealed to the partition's public key) can be opened during
+ * their live session — while at rest, and for anyone lacking the key, it stays ciphertext.
+ */
+export type PartitionKeyLookup = (partitionId: string) => CipherPrivateJwk | undefined;
 
 /** Answers a query from retrieved snippets. Injectable; the live one calls a local chat model. */
 export type Answerer = (query: string, passages: { observedAt: string; text: string }[]) => Promise<string>;
@@ -99,20 +109,36 @@ export class RecallService {
     this.index = new IndexStore(dataFolder);
   }
 
-  /** Convenience factory wiring the live Ollama embedder/answerer + re-unseal resolver to a Warden. */
-  static forWarden(warden: KeymasterHandle, config: HearthholdConfig): RecallService {
+  /**
+   * Convenience factory wiring the live Ollama embedder/answerer + re-unseal resolver to a Warden.
+   *
+   * `keyFor` (optional) is the read-guest seam: an artefact sealed to a member partition (`sealedTo`) is
+   * opened with that partition's session-rewrapped key when `keyFor` returns it, else it stays ciphertext
+   * (correctly not readable — a member-key note with no session key is invisible, not silently *lost*: a
+   * later re-login re-unlocks it). Absent `keyFor` (or a Warden-sealed artefact) → `unsealAsWarden`, the
+   * unchanged default. No `sealedTo` artefacts exist until the Phase-6 write cutover, so this is inert now.
+   */
+  static forWarden(warden: KeymasterHandle, config: HearthholdConfig, keyFor?: PartitionKeyLookup): RecallService {
     const store = new VaultStore(warden.dataFolder);
+    const unwrap = (plain: string): string => {
+      // Submissions are sealed JSON `{text}`; fall back to the raw string.
+      try {
+        return (JSON.parse(plain) as { text?: string }).text ?? plain;
+      } catch {
+        return plain;
+      }
+    };
     const resolve: ContentResolver = async (id) => {
       const a = await store.get(id);
       if (!a) return null;
       try {
-        const plain = await unsealAsWarden(warden, a.ciphertext);
-        // Submissions are sealed JSON `{text}`; fall back to the raw string.
-        try {
-          return (JSON.parse(plain) as { text?: string }).text ?? plain;
-        } catch {
-          return plain;
+        const partition = a.sealedTo?.partition;
+        if (partition) {
+          const key = keyFor?.(partition);
+          if (!key) return null; // member-key artefact, no session key → not readable this session (not lost)
+          return unwrap(openWithKey(warden.cipher, key, a.ciphertext));
         }
+        return unwrap(await unsealAsWarden(warden, a.ciphertext));
       } catch {
         return null; // e.g. seed placeholder ciphertext — skip, don't break recall
       }

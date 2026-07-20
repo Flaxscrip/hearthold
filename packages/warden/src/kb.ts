@@ -42,7 +42,10 @@ import { VaultStore, type Artefact } from './store.js';
 import { IndexStore } from './index-store.js';
 import { RecallService } from './recall.js';
 import { OllamaEmbedder } from './recall.js';
+import type { PartitionKeyLookup } from './recall.js';
 import type { PartitionStore } from './partition-store.js';
+import type { SessionKeyStore } from './session-keys.js';
+import { unlockSessionPartitions, type RewrapChannel } from './rewrap.js';
 
 interface KbServiceOptions {
   kbId: string;
@@ -62,6 +65,14 @@ interface KbServiceOptions {
   defaultScope?: 'shared' | 'private';
   /** The Warden-side store of per-member private partitions (present when `memberPartitions`). */
   partitions?: PartitionStore;
+  /**
+   * Read-guest keys (Phase 6): transient partition private keys held for a live session so the Warden can
+   * RAG the member's OWN member-key-sealed private content. Populated at login via `rewrapChannel`, keyed
+   * by session token, zeroized when the session ends. Absent ⇒ no member-key reads (the pre-cutover path).
+   */
+  sessionKeys?: SessionKeyStore;
+  /** The channel the login rewrap round-trip rides (the Warden↔member Signet transport). */
+  rewrapChannel?: RewrapChannel;
 }
 
 /**
@@ -225,6 +236,18 @@ export class KbService {
     const token = randomBytes(24).toString('hex');
     const exp = Date.now() + (this.opts.sessionTtlMs ?? 30 * 60_000);
     this.sessions.set(token, { did: res.responder, exp });
+    // Read-guest unlock (Phase 6): if this space grants member partitions and a rewrap channel is wired,
+    // ask the member's Signet to rewrap their OWN partition keys to a Warden ephemeral key for this
+    // session (the member authorizes with their own proof-of-human). Best-effort: a decline / unreachable
+    // Signet / a member with no member-key partitions unlocks 0 and login still succeeds — the read side
+    // simply falls back to whatever the artefact is sealed to (Warden-sealed content is unaffected).
+    if (this.opts.memberPartitions && this.opts.sessionKeys && this.opts.rewrapChannel) {
+      try {
+        await unlockSessionPartitions(this.warden, this.config, this.opts.rewrapChannel, res.responder, token, this.opts.sessionKeys);
+      } catch {
+        /* rewrap declined / Signet unreachable → 0 unlocked; login is not blocked on it */
+      }
+    }
     return {
       type: 'hearthold/kb-session',
       version: PROTOCOL_VERSION,
@@ -243,9 +266,10 @@ export class KbService {
     if (!s) return kbErr('unknown session — please log in');
     if (Date.now() > s.exp) {
       this.sessions.delete(req.token);
+      this.opts.sessionKeys?.zeroize(req.token); // read-guest keys die with the session, not at some later GC
       return kbErr('session expired — please log in again');
     }
-    return this.execute(s.did, req);
+    return this.execute(s.did, req, req.token);
   }
 
   /** The member's own private partition in this space, if provisioned + they are still its member. */
@@ -307,6 +331,7 @@ export class KbService {
   private async execute(
     did: string,
     req: { action: 'query' | 'update'; query?: string; k?: number; kind?: string; text?: string; scope?: 'shared' | 'private' },
+    sessionToken?: string,
   ): Promise<KbResultMessage> {
     const own = await this.ownPartition(did);
 
@@ -323,7 +348,12 @@ export class KbService {
       if (stepUp) return kbErr(stepUp);
       // INVARIANT II — no query attribution retained. The query and `did` are read in memory only to
       // answer; nothing about who-asked-what-when is persisted. Do not add query/requester logging here.
-      const result = await RecallService.forWarden(this.warden, this.config).recall(req.query, { k: req.k, kb: visible });
+      // Read-guest key lookup (Phase 6): the caller's own member-key partition content is opened with the
+      // key their session rewrapped at login; shared/Warden-sealed content needs none. Bound to THIS
+      // session token, so a query can only reach the partitions this member unlocked (never another's).
+      const keyFor: PartitionKeyLookup | undefined =
+        sessionToken && this.opts.sessionKeys ? (pid) => this.opts.sessionKeys?.get(sessionToken, pid) : undefined;
+      const result = await RecallService.forWarden(this.warden, this.config, keyFor).recall(req.query, { k: req.k, kb: visible });
       // Label each citation by partition so the portal can show where an answer came from.
       const citations = result.citations.map((c) => ({
         artefactId: c.artefactId,

@@ -590,7 +590,7 @@ export async function runWardenControl(
 
   // Serve a provisioned Knowledge Base over DIDComm too (a public Mage relays to this mailbox).
   // The step-up approver reaches the member's Signet directly (out-of-band from the Mage).
-  const kbs = await buildKbServices(handle, config, id.did, makeDidcommActionApprover(transport));
+  const kbs = await buildKbServices(handle, config, id.did, makeDidcommActionApprover(transport), transport as unknown as RewrapChannel);
 
   // Wrap the real handler so a stored submission is pushed to connected consoles.
   const inner = makeWardenHandler(service, delegations, evidenceService, kbs, config.sovereignDid);

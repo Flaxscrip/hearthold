@@ -25,6 +25,7 @@ import { EvidenceService } from './evidence.js';
 import { RecallService, OllamaEmbedder } from './recall.js';
 import { makeDidcommActionApprover, makeDidcommRulesetSigner } from './kb.js';
 import { KbConfigStore, buildKbServices, initKbAssurance, setKbAssurance, readKbAssurance, provisionMemberPartition, enableMemberPartitions } from './kb-config.js';
+import type { RewrapChannel } from './rewrap.js';
 import { reindexKb } from './reindex.js';
 import { backfillOwner } from './migrate-owner.js';
 import { HouseholdConfigStore } from './household-config.js';
@@ -214,7 +215,7 @@ async function main(): Promise<void> {
       const id = await ensureIdentity(handle, config);
       const transport = new DidCommTransport(handle, IDENTITY_NAME.warden, config.nodeUrl);
       await transport.ready();
-      const kbs = await buildKbServices(handle, config, id.did, makeDidcommActionApprover(transport));
+      const kbs = await buildKbServices(handle, config, id.did, makeDidcommActionApprover(transport), transport as unknown as RewrapChannel);
       const handler = makeWardenHandler(
         new WardenService(handle, createClassifier(config), makeEmbedder(config)),
         new DelegationStore(handle),
