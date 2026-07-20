@@ -1,0 +1,24 @@
+# Keep the build context small + reproducible: node_modules and dist are
+# regenerated inside the image (npm ci && npm run build), never copied in.
+node_modules
+**/node_modules
+dist
+**/dist
+# Nested too — a stale tsconfig.tsbuildinfo copied in makes `tsc --build` think it's
+# already built and skip emitting dist/ (root-only `*.tsbuildinfo` misses subdirs).
+*.tsbuildinfo
+**/*.tsbuildinfo
+.git
+.gitignore
+# Local agent state / secrets must never enter the image.
+.hearthold
+.hearthold-*
+data
+deploy/sandbox/data
+.env
+.env.*
+!.env.example
+# Bulky non-build assets (docs images) — not needed to build or run the agents.
+docs/*.png
+**/.DS_Store
+*.log
