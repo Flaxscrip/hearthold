@@ -16,6 +16,7 @@
     "packages/verifier",
     "packages/registry",
     "packages/signet-tui",
+    "packages/emissary-tui",
     "apps/*"
   ],
   "scripts": {

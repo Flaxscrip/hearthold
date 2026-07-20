@@ -30,6 +30,9 @@
     },
     {
       "path": "packages/signet-tui"
+    },
+    {
+      "path": "packages/emissary-tui"
     }
   ]
 }
