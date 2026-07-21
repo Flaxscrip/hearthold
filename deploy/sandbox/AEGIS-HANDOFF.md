@@ -134,10 +134,24 @@ demos: 8B inference is slow here — ~2+ min per artefact — so the Emissary's 
 faster classification model; a smaller instruct model (or a warm/keep-alive) would make the sensitivity
 land in seconds. No change needed on the Hearthold side — it's purely the model behind `HEARTHOLD_OLLAMA_URL`.
 
+## Evidence-graph & KB-spaces (now in the sandbox)
+
+Both flows run in-container against the isolated node — verified green:
+
+- **Evidence-graph** (`run-evidence.sh`): assemble → mint a signed evidence graph → verify (witnessed);
+  selective disclosure (reveal one fact, hide the rest); the Sovereign's Signet co-sign embedded +
+  independently verifiable (a step-up **over DIDComm** — exercises the endpoint override end-to-end).
+- **KB-spaces** (`run-kb.sh`): shared + per-member private partitions; visible-set isolation; retrofit
+  in place. Live RAG recall (`run-kb.sh recall`) is Ollama-backed and works — just slow on the 8B model
+  (the same reason the Emissary sensitivity is slow; a lighter model helps here too).
+
+`run-demo.sh flows` runs both back to back. Each uses a throwaway data root, so nothing collides with
+the demo agents.
+
 ## Still to come (follow-on)
 
-The full `e2e:*` suite (evidence graphs, KB spaces, CGPR, trust registry) is next. None of it changes
-the isolation posture — same network, same registry, same two node-side settings
+CGPR / A2A gateway + the trust registry are the remaining flows. None of it changes the isolation
+posture — same network, same registry, same two node-side settings
 (`ARCHON_DIDCOMM_ALLOW_PRIVATE_EGRESS=true`, and `ARCHON_DRAWBRIDGE_PUBLIC_HOST` left as-is for Lightning).
 
 Thanks for the clean sandbox — the isolation held at every step, and nothing had to be relaxed to make

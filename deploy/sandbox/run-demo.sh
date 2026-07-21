@@ -25,8 +25,14 @@ case "${1:-run}" in
     ok "torn down + ./data wiped — the next run starts from clean identities"
     exit 0
     ;;
+  flows)
+    docker compose -f "$CF" up -d >/dev/null
+    "$D/run-evidence.sh"
+    "$D/run-kb.sh"
+    exit 0
+    ;;
   run) : ;;
-  *) echo "usage: $0 [run|reset]"; exit 2 ;;
+  *) echo "usage: $0 [run|flows|reset]"; exit 2 ;;
 esac
 
 sec "0 · Preflight — the isolated stack"
@@ -57,6 +63,12 @@ cat <<EOF
         $D/run-emissary-tui.sh
       → press 's' · pick a kind · type an observation · Enter → the receipt appears immediately;
         its sensitivity fills in once the Warden classifies it on-device.
+
+  More flows (verified in-container against the isolated node):
+        $D/run-demo.sh flows     # evidence-graph + KB-spaces, back to back
+        $D/run-evidence.sh       # mint/verify a signed evidence graph · selective disclosure · Signet co-sign
+        $D/run-kb.sh             # shared + private KB partitions, visible-set isolation, retrofit
+        $D/run-kb.sh recall      # live RAG recall over the partitions (Ollama — slow on 8B)
 
   Tear down:      docker compose -f $CF down
   Clean re-run:   $D/run-demo.sh reset

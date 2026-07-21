@@ -20,6 +20,8 @@ trust registry) — that's follow-on work.
 | `deploy/sandbox/run-demo.sh` | **Full contained walkthrough** — preflight, isolation proof, provisioning, then the TUI handoff (`reset` to wipe) |
 | `deploy/sandbox/run-spine.sh` | Drives the spine + egress proof, printing every DID/receipt |
 | `deploy/sandbox/run-prove.sh` | Prove flow — issue a credential + verifier; drive the Signet (setup/signet/verify) |
+| `deploy/sandbox/run-evidence.sh` | Evidence-graph flow — mint/verify a signed graph · selective disclosure · Signet co-sign |
+| `deploy/sandbox/run-kb.sh` | KB-spaces flow — shared + private partitions, visible-set isolation, retrofit (`recall` for live RAG) |
 | `deploy/sandbox/run-signet-tui.sh` | Signet TUI (`packages/signet-tui`) — approvals, over the localhost control plane |
 | `deploy/sandbox/run-emissary-tui.sh` | Emissary TUI (`packages/emissary-tui`) — submit observations |
 
@@ -138,6 +140,28 @@ host); the helper starts that daemon and the TUI together, so it's one command.
 ```
 
 The masked PIN is entered in the TUI and checked by the daemon's `HttpGate` (same as the browser app).
+
+## Evidence-graph & KB-spaces flows
+
+Two further Hearthold flows run **in-container against the isolated node** (local registry + the DIDComm
+endpoint override), each in a throwaway data root so they never touch the demo agents' identities:
+
+```bash
+./deploy/sandbox/run-evidence.sh   # the "prove a fact without disclosing the data" half
+./deploy/sandbox/run-kb.sh         # a shared KB + a per-member private partition each
+./deploy/sandbox/run-kb.sh recall  # live RAG recall over the partitions (Ollama-backed; slow on 8B)
+./deploy/sandbox/run-demo.sh flows # both, back to back
+```
+
+- **Evidence-graph** — the Warden assembles supporting observations into a Merkle-rooted, **signed**
+  evidence graph (trust class *witnessed*), a verifier verifies it against the Warden's signature,
+  **selective disclosure** reveals one supporting fact and hides the rest, and the Sovereign's Signet
+  **co-sign** (a step-up over DIDComm) is embedded so a third party verifies the human approval without
+  decrypting anything. Verified green in the sandbox.
+- **KB-spaces** — a shared partition ∪ a per-member private partition; the visible set is computed
+  server-side from the authenticated member (Alice never sees Bob's private notes); a non-member is
+  refused before any recall; an existing shared KB upgrades to spaces in place with content preserved.
+  Isolation + retrofit are deterministic (fast); live RAG recall is Ollama-backed (slow on the 8B model).
 
 ## Egress isolation (the load-bearing property)
 
