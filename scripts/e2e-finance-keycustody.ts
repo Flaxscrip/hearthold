@@ -19,6 +19,7 @@ import {
   enforceKeyCustody,
   resolvePairwiseDid,
   proveControl,
+  mintPairwiseGrant,
   MemoryPairwiseStore,
   Sensitivity,
 } from '@hearthold/core';
@@ -102,6 +103,26 @@ async function main(): Promise<void> {
   });
   assert(resolveKeyHolder(policy2, analyticsId.did) === 'subject', 'after v2, the Sovereign keys analytics itself');
   assert(!enforceKeyCustody({ ruleset: policy2, audience: analyticsId.did, mintedBy: 'warden' }).ok, 'the Warden is now refused from keying analytics too');
+
+  process.stdout.write('\n▸ The DISCLOSURE chokepoint is wired — mintPairwiseGrant refuses a Warden-keyed disclosure to the bank\n');
+  let disclosureRefused = false;
+  try {
+    await mintPairwiseGrant(warden, new MemoryPairwiseStore(), {
+      audience: bankId.did,
+      sovereignDid: sovId.did,
+      createdAt: now,
+      keyCustodyRuleset: policy, // the Sovereign's policy: the bank is subject-keyed
+      activeRuleset: null,
+      claim: 'unused — the guard fails closed first',
+      evidence: [],
+      txn: 'txn-keycustody',
+    });
+  } catch (e) {
+    disclosureRefused = /key-custody/.test(e instanceof Error ? e.message : String(e));
+  }
+  assert(disclosureRefused, 'mintPairwiseGrant fails closed for the subject-keyed bank (the Warden cannot mint a disclosure identity for it)');
+  // A non-subject-keyed audience still mints normally (back-compat) — sanity via resolveKeyHolder.
+  assert(resolveKeyHolder(policy, analyticsId.did) === 'warden', 'a non-subject-keyed audience is unaffected — the Warden mints for it as before');
 
   process.stdout.write(
     "\n✓ Key custody is the Sovereign's SIGNED choice per relationship — not a category — and the Warden enforces it.\n",

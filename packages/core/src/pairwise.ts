@@ -191,10 +191,12 @@ export function resolveKeyHolder(ruleset: SignedRuleset | null, audience: string
 }
 
 /**
- * The key-custody chokepoint: does minting a pairwise R-DID under `mintedBy` match the Sovereign's signed
- * policy for this audience? Fail closed (like `enforcePairwiseSubject`) — the Warden may NOT key a
- * relationship the Sovereign chose to control itself, and vice versa. Call this where an R-DID is minted,
- * never in the callers, so no path can silently key a relationship against the Sovereign's wishes.
+ * The key-custody chokepoint (fail closed, like `enforcePairwiseSubject`). The protection is
+ * ONE-DIRECTIONAL: the **Warden may not key a relationship the Sovereign chose to control** (`subject`).
+ * The reverse — the Sovereign minting a subject-keyed R-DID where the policy would allow Warden-keyed — is
+ * always permitted: the Sovereign over-controlling *its own* key is never a threat. Call this where an
+ * R-DID is minted, never in the callers, so no path can silently hand the custodian a key the Sovereign
+ * wanted to hold.
  */
 export function enforceKeyCustody(args: {
   ruleset: SignedRuleset | null;
@@ -202,16 +204,15 @@ export function enforceKeyCustody(args: {
   mintedBy: 'warden' | 'subject';
 }): PairwiseGate {
   const want = resolveKeyHolder(args.ruleset, args.audience);
-  if (args.mintedBy === want) return { ok: true, reason: `key custody '${want}' matches the Sovereign's policy` };
-  return {
-    ok: false,
-    reason:
-      `refused: the Sovereign's key-custody policy resolves to '${want}' for audience '${args.audience}', ` +
-      `but the R-DID was minted by '${args.mintedBy}'` +
-      (want === 'subject'
-        ? ' — the Sovereign controls the key for this relationship; the Warden may not mint it (the Sovereign must, in the Signet)'
-        : ''),
-  };
+  if (want === 'subject' && args.mintedBy === 'warden') {
+    return {
+      ok: false,
+      reason:
+        `refused: the Sovereign's key-custody policy keys audience '${args.audience}' itself (subject-keyed) — ` +
+        `the Warden may not mint it (the Sovereign must, in the Signet)`,
+    };
+  }
+  return { ok: true, reason: `key custody '${want}' permits a mint by '${args.mintedBy}'` };
 }
 
 /** In-memory PairwiseStore — for tests and ephemeral flows (mirrors `MemorySpentTxnStore`). */

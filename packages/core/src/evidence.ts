@@ -22,6 +22,7 @@ import {
   resolvePairwiseDid,
   isPairwiseDid,
   enforcePairwiseSubject,
+  enforceKeyCustody,
   type PairwiseStore,
 } from './pairwise.js';
 import type {
@@ -303,6 +304,12 @@ export interface PairwiseGrantArgs extends Omit<MintEvidenceArgs, 'subjectDid'> 
   sovereignDid: string;
   /** The gateway/actor's active Ruleset — governs stable-subject exceptions. Null ⇒ pairwise-only. */
   activeRuleset: SignedRuleset | null;
+  /**
+   * The Sovereign's key-custody policy (`enforceKeyCustody`). Defaults to `activeRuleset` if omitted. If
+   * it marks `audience` subject-keyed, the Warden may NOT mint a fresh (Warden-keyed) disclosure pairwise
+   * for it — that relationship's key is the Sovereign's, so the disclosure must go through the Sovereign.
+   */
+  keyCustodyRuleset?: SignedRuleset | null;
   /** ISO timestamp for the linkage record (callers stamp; core stays time-free). */
   createdAt: string;
   /** Registry for the fresh pairwise DID (defaults to the wallet's). */
@@ -331,6 +338,14 @@ export async function mintPairwiseGrant(
     subjectDid = args.stableSubject;
     pairwise = await isPairwiseDid(store, subjectDid);
   } else {
+    // Key-custody chokepoint: fail closed BEFORE minting if the Sovereign chose to key this relationship
+    // itself (a custodian may not mint a Warden-keyed disclosure identity for a subject-keyed audience).
+    const custody = enforceKeyCustody({
+      ruleset: args.keyCustodyRuleset ?? args.activeRuleset,
+      audience: args.audience,
+      mintedBy: warden.role === 'sovereign' ? 'subject' : 'warden',
+    });
+    if (!custody.ok) throw new Error(custody.reason);
     const rec = await resolvePairwiseDid(warden, store, {
       audience: args.audience,
       subjectDid: args.sovereignDid,
