@@ -176,6 +176,44 @@ export function enforcePairwiseSubject(args: {
   };
 }
 
+/**
+ * Resolve WHO holds the key for a pairwise R-DID to an audience, from the Sovereign's signed key-custody
+ * policy (`RulesetCapabilities.keyCustody`). The Sovereign's own choice, named per audience — not a
+ * built-in category. No policy ⇒ `'warden'` (the historical disclosure-pairwise behaviour). Precedence:
+ * an explicit `subject`/`warden` listing wins over the `default`, which wins over the fallback `'warden'`.
+ */
+export function resolveKeyHolder(ruleset: SignedRuleset | null, audience: string): 'warden' | 'subject' {
+  const p = ruleset?.capabilities.keyCustody;
+  if (!p) return 'warden';
+  if (p.subject?.includes(audience)) return 'subject';
+  if (p.warden?.includes(audience)) return 'warden';
+  return p.default ?? 'warden';
+}
+
+/**
+ * The key-custody chokepoint: does minting a pairwise R-DID under `mintedBy` match the Sovereign's signed
+ * policy for this audience? Fail closed (like `enforcePairwiseSubject`) — the Warden may NOT key a
+ * relationship the Sovereign chose to control itself, and vice versa. Call this where an R-DID is minted,
+ * never in the callers, so no path can silently key a relationship against the Sovereign's wishes.
+ */
+export function enforceKeyCustody(args: {
+  ruleset: SignedRuleset | null;
+  audience: string;
+  mintedBy: 'warden' | 'subject';
+}): PairwiseGate {
+  const want = resolveKeyHolder(args.ruleset, args.audience);
+  if (args.mintedBy === want) return { ok: true, reason: `key custody '${want}' matches the Sovereign's policy` };
+  return {
+    ok: false,
+    reason:
+      `refused: the Sovereign's key-custody policy resolves to '${want}' for audience '${args.audience}', ` +
+      `but the R-DID was minted by '${args.mintedBy}'` +
+      (want === 'subject'
+        ? ' — the Sovereign controls the key for this relationship; the Warden may not mint it (the Sovereign must, in the Signet)'
+        : ''),
+  };
+}
+
 /** In-memory PairwiseStore — for tests and ephemeral flows (mirrors `MemorySpentTxnStore`). */
 export class MemoryPairwiseStore implements PairwiseStore {
   private readonly byAudience = new Map<string, PairwiseRecord>();

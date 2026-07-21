@@ -35,6 +35,22 @@ export interface RulesetCapabilities {
    * identity must be pairwise. Enforced at the mint chokepoint by `enforcePairwiseSubject`.
    */
   stableDidAudiences?: string[];
+  /**
+   * The Sovereign's KEY-CUSTODY policy for pairwise R-DIDs: for which relationships does the Sovereign
+   * hold the key itself (`'subject'` — the Signet proves control directly, for identity anchors a
+   * counterparty KYCs) vs. let the Warden hold it (`'warden'` — the custodian presents on the
+   * Sovereign's behalf, for plain disclosure). It is the SOVEREIGN's own choice, named per audience and
+   * SIGNED — never a built-in category. Absent ⇒ `default: 'warden'`. Enforced at the mint chokepoint by
+   * `enforceKeyCustody`; resolve an audience with `resolveKeyHolder`.
+   */
+  keyCustody?: {
+    /** Key holder for any audience not explicitly listed below. Absent ⇒ `'warden'`. */
+    default?: 'warden' | 'subject';
+    /** Audiences the Sovereign keys itself (Signet-held R-DID; the Sovereign proves control). */
+    subject?: string[];
+    /** Audiences the Warden keys (overrides a `'subject'` default for these). */
+    warden?: string[];
+  };
 }
 
 export interface Ruleset {
