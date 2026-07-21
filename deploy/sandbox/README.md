@@ -21,6 +21,8 @@ trust registry) — that's follow-on work.
 | `deploy/sandbox/run-spine.sh` | Drives the spine + egress proof, printing every DID/receipt |
 | `deploy/sandbox/run-prove.sh` | Prove flow — issue a credential + verifier; drive the Signet (setup/signet/verify) |
 | `deploy/sandbox/run-evidence.sh` | Evidence-graph flow — mint/verify a signed graph · selective disclosure · Signet co-sign |
+| `deploy/sandbox/run-finance.sh` | Finance-themed evidence flow — accredited-investor threshold · auditor spot-check · income co-sign |
+| `deploy/sandbox/run-prove-finance.sh` | Finance-themed prove flow — an `AccreditedInvestor` credential from a compliance authority |
 | `deploy/sandbox/run-kb.sh` | KB-spaces flow — shared + private partitions, visible-set isolation, retrofit (`recall` for live RAG) |
 | `deploy/sandbox/run-signet-tui.sh` | Signet TUI (`packages/signet-tui`) — approvals, over the localhost control plane |
 | `deploy/sandbox/run-emissary-tui.sh` | Emissary TUI (`packages/emissary-tui`) — submit observations |
