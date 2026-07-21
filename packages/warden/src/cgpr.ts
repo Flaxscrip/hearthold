@@ -18,6 +18,7 @@ import {
   authorizeActor,
   activeRuleset,
   mintPairwiseGrant,
+  enforceKeyCustody,
   acceptCredential,
   pairwiseName,
   requiredLevelFor,
@@ -83,6 +84,15 @@ export type CgprResult = CgprGrantResult | CgprDenyResult;
 export interface CgprServiceOptions {
   /** The gateway actor's Sovereign-signed Ruleset chain (constraint #3). */
   gatewayRuleset: SignedRuleset[];
+  /**
+   * The Sovereign's key-custody policy chain (`RulesetCapabilities.keyCustody`), if any — a SEPARATE
+   * signed choice from the gateway Ruleset: which counterparties the Sovereign keys itself in the Signet
+   * (subject-keyed) vs. lets the Warden hold (Warden-keyed). Threaded into the pairwise mint chokepoint so
+   * `enforceKeyCustody` fails closed here — a custodial gateway Warden may not mint a disclosure identity
+   * for an audience the Sovereign chose to control. Omit ⇒ the gateway Ruleset is the fallback (no
+   * `keyCustody` capability ⇒ everything resolves Warden-keyed, the historical behaviour).
+   */
+  keyCustodyRuleset?: SignedRuleset[];
   /** The governing Sovereign: pins the Ruleset signer and is the subject behind each pairwise DID. */
   sovereignDid: string;
   pairwiseStore: PairwiseStore;
@@ -147,6 +157,18 @@ export class CgprService {
     );
     if (!authz.allowed) return deny(`gateway not authorized: ${authz.reason}`);
     const active = await activeRuleset(this.warden, this.opts.gatewayRuleset, { expectedSigner: this.opts.sovereignDid });
+    // The Sovereign's key-custody policy is a SEPARATE signed chain (or absent). Resolve its active head,
+    // pinned to the same Sovereign signer, so the pairwise mint below enforces it. Null ⇒ mintPairwiseGrant
+    // falls back to the gateway Ruleset (whose `keyCustody` is empty ⇒ Warden-keyed, back-compat).
+    const keyCustody = this.opts.keyCustodyRuleset
+      ? await activeRuleset(this.warden, this.opts.keyCustodyRuleset, { expectedSigner: this.opts.sovereignDid })
+      : null;
+    // If the Sovereign's policy keys THIS counterparty itself (subject-keyed), the Warden may not mint a
+    // disclosure identity for it — the Sovereign must, in the Signet. Decide it HERE, before any consent
+    // prompt, and fail closed as a graceful denial (the gateway renders a bare decision, so no reason
+    // leaks to the counterparty). The mint's own `enforceKeyCustody` remains the structural backstop below.
+    const custody = enforceKeyCustody({ ruleset: keyCustody, audience: req.audience, mintedBy: 'warden' });
+    if (!custody.ok) return deny(custody.reason);
 
     // 3. The Warden authors the consent text — never the requesting agent (constraint #4, §7.7).
     const reason =
@@ -190,6 +212,7 @@ export class CgprService {
       audience: grantAudience,
       sovereignDid: owner,
       activeRuleset: active,
+      keyCustodyRuleset: keyCustody,
       createdAt: new Date().toISOString(),
       registry: this.config.registry,
       claim,
