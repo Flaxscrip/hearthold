@@ -21,4 +21,5 @@ export * from './single-use.js';
 export * from './kb.js';
 export * from './ruleset.js';
 export * from './pairwise.js';
+export * from './attenuation.js';
 export * from './control-server.js';
