@@ -8,8 +8,8 @@
 #   ./deploy/sandbox/run-demo.sh reset    # tear down + wipe ./data for a clean re-run
 #
 # The two TUIs are interactive (an Ink app needs its own TTY), so they aren't launched from here — this
-# script gets everything ready and prints the exact commands to run in separate terminals. The slow 8B
-# classification is deliberately kept off this path so the walkthrough stays fast.
+# script gets everything ready and prints the exact commands to run in separate terminals. Classification
+# (Ollama) is kept off this automated path so the walkthrough stays fast; it runs in the Emissary TUI.
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."
@@ -68,13 +68,13 @@ cat <<EOF
         $D/run-demo.sh flows     # evidence-graph + KB-spaces, back to back
         $D/run-evidence.sh       # mint/verify a signed evidence graph · selective disclosure · Signet co-sign
         $D/run-kb.sh             # shared + private KB partitions, visible-set isolation, retrofit
-        $D/run-kb.sh recall      # live RAG recall over the partitions (Ollama — slow on 8B)
+        $D/run-kb.sh recall      # live RAG recall over the partitions (Ollama-backed)
 
   Tear down:      docker compose -f $CF down
   Clean re-run:   $D/run-demo.sh reset
 
-  NB: on-device classification currently runs qwen3:8b (slow — 2+ min/artefact). A lighter model is
-  being evaluated (Aegis). The Emissary TUI shows the receipt instantly regardless; the sensitivity
-  updates when the Warden finishes.
+  NB: on-device classification runs qwen2.5:3b (a non-thinking instruct model) — ~10s/artefact, so the
+  Emissary TUI's sensitivity lands in seconds. (The earlier qwen3:8b default was slow because it's a
+  *reasoning* model that burns <think> tokens on this CPU-only container, not because of size.)
 EOF
 ok "walkthrough ready — open the terminals above"

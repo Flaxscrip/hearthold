@@ -59,7 +59,7 @@ Each agent's wallet/vault/index persists to `./data/<role>` (bind mount, Archon'
 |---|---|---|
 | `HEARTHOLD_NODE_URL` | `http://drawbridge:4222` | The node by container hostname (not a host port — those don't work under `internal: true`) |
 | `HEARTHOLD_REGISTRY` | `local` | The offline node's DB-only registry |
-| `HEARTHOLD_OLLAMA_URL` | `http://ollama:11434` | On-device classification (`qwen3:8b`) + recall embeddings (`nomic-embed-text`) via the sandbox's `ollama` container — no egress. (Unset `HEARTHOLD_CLASSIFIER` ⇒ `ollama` mode; set it to `quarantine` to seal everything to SEALED instead.) |
+| `HEARTHOLD_OLLAMA_URL` | `http://ollama:11434` | On-device classification + recall embeddings (`nomic-embed-text`) via the sandbox's `ollama` container — no egress. (Unset `HEARTHOLD_CLASSIFIER` ⇒ `ollama` mode; set it to `quarantine` to seal everything to SEALED instead.) |
 | `HEARTHOLD_PASSPHRASE` | from `.env` | Unlocks each agent's wallet; sandbox dev value, never committed |
 | `HEARTHOLD_DIDCOMM_ENDPOINT` | `http://drawbridge:4222/didcomm` | See **DIDComm endpoint** |
 
@@ -149,7 +149,7 @@ endpoint override), each in a throwaway data root so they never touch the demo a
 ```bash
 ./deploy/sandbox/run-evidence.sh   # the "prove a fact without disclosing the data" half
 ./deploy/sandbox/run-kb.sh         # a shared KB + a per-member private partition each
-./deploy/sandbox/run-kb.sh recall  # live RAG recall over the partitions (Ollama-backed; slow on 8B)
+./deploy/sandbox/run-kb.sh recall  # live RAG recall over the partitions (Ollama-backed)
 ./deploy/sandbox/run-demo.sh flows # both, back to back
 ```
 
@@ -161,7 +161,7 @@ endpoint override), each in a throwaway data root so they never touch the demo a
 - **KB-spaces** — a shared partition ∪ a per-member private partition; the visible set is computed
   server-side from the authenticated member (Alice never sees Bob's private notes); a non-member is
   refused before any recall; an existing shared KB upgrades to spaces in place with content preserved.
-  Isolation + retrofit are deterministic (fast); live RAG recall is Ollama-backed (slow on the 8B model).
+  Isolation + retrofit are deterministic; live RAG recall is Ollama-backed (fast on `qwen2.5:3b`).
 
 ## Egress isolation (the load-bearing property)
 

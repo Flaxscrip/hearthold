@@ -125,14 +125,18 @@ Each has a one-command helper that starts the needed daemon(s) + the TUI:
 `run-demo.sh` runs everything automatable and prints the exact commands for the two interactive TUIs
 (each in its own terminal). It keeps the slow classifier off the automated path so it stays fast.
 
-## Classification note (for you, Aegis)
+## Classification model (resolved — thanks, Aegis)
 
-Your Ollama layer works and is wired correctly (the Warden reaches the `ollama` container; `qwen3:8b`
-classifies, `nomic-embed-text` embeds the recall index; no egress). One practical issue for **live**
-demos: 8B inference is slow here — ~2+ min per artefact — so the Emissary's receipt shows instantly
-(provisional) but its *sensitivity* fills in minutes later. flaxscrip is having you research a lighter,
-faster classification model; a smaller instruct model (or a warm/keep-alive) would make the sensitivity
-land in seconds. No change needed on the Hearthold side — it's purely the model behind `HEARTHOLD_OLLAMA_URL`.
+The Ollama layer works and is wired correctly (the Warden reaches the `ollama` container; the model
+classifies, `nomic-embed-text` embeds the recall index; no egress). The earlier >60s/artefact latency
+turned out **not** to be model size — it was *thinking*: `qwen3:8b` (and any qwen3/qwen3.5) is a
+reasoning model that burns `<think>` tokens before answering, which dominates on this CPU-only container
+(Docker-on-Mac has no GPU passthrough). Switching to **`qwen2.5:3b`** — the non-thinking instruct sibling
+— dropped the same classification to ~6s raw / ~10-15s through Hearthold's fuller prompt, with correct
+results (cafe check-in → LOW, SSN+tax → HIGH). Set once via `HEARTHOLD_CLASSIFIER_MODEL: qwen2.5:3b` in
+the compose (it drives both the classifier and the RAG answerer, `warden/src/recall.ts`), so all three
+slow paths — Emissary sensitivity, KB classify-on-update, RAG answers — are fast now. No pull/rebuild
+needed (the Ollama container reads models live from the read-only mount).
 
 ## Evidence-graph & KB-spaces (now in the sandbox)
 
@@ -142,8 +146,7 @@ Both flows run in-container against the isolated node — verified green:
   selective disclosure (reveal one fact, hide the rest); the Sovereign's Signet co-sign embedded +
   independently verifiable (a step-up **over DIDComm** — exercises the endpoint override end-to-end).
 - **KB-spaces** (`run-kb.sh`): shared + per-member private partitions; visible-set isolation; retrofit
-  in place. Live RAG recall (`run-kb.sh recall`) is Ollama-backed and works — just slow on the 8B model
-  (the same reason the Emissary sensitivity is slow; a lighter model helps here too).
+  in place. Live RAG recall (`run-kb.sh recall`) is Ollama-backed and now fast (`qwen2.5:3b`, see above).
 
 `run-demo.sh flows` runs both back to back. Each uses a throwaway data root, so nothing collides with
 the demo agents.
