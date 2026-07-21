@@ -46,6 +46,7 @@
     "e2e:finance-evidence": "npm run build && node --experimental-strip-types scripts/e2e-finance-evidence.ts",
     "e2e:finance-selective": "npm run build && node --experimental-strip-types scripts/e2e-finance-selective.ts",
     "e2e:finance-stepup": "npm run build && node --experimental-strip-types scripts/e2e-finance-stepup.ts",
+    "e2e:finance-onboarding": "npm run build && node --experimental-strip-types scripts/e2e-finance-onboarding.ts",
     "e2e:evidence-direct": "npm run build && node --experimental-strip-types scripts/e2e-evidence-direct.ts",
     "e2e:evidence-composite": "npm run build && node --experimental-strip-types scripts/e2e-evidence-composite.ts",
     "e2e:evidence-selective": "npm run build && node --experimental-strip-types scripts/e2e-evidence-selective.ts",

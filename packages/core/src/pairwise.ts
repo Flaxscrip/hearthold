@@ -33,6 +33,15 @@ export interface PairwiseRecord {
   name: string;
   /** The Sovereign (or stable issuer) it stands in for — NEVER disclosed. */
   subjectDid: string;
+  /**
+   * Which wallet holds this R-DID's private key. `'warden'` (default) — the custodian minted it and
+   * presents on the Sovereign's behalf (disclosure pairwise: showing evidence to a verifier). `'subject'`
+   * — minted in the Sovereign's OWN (Signet) wallet, so the Sovereign proves control DIRECTLY with their
+   * own key. Identity-bearing relationships (a bank that KYCs the DID and issues credentials to it) MUST
+   * be `'subject'`: a custodian signing on your behalf is the wrong trust shape for an identity anchor.
+   * Absent on legacy records ⇒ treated as `'warden'`.
+   */
+  keyHolder?: 'warden' | 'subject';
   createdAt: string;
 }
 
@@ -64,7 +73,18 @@ export function pairwiseName(audience: string): string {
 export async function resolvePairwiseDid(
   handle: KeymasterHandle,
   store: PairwiseStore,
-  args: { audience: string; subjectDid: string; createdAt: string; registry?: string },
+  args: {
+    audience: string;
+    subjectDid: string;
+    createdAt: string;
+    registry?: string;
+    /**
+     * Who holds the minted key. Defaults to `'warden'` (the historical disclosure-pairwise behaviour).
+     * Pass `'subject'` AND the Sovereign's own handle to mint an identity-bearing R-DID the Sovereign
+     * controls directly (banking / KYC relationships) — see `PairwiseRecord.keyHolder`.
+     */
+    keyHolder?: 'warden' | 'subject';
+  },
 ): Promise<PairwiseRecord> {
   const existing = await store.find(args.audience);
   if (existing) return existing;
@@ -87,10 +107,37 @@ export async function resolvePairwiseDid(
     pairwiseDid,
     name,
     subjectDid: args.subjectDid,
+    keyHolder: args.keyHolder ?? 'warden',
     createdAt: args.createdAt,
   };
   await store.record(rec);
   return rec;
+}
+
+/**
+ * Prove control of a wallet-held DID by answering a counterparty's challenge WITH THAT DID's key
+ * (challenge/response). For a subject-keyed R-DID this is how the Sovereign proves control to a bank
+ * DIRECTLY — the Signet signs the bank's challenge with the R-DID it holds; no custodian is in the
+ * signing path. Only succeeds if `name` is an identity in `handle`'s wallet (a Warden that never minted
+ * the key cannot answer), which is exactly the property a KYC'ing institution needs.
+ *
+ * Registry hygiene: the response DID is ephemeral — pass `config.registry` so it anchors on a reachable
+ * registry rather than defaulting to hyperswarm.
+ */
+export async function proveControl(
+  handle: KeymasterHandle,
+  name: string,
+  challengeDid: string,
+  opts: { registry?: string } = {},
+): Promise<string> {
+  const km = handle.keymaster;
+  const prev = await km.getCurrentId().catch(() => undefined);
+  await km.setCurrentId(name);
+  try {
+    return await km.createResponse(challengeDid, opts.registry ? { registry: opts.registry } : undefined);
+  } finally {
+    if (prev) await km.setCurrentId(prev);
+  }
 }
 
 /** Is `did` a pairwise DID we minted for some audience? */
