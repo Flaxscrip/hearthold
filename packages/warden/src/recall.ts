@@ -146,7 +146,7 @@ export class RecallService {
     return new RecallService(
       new OllamaEmbedder(config.ollamaUrl, config.embeddingModel),
       resolve,
-      ollamaAnswerer(config.ollamaUrl, config.classifierModel),
+      ollamaAnswerer(config.ollamaUrl, config.answerModel),
       warden.dataFolder,
     );
   }
