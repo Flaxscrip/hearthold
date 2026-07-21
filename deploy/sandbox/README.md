@@ -24,6 +24,7 @@ trust registry) — that's follow-on work.
 | `deploy/sandbox/run-finance.sh` | Finance-themed evidence flow — accredited-investor threshold · auditor spot-check · income co-sign |
 | `deploy/sandbox/run-prove-finance.sh` | Finance-themed prove flow — an `AccreditedInvestor` credential from a compliance authority |
 | `deploy/sandbox/run-onboarding.sh` | Subject-keyed R-DID — the Sovereign proves control of its own bank R-DID; the Warden holds no key |
+| `deploy/sandbox/run-vault.sh` | VC → KB bridge — a 3rd-party VC becomes private-from-the-Warden, recallable knowledge, still issuer-provable |
 | `deploy/sandbox/run-kb.sh` | KB-spaces flow — shared + private partitions, visible-set isolation, retrofit (`recall` for live RAG) |
 | `deploy/sandbox/run-signet-tui.sh` | Signet TUI (`packages/signet-tui`) — approvals, over the localhost control plane |
 | `deploy/sandbox/run-emissary-tui.sh` | Emissary TUI (`packages/emissary-tui`) — submit observations |

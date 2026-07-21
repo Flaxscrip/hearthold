@@ -119,6 +119,10 @@
     "./guardianship": {
       "types": "./dist/guardianship.d.ts",
       "import": "./dist/guardianship.js"
+    },
+    "./credential-vault": {
+      "types": "./dist/credential-vault.d.ts",
+      "import": "./dist/credential-vault.js"
     }
   },
   "scripts": {
