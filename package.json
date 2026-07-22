@@ -74,6 +74,7 @@
     "e2e:attenuation": "npm run build && node --experimental-strip-types scripts/e2e-attenuation.ts",
     "smoke:attenuation": "npm run build && node --experimental-strip-types scripts/smoke-attenuation-api.ts",
     "e2e:disclosure": "npm run build && node --experimental-strip-types scripts/e2e-disclosure.ts",
+    "e2e:mesh": "npm run build && node --experimental-strip-types scripts/e2e-mesh.ts",
     "smoke:disclosure": "npm run build && node --experimental-strip-types scripts/smoke-disclosure-api.ts",
     "demo:disclosure-mcp": "npm run build && node --experimental-strip-types scripts/demo-disclosure-mcp.ts",
     "e2e:cgpr-schemas": "npm run build && node --experimental-strip-types scripts/e2e-cgpr-schemas.ts",
