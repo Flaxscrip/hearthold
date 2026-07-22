@@ -46,3 +46,36 @@ export async function openKeymaster(
 
   return { role, keymaster, cipher, dataFolder };
 }
+
+/**
+ * Open a fresh handle AND force its wallet to load from disk now, retrying a torn read.
+ *
+ * A new keymaster reads `wallet.json` with an empty cache, so this is how a long-lived daemon re-reads
+ * an agent's wallet after another process (e.g. `sovereign accept`) wrote it — same local file, same
+ * passphrase, no new source (see docs/attenuation notwithstanding: the trust boundary is identical to a
+ * normal open). Keymaster's `saveWallet` is non-atomic (`writeFileSync`, no temp-rename), so a reload that
+ * races a concurrent write can read a truncated file and fail to parse/decrypt. We force the read here —
+ * where it is catchable — and retry with a short backoff so a rare mid-write race recovers instead of
+ * surfacing a transient error. Fails CLOSED: if every attempt reads a bad file, it throws (no disclosure).
+ */
+export async function openKeymasterFresh(
+  role: AgentRole,
+  config: HearthholdConfig,
+  passphrase: string,
+  opts: { retries?: number; backoffMs?: number } = {},
+): Promise<KeymasterHandle> {
+  const retries = opts.retries ?? 3;
+  const backoffMs = opts.backoffMs ?? 50;
+  const handle = await openKeymaster(role, config, passphrase);
+  for (let attempt = 0; ; attempt++) {
+    try {
+      // Force the fresh disk read now. On failure the wallet cache is left unset, so the next attempt
+      // re-reads the file (no stale/partial state carries over).
+      await handle.keymaster.loadWallet();
+      return handle;
+    } catch (err) {
+      if (attempt >= retries) throw err;
+      await new Promise((resolve) => setTimeout(resolve, backoffMs * (attempt + 1)));
+    }
+  }
+}

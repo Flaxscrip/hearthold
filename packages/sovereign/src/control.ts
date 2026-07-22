@@ -28,6 +28,7 @@ export async function runSovereignControl(
   handle: KeymasterHandle,
   config: HearthholdConfig,
   port: number,
+  reopen?: () => Promise<KeymasterHandle>,
 ): Promise<void> {
   if (!config.signetPin) {
     throw new Error('HEARTHOLD_SIGNET_PIN is required for control — it gates each disclosure');
@@ -71,7 +72,7 @@ export async function runSovereignControl(
   });
   gate.emit = server.emit;
 
-  const stop = await transport.serve(makeSovereignHandler(handle, gate));
+  const stop = await transport.serve(makeSovereignHandler(handle, gate, reopen));
   const shutdown = (): void => {
     stop();
     server.close();

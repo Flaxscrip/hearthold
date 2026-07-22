@@ -69,6 +69,8 @@
     "e2e:kb-seed": "npm run build && node --experimental-strip-types scripts/e2e-kb-seed.ts",
     "e2e:forge-present": "npm run build && node --experimental-strip-types scripts/e2e-forge-present.ts",
     "e2e:pairwise-grant": "npm run build && node --experimental-strip-types scripts/e2e-pairwise-grant.ts",
+    "e2e:sovereign-refresh": "npm run build && node --experimental-strip-types scripts/e2e-sovereign-refresh.ts",
+    "e2e:sovereign-refresh-retry": "npm run build && node --experimental-strip-types scripts/e2e-sovereign-refresh-retry.ts",
     "e2e:attenuation": "npm run build && node --experimental-strip-types scripts/e2e-attenuation.ts",
     "smoke:attenuation": "npm run build && node --experimental-strip-types scripts/smoke-attenuation-api.ts",
     "e2e:cgpr-schemas": "npm run build && node --experimental-strip-types scripts/e2e-cgpr-schemas.ts",

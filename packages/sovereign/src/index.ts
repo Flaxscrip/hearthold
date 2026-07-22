@@ -2,6 +2,7 @@
 import {
   loadConfig,
   openKeymaster,
+  openKeymasterFresh,
   ensureIdentity,
   acceptCredential,
   recordIssuedCredential,
@@ -57,6 +58,13 @@ async function main(): Promise<void> {
   const handle = await openKeymaster('sovereign', config, passphrase);
   const id = await ensureIdentity(handle, config);
 
+  // Re-open a fresh sovereign handle on demand: a new keymaster reads wallet.json from disk with an empty
+  // cache, so a long-lived `serve`/`control` daemon sees a credential accepted by a separate `sovereign
+  // accept` process without a restart. The handler uses it for EVERY request (not just present), so no
+  // operation reads or writes through a stale cache (reload-before-write guard). `openKeymasterFresh`
+  // forces the read + retries a torn read (accept's non-atomic write), failing closed.
+  const reopenSovereign = (): Promise<typeof handle> => openKeymasterFresh('sovereign', config, passphrase);
+
   // Third-party credentials are about the Sovereign but custodied in the Warden's vault.
   const vaultFolder = agentDataFolder(config, 'warden');
 
@@ -82,7 +90,7 @@ async function main(): Promise<void> {
       const gate = new PromptGate(config.signetPin);
       const transport = new DidCommTransport(handle, IDENTITY_NAME.sovereign, config.nodeUrl);
       await transport.ready();
-      const stop = await transport.serve(makeSovereignHandler(handle, gate));
+      const stop = await transport.serve(makeSovereignHandler(handle, gate, reopenSovereign));
       process.stdout.write(
         `Sovereign serving over DIDComm (Signet PIN approval on each disclosure)\n  did: ${id.did}\n  (Ctrl-C to stop)\n`,
       );
@@ -96,7 +104,7 @@ async function main(): Promise<void> {
     }
     case 'control': {
       const port = Number(process.argv[3] ?? process.env.HEARTHOLD_CONTROL_PORT ?? 4311);
-      await runSovereignControl(handle, config, port);
+      await runSovereignControl(handle, config, port, reopenSovereign);
       break;
     }
     case 'status': {

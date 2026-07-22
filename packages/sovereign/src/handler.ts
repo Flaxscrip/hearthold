@@ -30,9 +30,36 @@ import type { ApprovalGate } from './signet.js';
  *    sensitive evidence disclosure. The Warden authored the description; the Signet shows the
  *    Sovereign the Warden's words (never the requesting agent's), and on approval the Sovereign
  *    issues a HearthholdApproval back to the Warden.
+ *
+ * `reopen` (optional): the keymaster caches the wallet in memory at open, so a long-lived daemon does not
+ * see wallet.json changes made by a SEPARATE process (`sovereign accept` writing a freshly-accepted
+ * credential). When supplied, the handler reopens a FRESH handle per request and uses it for EVERY branch,
+ * so the daemon never operates through a stale cache: the present path sees a mid-session accept, and any
+ * signing/mutation starts from the current on-disk wallet rather than writing a stale cache back over an
+ * external change (the reload-before-write guard — bounding clobber exposure to one request instead of the
+ * daemon's whole lifetime). `openKeymasterFresh` forces the read and retries a torn read, failing closed.
+ * Callers that omit it (in-process tests) keep using the static handle unchanged.
  */
-export function makeSovereignHandler(sovereign: KeymasterHandle, gate: ApprovalGate): RequestHandler {
+const HANDLED_TYPES = new Set<string>([
+  'hearthold/proof-request',
+  'hearthold/approval-request',
+  'hearthold/ruleset-sign-request',
+  'hearthold/member-ack-request',
+  'hearthold/partition-rewrap-request',
+  'hearthold/kb-approval-request',
+]);
+
+export function makeSovereignHandler(
+  sovereign: KeymasterHandle,
+  gate: ApprovalGate,
+  reopen?: () => Promise<KeymasterHandle>,
+): RequestHandler {
   return async (message, fromDid) => {
+    if (!HANDLED_TYPES.has(message.type)) return null;
+    // One fresh, current-on-disk handle for the whole request when the daemon supplies `reopen`; the
+    // static handle in tests. Everything below reads/signs through `active`, never the captured handle.
+    const active = reopen ? await reopen() : sovereign;
+
     if (message.type === 'hearthold/proof-request') {
       const req = message as ProofRequestMessage;
       const challengeDid = req.challengeDid;
@@ -40,7 +67,7 @@ export function makeSovereignHandler(sovereign: KeymasterHandle, gate: ApprovalG
       if (!humanProof) {
         return { type: 'hearthold/error', version: PROTOCOL_VERSION, reason: 'disclosure declined by the Sovereign' };
       }
-      const responseDid = await presentProof(sovereign, challengeDid);
+      const responseDid = await presentProof(active, challengeDid);
       return { type: 'hearthold/proof-presentation', version: PROTOCOL_VERSION, responseDid, humanProof };
     }
 
@@ -73,7 +100,7 @@ export function makeSovereignHandler(sovereign: KeymasterHandle, gate: ApprovalG
         evidenceRoot: m.evidenceRoot,
         humanProof: { method: humanProof.method, level: humanProof.level, timestamp: humanProof.timestamp },
       };
-      const approval = await signEvidenceApproval(sovereign, statement);
+      const approval = await signEvidenceApproval(active, statement);
       return { type: 'hearthold/approval-response', version: PROTOCOL_VERSION, approved: true, approval };
     }
 
@@ -89,7 +116,7 @@ export function makeSovereignHandler(sovereign: KeymasterHandle, gate: ApprovalG
       if (!humanProof) {
         return { type: 'hearthold/ruleset-sign-response', version: PROTOCOL_VERSION, approved: false, reason: 'declined by the Sovereign' };
       }
-      const signed = await signRuleset(sovereign, m.ruleset as Ruleset);
+      const signed = await signRuleset(active, m.ruleset as Ruleset);
       return { type: 'hearthold/ruleset-sign-response', version: PROTOCOL_VERSION, approved: true, signed };
     }
 
@@ -106,7 +133,7 @@ export function makeSovereignHandler(sovereign: KeymasterHandle, gate: ApprovalG
       if (!humanProof) {
         return { type: 'hearthold/member-ack-response', version: PROTOCOL_VERSION, approved: false, reason: 'declined by the member' };
       }
-      const memberAck = await signMemberAck(sovereign, m.ruleset as SignedRuleset);
+      const memberAck = await signMemberAck(active, m.ruleset as SignedRuleset);
       return { type: 'hearthold/member-ack-response', version: PROTOCOL_VERSION, approved: true, memberAck };
     }
 
@@ -127,8 +154,8 @@ export function makeSovereignHandler(sovereign: KeymasterHandle, gate: ApprovalG
       const rewrapped: { partitionId: string; rewrapped: string }[] = [];
       for (const p of m.partitions) {
         try {
-          const priv = await unwrapKey(sovereign, p.wrapped); // the member's own current-id key
-          rewrapped.push({ partitionId: p.partitionId, rewrapped: sealToKey(sovereign.cipher, m.wardenSessionPub, JSON.stringify(priv)) });
+          const priv = await unwrapKey(active, p.wrapped); // the member's own current-id key
+          rewrapped.push({ partitionId: p.partitionId, rewrapped: sealToKey(active.cipher, m.wardenSessionPub, JSON.stringify(priv)) });
         } catch {
           /* not this member's partition key — skip (scoped, §4.1) */
         }
