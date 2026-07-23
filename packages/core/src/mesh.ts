@@ -31,6 +31,7 @@ import {
   type IssuedDisclosureCredential,
   type Presentation,
 } from './selective-disclosure.js';
+import type { RevocationResolver, RevocationListPin } from './revocation.js';
 
 // ── Recognition (B's Sovereign recognizes A's Emissary) ────────────────────────────────────────────────
 
@@ -160,8 +161,13 @@ export interface MeshPolicy {
   recognizedIssuer: string;
   tier: string;
   maxArrivalDepth: number;
-  /** Revoked recognitionIds. Revoke by adding here (v1 in-memory; publishable as an Archon asset later). */
-  revoked: Set<string>;
+  /**
+   * Durable revocation: a resolver over the issuer's published RevocationList asset (fail-closed, version-
+   * pinned). Preferred when set. See revocation.ts.
+   */
+  revocation?: RevocationResolver;
+  /** Legacy in-memory revoked recognitionIds — used only when `revocation` is absent. NOT durable. */
+  revoked?: Set<string>;
   /**
    * The partition-permitted forward axis (depth-2): how many forwards this node is willing to relay. The
    * effective reach at this hop is `min(recognition.maxDepth - 1, maxRelayDepth)` — whichever is tighter.
@@ -195,6 +201,9 @@ export interface MeshAnswer {
   domain: string;
   answeredBy: string;
   answeredAt: string;
+  /** Audit binding: when revocation was checked, and the exact pinned list version it was checked against. */
+  revocationCheckedAt?: string;
+  revocationListVersion?: RevocationListPin;
   proof?: { verificationMethod: string; proofValue: string; created: string; [k: string]: unknown };
 }
 
@@ -284,8 +293,8 @@ export class MeshWarden {
     private readonly forwarding?: MeshForwarding,
   ) {}
 
-  /** Admission — deny-by-default. Returns the disclosed recognition fields on ACCEPT. */
-  async admit(envelope: MeshQueryEnvelope): Promise<{ ok: boolean; reason?: string; check?: string; disclosed?: Record<string, unknown> }> {
+  /** Admission — deny-by-default. Returns the disclosed recognition fields (+ any revocation pin) on ACCEPT. */
+  async admit(envelope: MeshQueryEnvelope): Promise<{ ok: boolean; reason?: string; check?: string; disclosed?: Record<string, unknown>; revocationPin?: RevocationListPin }> {
     // 1. The recognition must verify AND be issued by the Sovereign B recognizes (its own).
     const v = await verifyPresentation(envelope.recognition, { keymaster: this.warden, expectedIssuer: this.policy.recognizedIssuer });
     if (!v.ok) return { ok: false, reason: `recognition not honored: ${v.reason}`, check: v.check === 'issuer' ? 'recognition' : v.check ?? 'recognition' };
@@ -297,8 +306,16 @@ export class MeshWarden {
     // 3. Tier (v1: single recognized tier).
     if (d.tier !== this.policy.tier) return { ok: false, reason: `tier '${String(d.tier)}' is not recognized (need '${this.policy.tier}')`, check: 'tier' };
 
-    // 4. Revocation.
-    if (typeof d.recognitionId === 'string' && this.policy.revoked.has(d.recognitionId)) {
+    // 4. Revocation — durable list preferred; FAIL-CLOSED if the fact is unavailable. Carry the pin so the
+    //    answer can bind the exact list version checked (after-the-fact dispute).
+    const recognitionId = typeof d.recognitionId === 'string' ? d.recognitionId : '';
+    let revocationPin: RevocationListPin | undefined;
+    if (this.policy.revocation) {
+      const rc = await this.policy.revocation.check(recognitionId);
+      if (!rc.available) return { ok: false, reason: `revocation status unavailable — deny (fail-closed): ${rc.reason}`, check: 'revocation' };
+      if (rc.revoked) return { ok: false, reason: 'recognition has been revoked (published list)', check: 'revocation' };
+      revocationPin = rc.pin;
+    } else if (recognitionId && this.policy.revoked?.has(recognitionId)) {
       return { ok: false, reason: 'recognition has been revoked by B', check: 'revocation' };
     }
 
@@ -322,7 +339,7 @@ export class MeshWarden {
         check: 'depth',
       };
     }
-    return { ok: true, disclosed: d };
+    return { ok: true, disclosed: d, revocationPin };
   }
 
   async handle(envelope: MeshQueryEnvelope): Promise<MeshResult> {
@@ -344,6 +361,9 @@ export class MeshWarden {
         domain: envelope.query.domain,
         answeredBy,
         answeredAt: new Date().toISOString(),
+        // Bind the revocation check into the signed answer (audit): which list version proved not-revoked.
+        revocationCheckedAt: adm.revocationPin ? new Date().toISOString() : undefined,
+        revocationListVersion: adm.revocationPin,
       };
       const signed = (await km.addProof(body, this.wardenName)) as MeshAnswer; // this Warden signs the graph
       const answerDid = await km.encryptJSON(signed, envelope.presenterDid, { registry: this.config.registry }); // pairwise to the presenter

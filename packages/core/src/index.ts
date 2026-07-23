@@ -23,5 +23,6 @@ export * from './ruleset.js';
 export * from './pairwise.js';
 export * from './attenuation.js';
 export * from './selective-disclosure.js';
+export * from './revocation.js';
 export * from './mesh.js';
 export * from './control-server.js';
