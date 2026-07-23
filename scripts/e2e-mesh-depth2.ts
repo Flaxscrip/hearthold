@@ -17,8 +17,8 @@ import {
   ensureIdentity,
   issueRecognition,
   presentRecognition,
-  createRevocationList,
-  RevocationResolver,
+  createStatusList,
+  StatusListResolver,
   MeshWarden,
   receiveForwardedAnswer,
   budgetSubset,
@@ -67,24 +67,24 @@ async function main(): Promise<void> {
   const cEmId = await ensureIdentity(cEmissary, cfgC);
   check('three nodes provisioned', cWardenId.did.startsWith('did:') && cEmId.did.startsWith('did:'));
 
-  step('Recognitions: B recognizes A (0.9, maxDepth 2); C recognizes B (0.8, maxDepth 2); A does NOT recognize C');
-  const recAB = await issueRecognition({ issuer: bSov, issuerName: bSovId.name, subject: aEmId.did, scope: { tier: 'trusted', confidence: 0.9, domain: 'fences', mode: 'fact', maxDepth: 2 }, registry: reg });
-  const recAB_d1 = await issueRecognition({ issuer: bSov, issuerName: bSovId.name, subject: aEmId.did, scope: { tier: 'trusted', confidence: 0.9, domain: 'fences', mode: 'fact', maxDepth: 1 }, registry: reg });
-  const recBC = await issueRecognition({ issuer: cSov, issuerName: cSovId.name, subject: bEmId.did, scope: { tier: 'trusted', confidence: 0.8, domain: 'fences', mode: 'fact', maxDepth: 2 }, registry: reg });
+  step('Each Sovereign owns a Bitstring StatusList; issue recognitions: B←A (0.9,d2), B←A@d1, C←B (0.8,d2)');
+  const bList = await createStatusList(bSov, bSovId.name, cfgB);
+  const cList = await createStatusList(cSov, cSovId.name, cfgC);
+  const recAB = await issueRecognition({ issuer: bSov, issuerName: bSovId.name, subject: aEmId.did, scope: { tier: 'trusted', confidence: 0.9, domain: 'fences', mode: 'fact', maxDepth: 2 }, statusListCredential: bList.statusListCredential, registry: reg });
+  const recAB_d1 = await issueRecognition({ issuer: bSov, issuerName: bSovId.name, subject: aEmId.did, scope: { tier: 'trusted', confidence: 0.9, domain: 'fences', mode: 'fact', maxDepth: 1 }, statusListCredential: bList.statusListCredential, registry: reg });
+  const recBC = await issueRecognition({ issuer: cSov, issuerName: cSovId.name, subject: bEmId.did, scope: { tier: 'trusted', confidence: 0.8, domain: 'fences', mode: 'fact', maxDepth: 2 }, statusListCredential: cList.statusListCredential, registry: reg });
   check('recognitions issued (A←B, A←B@depth1, B←C)', recAB.recognitionId !== recBC.recognitionId);
 
   // Partitions: B does NOT hold the post-spacing fact (so B must forward); C does.
   const partB: PublicPartition = { domain: 'fences', facts: [{ ref: 'gate-latch', provenance: 'asserted', confidence: 1, keywords: ['gate', 'latch', 'hinge'], narrative: 'B: use self-closing hinges on a pool gate.' }] };
   const partC: PublicPartition = { domain: 'fences', facts: [{ ref: 'post-spacing', provenance: 'asserted', confidence: 1, keywords: ['post', 'spacing', 'apart', 'space'], narrative: 'Sovereign C asserts: set posts 8 feet on center, 2 feet deep in concrete.' }] };
 
-  // Durable revocation is required — each Sovereign owns an (empty) RevocationList; each Warden resolves
-  // the one for the recognitions it honors. Empty here: no revocations in this suite.
-  const bList = await createRevocationList(bSov, bSovId.name, cfgB);
-  const cList = await createRevocationList(cSov, cSovId.name, cfgC);
-  const bRevocation = new RevocationResolver(bWarden, { listDid: bList.listDid, expectedIssuer: bSovId.did, maxAgeMs: 60_000 });
-  const cRevocation = new RevocationResolver(cWarden, { listDid: cList.listDid, expectedIssuer: cSovId.did, maxAgeMs: 60_000 });
-  const polB: MeshPolicy = { recognizedIssuer: bSovId.did, tier: 'trusted', maxArrivalDepth: 1, revocation: bRevocation, maxRelayDepth: 1 };
-  const polC: MeshPolicy = { recognizedIssuer: cSovId.did, tier: 'trusted', maxArrivalDepth: 1, revocation: cRevocation, maxRelayDepth: 1 };
+  // Durable revocation is required — each Warden resolves the StatusList for the recognitions it honors.
+  // Empty here: no revocations in this suite.
+  const bStatus = new StatusListResolver(bWarden, { statusListCredential: bList.statusListCredential, expectedIssuer: bSovId.did, maxAgeMs: 60_000 });
+  const cStatus = new StatusListResolver(cWarden, { statusListCredential: cList.statusListCredential, expectedIssuer: cSovId.did, maxAgeMs: 60_000 });
+  const polB: MeshPolicy = { recognizedIssuer: bSovId.did, tier: 'trusted', maxArrivalDepth: 1, statusList: bStatus, maxRelayDepth: 1 };
+  const polC: MeshPolicy = { recognizedIssuer: cSovId.did, tier: 'trusted', maxArrivalDepth: 1, statusList: cStatus, maxRelayDepth: 1 };
 
   // C's Warden (answerer). Give it a forwarding capability with NO friends so a query it can't answer hits
   // the depth-exhaustion stop (DEPTH-STOP) rather than a bare partition miss.

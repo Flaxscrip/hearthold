@@ -19,9 +19,9 @@ import {
   verifyAttenuationChain,
   issueRecognition,
   presentRecognition,
-  createRevocationList,
+  createStatusList,
   publishRevocation,
-  RevocationResolver,
+  StatusListResolver,
   delegatedScope,
   scopeQueryToDelegation,
   MeshWarden,
@@ -60,15 +60,17 @@ async function main(): Promise<void> {
   const outsiderId = await ensureIdentity(outsider, configA);
   check('both nodes provisioned', aEmId.did.startsWith('did:') && bWardenId.did.startsWith('did:'));
 
-  step('B\'s Sovereign RECOGNIZES A\'s Emissary (selective-disclosure VC, scoped, revocable)');
+  step('B\'s Sovereign owns a Bitstring StatusList + RECOGNIZES A\'s Emissary (revocable via a random index)');
+  const { statusListCredential } = await createStatusList(bSov, bSovId.name, configB);
   const recognition = await issueRecognition({
     issuer: bSov,
     issuerName: bSovId.name,
     subject: aEmId.did,
     scope: { tier: 'trusted', confidence: 0.9, domain: 'fences', mode: 'fact', maxDepth: 1 },
+    statusListCredential,
     registry: reg,
   });
-  check('recognition issued by B\'s Sovereign, naming A\'s Emissary', recognition.recognitionId.length > 0);
+  check('recognition issued by B\'s Sovereign, naming A\'s Emissary', recognition.statusListIndex >= 0);
 
   step('A\'s Warden DELEGATES a budgeted query to A\'s Emissary (attenuation credential)');
   const delegated = delegatedScope(['fences'], ['fact']);
@@ -85,11 +87,10 @@ async function main(): Promise<void> {
       { ref: 'concrete-cure', provenance: 'inferred', confidence: 0.65, keywords: ['concrete', 'cure', 'set'], narrative: "B's AI inferred from B's notes: concrete usually cures enough to hang panels in 24-48 hours." },
     ],
   };
-  // Durable revocation is required — B's Sovereign owns an (initially empty) RevocationList; B's Warden
-  // resolves it (maxAge 0 ⇒ a later publish is seen at once).
-  const { listDid } = await createRevocationList(bSov, bSovId.name, configB);
-  const revocation = new RevocationResolver(bWarden, { listDid, expectedIssuer: bSovId.did, maxAgeMs: 0 });
-  const policy: MeshPolicy = { recognizedIssuer: bSovId.did, tier: 'trusted', maxArrivalDepth: 1, revocation };
+  // Durable revocation is required — B's Warden resolves the Sovereign's StatusList (maxAge 0 ⇒ a later
+  // publish is seen at once).
+  const statusList = new StatusListResolver(bWarden, { statusListCredential, expectedIssuer: bSovId.did, maxAgeMs: 0 });
+  const policy: MeshPolicy = { recognizedIssuer: bSovId.did, tier: 'trusted', maxArrivalDepth: 1, statusList };
   const meshB = new MeshWarden(bWarden, bWardenId.name, configB, policy, partition);
 
   const validQuery: MeshQuery = { text: 'how far apart should fence posts be?', mode: 'fact', domain: 'fences', depth: 1, budget: { maxNodes: 3, rate: 2 } };
@@ -144,6 +145,7 @@ async function main(): Promise<void> {
     issuerName: aWardenId.name,
     subject: aEmId.did,
     scope: { tier: 'trusted', confidence: 0.9, domain: 'fences', mode: 'fact', maxDepth: 1 },
+    statusListCredential, // value is irrelevant — B rejects at the signature check before revocation
     registry: reg,
   });
   const rBogus = await meshB.handle(envelopeOf(validQuery, bogus));
@@ -165,9 +167,9 @@ async function main(): Promise<void> {
   check('over-BUDGET (maxNodes 100 > delegated 10) blocked A-side', !overBudget.ok);
   if (!overBudget.ok) process.stdout.write(`      → ${overBudget.reason}\n`);
 
-  // ── REVOKED-RECOGNITION (run last — publishes to the durable list) ──
-  step('REVOKED-RECOGNITION: B\'s Sovereign publishes a revocation, A presents the cred → REJECT');
-  await publishRevocation(bSov, bSovId.name, listDid, recognition.recognitionId, configB);
+  // ── REVOKED-RECOGNITION (run last — sets the recognition's bit in the durable StatusList) ──
+  step('REVOKED-RECOGNITION: B\'s Sovereign sets the recognition\'s status bit, A presents the cred → REJECT');
+  await publishRevocation(bSov, bSovId.name, statusListCredential, recognition.statusListIndex, configB);
   const rRevoked = await meshB.handle(envelopeOf(validQuery));
   check('B REJECTS the revoked recognition', rRevoked.status === 'rejected' && rRevoked.check === 'revocation');
   if (rRevoked.status === 'rejected') process.stdout.write(`      → ${rRevoked.reason}\n`);

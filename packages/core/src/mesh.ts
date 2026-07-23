@@ -31,7 +31,8 @@ import {
   type IssuedDisclosureCredential,
   type Presentation,
 } from './selective-disclosure.js';
-import type { RevocationResolver, RevocationListPin } from './revocation.js';
+import { assignStatusIndex } from './status-list.js';
+import type { StatusListResolver, StatusListPin } from './status-list.js';
 
 // ── Recognition (B's Sovereign recognizes A's Emissary) ────────────────────────────────────────────────
 
@@ -47,17 +48,26 @@ export interface RecognitionScope {
 }
 
 /**
- * B's Sovereign issues a recognition credential naming A's Emissary, scoped. A fresh `recognitionId` rides
- * in the credential so B can revoke it. Returns the SD credential (commitments + disclosures + payload).
+ * B's Sovereign issues a recognition credential naming A's Emissary, scoped. Revocation rides a W3C
+ * Bitstring Status List: a RANDOM `statusListIndex` (never sequential — that would leak issuance order) into
+ * the issuer's `statusListCredential`; a set bit means revoked. `recognitionId` remains as an opaque identity
+ * label (used in relay assertions) but is NOT the revocation key and never enters the published list.
+ *
+ * Pass the issuer's private `assignedIndices` set to avoid index reuse across issuances (never published).
  */
 export async function issueRecognition(args: {
   issuer: KeymasterHandle;
   issuerName: string;
   subject: string;
   scope: Omit<RecognitionScope, 'subject'>;
+  /** The issuer's StatusList asset DID — recorded in the credential so a checker resolves the right list. */
+  statusListCredential: string;
   registry: string;
-}): Promise<IssuedDisclosureCredential & { recognitionId: string }> {
+  /** Issuer-private set of already-assigned indices (avoids reuse). Never published. */
+  assignedIndices?: Set<number>;
+}): Promise<IssuedDisclosureCredential & { recognitionId: string; statusListIndex: number; statusListCredential: string }> {
   const recognitionId = randomUUID();
+  const statusListIndex = assignStatusIndex(args.assignedIndices);
   const cred = await issueDisclosureCredential({
     issuer: args.issuer,
     issuerName: args.issuerName,
@@ -70,19 +80,22 @@ export async function issueRecognition(args: {
       mode: args.scope.mode,
       maxDepth: args.scope.maxDepth,
       recognitionId,
+      statusListIndex,
+      statusListCredential: args.statusListCredential,
     },
     credentialType: 'MeshRecognition',
     registry: args.registry,
   });
-  return { ...cred, recognitionId };
+  return { ...cred, recognitionId, statusListIndex, statusListCredential: args.statusListCredential };
 }
 
 /**
  * What an admission policy needs to see. A discloses these; domain/mode stay hidden. `maxDepth` is disclosed
- * (FIX-FIRST — depth authority): each hop must enforce how far the RECOGNITION authorized propagation, not
- * only its own partition policy. Effective reach at every hop = min(recognition-authorized, partition-permitted).
+ * (FIX-FIRST — depth authority): each hop enforces how far the RECOGNITION authorized propagation, not only
+ * its own partition policy. `statusListIndex` + `statusListCredential` are disclosed so the checker can read
+ * the revocation bit; `recognitionId` for identity/audit.
  */
-export const RECOGNITION_DISCLOSE = ['subject', 'tier', 'recognitionId', 'confidence', 'maxDepth'] as const;
+export const RECOGNITION_DISCLOSE = ['subject', 'tier', 'recognitionId', 'confidence', 'maxDepth', 'statusListIndex', 'statusListCredential'] as const;
 
 /** A's Emissary assembles the recognition presentation, revealing only what B admits on. */
 export function presentRecognition(cred: IssuedDisclosureCredential): Presentation {
@@ -162,11 +175,11 @@ export interface MeshPolicy {
   tier: string;
   maxArrivalDepth: number;
   /**
-   * Durable revocation — REQUIRED: a resolver over the issuer's published RevocationList asset (fail-closed,
-   * version-pinned). There is no in-memory fallback; durability is not opt-in. For a node with no
-   * revocations, point it at a freshly-created (empty) RevocationList. See revocation.ts.
+   * Durable revocation — REQUIRED: a resolver over the issuer's published Bitstring StatusList asset
+   * (fail-closed, version-pinned). No in-memory fallback; durability is not opt-in. For a node with no
+   * revocations, point it at a freshly-created (empty) StatusList. See status-list.ts.
    */
-  revocation: RevocationResolver;
+  statusList: StatusListResolver;
   /**
    * The partition-permitted forward axis (depth-2): how many forwards this node is willing to relay. The
    * effective reach at this hop is `min(recognition.maxDepth - 1, maxRelayDepth)` — whichever is tighter.
@@ -200,9 +213,9 @@ export interface MeshAnswer {
   domain: string;
   answeredBy: string;
   answeredAt: string;
-  /** Audit binding: when revocation was checked, and the exact pinned list version it was checked against. */
-  revocationCheckedAt?: string;
-  revocationListVersion?: RevocationListPin;
+  /** Audit binding: when the status was checked, and the exact pinned StatusList version it was checked against. */
+  statusCheckedAt?: string;
+  statusListVersion?: StatusListPin;
   proof?: { verificationMethod: string; proofValue: string; created: string; [k: string]: unknown };
 }
 
@@ -292,8 +305,8 @@ export class MeshWarden {
     private readonly forwarding?: MeshForwarding,
   ) {}
 
-  /** Admission — deny-by-default. Returns the disclosed recognition fields (+ any revocation pin) on ACCEPT. */
-  async admit(envelope: MeshQueryEnvelope): Promise<{ ok: boolean; reason?: string; check?: string; disclosed?: Record<string, unknown>; revocationPin?: RevocationListPin }> {
+  /** Admission — deny-by-default. Returns the disclosed recognition fields (+ any status pin) on ACCEPT. */
+  async admit(envelope: MeshQueryEnvelope): Promise<{ ok: boolean; reason?: string; check?: string; disclosed?: Record<string, unknown>; statusPin?: StatusListPin }> {
     // 1. The recognition must verify AND be issued by the Sovereign B recognizes (its own).
     const v = await verifyPresentation(envelope.recognition, { keymaster: this.warden, expectedIssuer: this.policy.recognizedIssuer });
     if (!v.ok) return { ok: false, reason: `recognition not honored: ${v.reason}`, check: v.check === 'issuer' ? 'recognition' : v.check ?? 'recognition' };
@@ -305,13 +318,17 @@ export class MeshWarden {
     // 3. Tier (v1: single recognized tier).
     if (d.tier !== this.policy.tier) return { ok: false, reason: `tier '${String(d.tier)}' is not recognized (need '${this.policy.tier}')`, check: 'tier' };
 
-    // 4. Revocation — resolve the durable list, FAIL-CLOSED if the fact is unavailable. Carry the pin so the
+    // 4. Revocation — read the recognition's bit in the durable Bitstring StatusList, FAIL-CLOSED if the
+    //    fact is unavailable. The recognition must point at the list this node checks. Carry the pin so the
     //    answer can bind the exact list version checked (after-the-fact dispute).
-    const recognitionId = typeof d.recognitionId === 'string' ? d.recognitionId : '';
-    const rc = await this.policy.revocation.check(recognitionId);
+    if (typeof d.statusListCredential === 'string' && d.statusListCredential !== this.policy.statusList.statusListCredential) {
+      return { ok: false, reason: 'recognition points at a different status list than this node checks', check: 'revocation' };
+    }
+    const statusListIndex = Number(d.statusListIndex);
+    const rc = await this.policy.statusList.check(statusListIndex);
     if (!rc.available) return { ok: false, reason: `revocation status unavailable — deny (fail-closed): ${rc.reason}`, check: 'revocation' };
-    if (rc.revoked) return { ok: false, reason: 'recognition has been revoked (published list)', check: 'revocation' };
-    const revocationPin = rc.pin;
+    if (rc.revoked) return { ok: false, reason: 'recognition has been revoked (status bit set)', check: 'revocation' };
+    const statusPin = rc.pin;
 
     // 5. Arrival depth (v1: depth-1 partition only — each hop is a fresh 1-hop presentation).
     if (envelope.query.depth !== this.policy.maxArrivalDepth) {
@@ -333,7 +350,7 @@ export class MeshWarden {
         check: 'depth',
       };
     }
-    return { ok: true, disclosed: d, revocationPin };
+    return { ok: true, disclosed: d, statusPin };
   }
 
   async handle(envelope: MeshQueryEnvelope): Promise<MeshResult> {
@@ -355,9 +372,9 @@ export class MeshWarden {
         domain: envelope.query.domain,
         answeredBy,
         answeredAt: new Date().toISOString(),
-        // Bind the revocation check into the signed answer (audit): which list version proved not-revoked.
-        revocationCheckedAt: adm.revocationPin ? new Date().toISOString() : undefined,
-        revocationListVersion: adm.revocationPin,
+        // Bind the status check into the signed answer (audit): which StatusList version proved not-revoked.
+        statusCheckedAt: adm.statusPin ? new Date().toISOString() : undefined,
+        statusListVersion: adm.statusPin,
       };
       const signed = (await km.addProof(body, this.wardenName)) as MeshAnswer; // this Warden signs the graph
       const answerDid = await km.encryptJSON(signed, envelope.presenterDid, { registry: this.config.registry }); // pairwise to the presenter
