@@ -76,8 +76,12 @@ export async function issueRecognition(args: {
   return { ...cred, recognitionId };
 }
 
-/** What B's admission policy needs to see. A discloses ONLY these; domain/mode/maxDepth stay hidden. */
-export const RECOGNITION_DISCLOSE = ['subject', 'tier', 'recognitionId', 'confidence'] as const;
+/**
+ * What an admission policy needs to see. A discloses these; domain/mode stay hidden. `maxDepth` is disclosed
+ * (FIX-FIRST — depth authority): each hop must enforce how far the RECOGNITION authorized propagation, not
+ * only its own partition policy. Effective reach at every hop = min(recognition-authorized, partition-permitted).
+ */
+export const RECOGNITION_DISCLOSE = ['subject', 'tier', 'recognitionId', 'confidence', 'maxDepth'] as const;
 
 /** A's Emissary assembles the recognition presentation, revealing only what B admits on. */
 export function presentRecognition(cred: IssuedDisclosureCredential): Presentation {
@@ -95,8 +99,17 @@ export interface MeshQuery {
   text: string;
   mode: 'fact' | 'reasoning';
   domain: string;
+  /** Per-hop arrival depth — always 1 (each hop is a fresh 1-hop presentation to the next Warden). */
   depth: number;
   budget: QueryBudget;
+  /**
+   * Propagation budget (depth-2): forwards still allowed. A recognition of `maxDepth k` authorizes `k-1`
+   * forwards from where it is presented. Set by the origin from its recognition; strictly decremented on
+   * each forward. `< 1` ⇒ this node cannot forward. Absent ⇒ 0 (v1 answer-only).
+   */
+  depthRemaining?: number;
+  /** Warden DIDs already on the path — the cycle guard rejects forwarding to any node already here. */
+  visited?: string[];
 }
 
 /**
@@ -141,14 +154,20 @@ export interface MeshQueryEnvelope {
   presenterDid: string;
 }
 
-/** B's admission policy (v1: single tier, arrival depth 1 only). */
+/** A node's admission policy (v1: single tier, arrival depth 1 only). */
 export interface MeshPolicy {
-  /** The Sovereign whose recognitions B honors (B's own Sovereign). */
+  /** The Sovereign whose recognitions this node honors (its own). */
   recognizedIssuer: string;
   tier: string;
   maxArrivalDepth: number;
-  /** Revoked recognitionIds. B revokes by adding here (v1 in-memory; publishable as an Archon asset later). */
+  /** Revoked recognitionIds. Revoke by adding here (v1 in-memory; publishable as an Archon asset later). */
   revoked: Set<string>;
+  /**
+   * The partition-permitted forward axis (depth-2): how many forwards this node is willing to relay. The
+   * effective reach at this hop is `min(recognition.maxDepth - 1, maxRelayDepth)` — whichever is tighter.
+   * Absent ⇒ 0 (this node does not relay; v1 answer-only).
+   */
+  maxRelayDepth?: number;
 }
 
 /** One fact in B's public partition, with its provenance. */
@@ -181,13 +200,72 @@ export interface MeshAnswer {
 
 export type MeshResult =
   | { status: 'granted'; answerDid: string }
-  | { status: 'rejected'; reason: string; check: string };
+  | { status: 'rejected'; reason: string; check: string }
+  /** No local answer and no valid forward — a CLEAN miss, never a fabricated answer (BROKEN-RELAY). */
+  | { status: 'no-answer'; reason: string };
 
 /** v1 reasoning: a keyword lookup over the seeded public partition (an LLM call would slot in here). */
 export function reasonOverPartition(query: MeshQuery, partition: PublicPartition): PartitionFact | null {
   if (query.domain !== partition.domain) return null;
   const q = query.text.toLowerCase();
   return partition.facts.find((f) => f.keywords.some((k) => q.includes(k))) ?? null;
+}
+
+/**
+ * Per-hop budget attenuation (depth-2): a forwarded query must be a CHILD of the incoming one — categorical
+ * scope `isSubset` AND numeric budget `≤`. Same attenuation model as the A-side delegation gate, applied at
+ * B before forwarding. Reused, not reinvented.
+ */
+export function budgetSubset(child: MeshQuery, parent: MeshQuery): { ok: boolean; reason?: string } {
+  const scope = (q: MeshQuery): AuthoritySet => ({ operations: ['query'], resources: [`domain:${q.domain}`, `mode:${q.mode}`] });
+  if (!isSubset(scope(child), scope(parent))) return { ok: false, reason: `forward {${child.mode} on ${child.domain}} is not a subset of the incoming grant` };
+  if (child.budget.maxNodes > parent.budget.maxNodes) return { ok: false, reason: `forward maxNodes ${child.budget.maxNodes} exceeds incoming ${parent.budget.maxNodes}` };
+  if (child.budget.rate > parent.budget.rate) return { ok: false, reason: `forward rate ${child.budget.rate} exceeds incoming ${parent.budget.rate}` };
+  if ((child.depthRemaining ?? 0) > (parent.depthRemaining ?? 0) - 1) return { ok: false, reason: 'forward depthRemaining did not strictly decrease' };
+  return { ok: true };
+}
+
+/** A recognition THIS node holds of a friend (the friend recognized this node): presented when forwarding. */
+export interface FriendRecognition {
+  /** The credential the friend issued naming this node's Emissary (friend recognizes me). */
+  cred: IssuedDisclosureCredential;
+  recognitionId: string;
+  /** The friend edge's recognition confidence (composed into the path confidence). */
+  confidence: number;
+  /** The friend's answering Warden DID — the forward target; used for the cycle guard + verification. */
+  friendWardenDid: string;
+  domain: string;
+}
+
+/**
+ * A node's forwarding capability. Its EMISSARY is the crossing agent; `reachFriend` is that Emissary
+ * crossing to a friend's Warden and returning its result — the Warden itself never holds a foreign handle.
+ * In-process the harness wires `reachFriend` to the friend's `MeshWarden.handle`; the invariant is
+ * structural (this Warden only ever receives a neutral result back).
+ */
+export interface MeshForwarding {
+  emissary: KeymasterHandle;
+  emissaryName: string;
+  emissaryDid: string;
+  friends: FriendRecognition[];
+  reachFriend: (friendWardenDid: string, envelope: MeshQueryEnvelope) => Promise<MeshResult>;
+}
+
+/** B's signed assertion that it relayed C's answer under C's recognition of B — the trust-basis for the B→C edge. */
+export interface RelayAssertion {
+  relayedBy: string;
+  answerer: string;
+  /** The C→B edge confidence (C recognizes B). */
+  edgeConfidence: number;
+  recognitionId: string;
+  forwardedAt: string;
+  proof?: { verificationMethod: string; proofValue: string; created: string; [k: string]: unknown };
+}
+
+/** The two-signature return: C's signed answer + B's signed relay assertion. A assembles the path from these. */
+export interface ForwardedAnswer {
+  answer: MeshAnswer;
+  relay: RelayAssertion;
 }
 
 /**
@@ -202,6 +280,8 @@ export class MeshWarden {
     private readonly config: HearthholdConfig,
     private readonly policy: MeshPolicy,
     private readonly partition: PublicPartition,
+    /** Depth-2: the forwarding capability (this node's Emissary + friend recognitions). Omit ⇒ answer-only. */
+    private readonly forwarding?: MeshForwarding,
   ) {}
 
   /** Admission — deny-by-default. Returns the disclosed recognition fields on ACCEPT. */
@@ -222,9 +302,25 @@ export class MeshWarden {
       return { ok: false, reason: 'recognition has been revoked by B', check: 'revocation' };
     }
 
-    // 5. Arrival depth (v1: depth-1 partition only).
+    // 5. Arrival depth (v1: depth-1 partition only — each hop is a fresh 1-hop presentation).
     if (envelope.query.depth !== this.policy.maxArrivalDepth) {
       return { ok: false, reason: `arrival depth ${envelope.query.depth} exceeds partition policy (depth ${this.policy.maxArrivalDepth} only)`, check: 'depth' };
+    }
+
+    // 6. Depth authority (FIX-FIRST): the query's remaining forward budget must not exceed what the
+    //    RECOGNITION authorized (maxDepth-1 forwards) NOR what this partition permits (maxRelayDepth) —
+    //    min of the two. Catches an over-claim (e.g. a maxDepth-1 recognition used to reach depth 2).
+    const authorizedForwards = Number(d.maxDepth ?? 1) - 1;
+    const permittedForwards = Math.min(authorizedForwards, this.policy.maxRelayDepth ?? 0);
+    const claimedRemaining = envelope.query.depthRemaining ?? 0;
+    if (claimedRemaining > permittedForwards) {
+      return {
+        ok: false,
+        reason:
+          `depthRemaining ${claimedRemaining} exceeds the permitted ${permittedForwards} ` +
+          `(recognition authorizes ${authorizedForwards} forward(s), partition permits ${this.policy.maxRelayDepth ?? 0})`,
+        check: 'depth',
+      };
     }
     return { ok: true, disclosed: d };
   }
@@ -233,24 +329,80 @@ export class MeshWarden {
     const adm = await this.admit(envelope);
     if (!adm.ok) return { status: 'rejected', reason: adm.reason ?? 'admission denied', check: adm.check ?? 'admission' };
 
+    // 1. Answer locally if we can.
     const fact = reasonOverPartition(envelope.query, this.partition);
-    if (!fact) return { status: 'rejected', reason: 'no answer in the public partition for that query', check: 'partition' };
+    if (fact) {
+      const km = this.warden.keymaster;
+      await km.setCurrentId(this.wardenName);
+      const answeredBy = (await km.resolveDID(this.wardenName)).didDocument?.id ?? '';
+      const body: MeshAnswer = {
+        reference: fact.ref,
+        provenance: fact.provenance,
+        factConfidence: fact.confidence,
+        recognitionConfidence: Number(adm.disclosed?.confidence ?? 0),
+        narrative: fact.narrative,
+        domain: envelope.query.domain,
+        answeredBy,
+        answeredAt: new Date().toISOString(),
+      };
+      const signed = (await km.addProof(body, this.wardenName)) as MeshAnswer; // this Warden signs the graph
+      const answerDid = await km.encryptJSON(signed, envelope.presenterDid, { registry: this.config.registry }); // pairwise to the presenter
+      return { status: 'granted', answerDid };
+    }
 
+    // 2. No local answer — forward once, if configured and authorized. Never a fabricated answer.
+    if (!this.forwarding) return { status: 'rejected', reason: 'no answer in the public partition for that query', check: 'partition' };
+    return this.forward(envelope);
+  }
+
+  /** Depth-2 relay: this node's Emissary crosses to a recognized friend, then this Warden re-packages. */
+  private async forward(incoming: MeshQueryEnvelope): Promise<MeshResult> {
+    const f = this.forwarding!;
+    const remaining = incoming.query.depthRemaining ?? 0;
+    // Propagation depth exhausted: a hard stop on forwarding (DEPTH-STOP), distinct from a clean no-answer.
+    if (remaining < 1) return { status: 'rejected', reason: `propagation depth exhausted (depthRemaining ${remaining}) — cannot forward further`, check: 'depth' };
+
+    // No recognized friend for this domain: a CLEAN no-answer (BROKEN-RELAY), never a fabricated answer.
+    const friend = f.friends.find((fr) => fr.domain === incoming.query.domain);
+    if (!friend) return { status: 'no-answer', reason: 'no recognized friend covers this domain — clean no-answer' };
+
+    const visited = incoming.query.visited ?? [];
     const km = this.warden.keymaster;
     await km.setCurrentId(this.wardenName);
-    const answeredBy = (await km.resolveDID(this.wardenName)).didDocument?.id ?? '';
-    const body: MeshAnswer = {
-      reference: fact.ref,
-      provenance: fact.provenance,
-      factConfidence: fact.confidence,
-      recognitionConfidence: Number(adm.disclosed?.confidence ?? 0),
-      narrative: fact.narrative,
-      domain: envelope.query.domain,
-      answeredBy,
-      answeredAt: new Date().toISOString(),
+    const myDid = (await km.resolveDID(this.wardenName)).didDocument?.id ?? '';
+    if (visited.includes(friend.friendWardenDid)) {
+      return { status: 'rejected', reason: `cycle: ${friend.friendWardenDid.slice(0, 24)}… is already on the path`, check: 'cycle' };
+    }
+
+    // Attenuate the query for the forward (strictly decrement depthRemaining; scope/budget must be ⊆).
+    const forwardQuery: MeshQuery = { ...incoming.query, depthRemaining: remaining - 1, visited: [...visited, myDid] };
+    const chk = budgetSubset(forwardQuery, incoming.query);
+    if (!chk.ok) return { status: 'rejected', reason: `budget attenuation: ${chk.reason}`, check: 'budget' };
+
+    // B's EMISSARY crosses to C, presenting B's (friend's) recognition. presenterDid = B's Emissary — NOT
+    // A's — so C never learns the querier A (querier-privacy boundary; documented in FINDINGS).
+    const fwdEnvelope: MeshQueryEnvelope = { query: forwardQuery, recognition: presentRecognition(friend.cred), presenterDid: f.emissaryDid };
+    const cResult = await f.reachFriend(friend.friendWardenDid, fwdEnvelope);
+    if (cResult.status !== 'granted') {
+      return { status: 'no-answer', reason: `friend did not answer (${cResult.status}${cResult.status !== 'no-answer' ? `: ${cResult.reason}` : ''})` };
+    }
+
+    // B's Emissary decrypts C's answer (B, the relay, learns it), keeping C's signature intact.
+    await f.emissary.keymaster.setCurrentId(f.emissaryName);
+    const cSigned = (await f.emissary.keymaster.decryptJSON(cResult.answerDid)) as MeshAnswer;
+
+    // B's Warden signs a relay assertion (the trust-basis for the B→C edge), then re-encrypts to A.
+    await km.setCurrentId(this.wardenName);
+    const relayBody: RelayAssertion = {
+      relayedBy: myDid,
+      answerer: cSigned.answeredBy,
+      edgeConfidence: friend.confidence,
+      recognitionId: friend.recognitionId,
+      forwardedAt: new Date().toISOString(),
     };
-    const signed = (await km.addProof(body, this.wardenName)) as MeshAnswer; // B's Warden signs the graph
-    const answerDid = await km.encryptJSON(signed, envelope.presenterDid, { registry: this.config.registry }); // pairwise to A's Emissary
+    const relay = (await km.addProof(relayBody, this.wardenName)) as RelayAssertion;
+    const forwarded: ForwardedAnswer = { answer: cSigned, relay };
+    const answerDid = await km.encryptJSON(forwarded, incoming.presenterDid, { registry: this.config.registry }); // pairwise to A's Emissary
     return { status: 'granted', answerDid };
   }
 }
@@ -288,4 +440,84 @@ export async function receiveAnswer(args: {
   const signer = (answer.proof.verificationMethod ?? '').split('#')[0];
   if (signer !== args.expectedIssuer) return { ok: false, reason: `answer signed by ${signer}, not the expected issuer ${args.expectedIssuer}` };
   return { ok: true, answer };
+}
+
+// ── Depth-2 return: verify + mesh-assembled path provenance (verification ≠ recognition) ──────────────────
+
+/** One trust edge in the assembled path. `basis` names WHY the edge exists — never "A recognizes C". */
+export interface PathEdge {
+  from: string;
+  to: string;
+  basis: string;
+  confidence: number;
+}
+
+export interface ReceivedForwardedAnswer {
+  ok: boolean;
+  reason?: string;
+  answer?: MeshAnswer;
+  /** The cryptographically VERIFIED answer signer (C). Verification is NOT recognition (see below). */
+  verifiedSigner?: string;
+  /** The relay A actually recognizes (B). */
+  recognizedRelay?: string;
+  /** The trust path, assembled by the mesh: A →(recognizes)→ B →(recognizes)→ C. NEVER an A→C edge. */
+  path?: PathEdge[];
+  /** Composed path confidence = product of edge confidences (≤ any single hop). */
+  pathConfidence?: number;
+  /**
+   * STRUCTURAL guarantee: A does NOT recognize the answerer — it only verified its signature. Always
+   * `false` for a relayed answer. Verifying C's signature must never be recorded as recognizing C.
+   */
+  recognizesAnswerer: boolean;
+}
+
+/**
+ * A's Emissary decrypts a forwarded answer and lets the MESH (not the caller) assemble path provenance:
+ *  - verifies the RELAY assertion, signed by the relay A recognizes (B) — A trusts B's forwarding claim;
+ *  - VERIFIES the answerer's signature (C) cryptographically — this is verification, NOT recognition;
+ *  - binds the two (the relay must name the same answerer that signed);
+ *  - assembles the path `A →recognizes→ B →recognizes→ C` and composes the confidence, recording
+ *    `recognizesAnswerer: false` so "A trusts C" is never implied.
+ */
+export async function receiveForwardedAnswer(args: {
+  emissary: KeymasterHandle;
+  emissaryName: string;
+  answerDid: string;
+  /** A's own DID (path origin). */
+  self: string;
+  /** The relay A recognizes (B's Warden DID). */
+  expectedRelay: string;
+  /** The A→B edge confidence — from B's recognition of A, which A holds. */
+  relayEdgeConfidence: number;
+}): Promise<ReceivedForwardedAnswer> {
+  const km = args.emissary.keymaster;
+  await km.setCurrentId(args.emissaryName);
+  let fwd: ForwardedAnswer;
+  try {
+    fwd = (await km.decryptJSON(args.answerDid)) as ForwardedAnswer;
+  } catch (e) {
+    return { ok: false, reason: `could not decrypt (not the recipient?): ${e instanceof Error ? e.message : String(e)}`, recognizesAnswerer: false };
+  }
+  const verifyProof = km.verifyProof.bind(km) as (o: unknown) => Promise<boolean>;
+  const { answer, relay } = fwd;
+
+  // 1. The RELAY assertion — A recognizes B, so A trusts B's signed forwarding claim.
+  if (!relay?.proof) return { ok: false, reason: 'no relay assertion', recognizesAnswerer: false };
+  if (!(await verifyProof(relay).catch(() => false))) return { ok: false, reason: 'relay assertion signature does not verify', recognizesAnswerer: false };
+  const relaySigner = (relay.proof.verificationMethod ?? '').split('#')[0];
+  if (relaySigner !== args.expectedRelay) return { ok: false, reason: `relayed by ${relaySigner}, not the recognized relay ${args.expectedRelay}`, recognizesAnswerer: false };
+
+  // 2. The ANSWERER's signature (C) — VERIFIED, not recognized. A has no recognition of C.
+  if (!answer?.proof) return { ok: false, reason: 'answer carries no signature', recognizesAnswerer: false };
+  if (!(await verifyProof(answer).catch(() => false))) return { ok: false, reason: "answerer's signature does not verify (tampered graph)", recognizesAnswerer: false };
+  const answerSigner = (answer.proof.verificationMethod ?? '').split('#')[0];
+  if (answerSigner !== relay.answerer) return { ok: false, reason: `answer signed by ${answerSigner}, but the relay names answerer ${relay.answerer}`, recognizesAnswerer: false };
+
+  // 3. Mesh-assembled path — A →recognizes→ B →recognizes→ C. No A→C edge is ever synthesized.
+  const path: PathEdge[] = [
+    { from: args.self, to: args.expectedRelay, basis: 'A recognizes B', confidence: args.relayEdgeConfidence },
+    { from: args.expectedRelay, to: answerSigner, basis: 'B recognizes C', confidence: relay.edgeConfidence },
+  ];
+  const pathConfidence = args.relayEdgeConfidence * relay.edgeConfidence;
+  return { ok: true, answer, verifiedSigner: answerSigner, recognizedRelay: args.expectedRelay, path, pathConfidence, recognizesAnswerer: false };
 }
