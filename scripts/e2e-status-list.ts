@@ -33,7 +33,7 @@ import {
   type MeshPolicy,
   type MeshQuery,
   type MeshQueryEnvelope,
-  type PublicPartition,
+  type PartitionLadder,
   type SignedStatusList,
   type StatusListPin,
 } from '@hearthold/core';
@@ -69,13 +69,13 @@ async function main(): Promise<void> {
   check('StatusList + recognition issued (random index)', statusListCredential.startsWith('did:') && rec.statusListIndex >= 0 && rec.statusListIndex < STATUS_LIST_LENGTH);
   process.stdout.write(`      recognition status index = ${rec.statusListIndex} (of ${STATUS_LIST_LENGTH})\n`);
 
-  const partition: PublicPartition = { domain: 'fences', facts: [{ ref: 'post-spacing', provenance: 'asserted', confidence: 1, keywords: ['post', 'spacing', 'apart'], narrative: 'Sovereign B asserts: set posts 8 feet on center.' }] };
-  const query: MeshQuery = { text: 'how far apart should fence posts be?', mode: 'fact', domain: 'fences', depth: 1, budget: { maxNodes: 3, rate: 2 } };
+  const ladder: PartitionLadder = [{ name: 'notes', domain: 'fences', access: { minTier: 'trusted', maxArrivalDepth: 1 }, facts: [{ ref: 'post-spacing', provenance: 'asserted', confidence: 1, keywords: ['post', 'spacing', 'apart'], narrative: 'Sovereign B asserts: set posts 8 feet on center.' }] }];
+  const query: MeshQuery = { text: 'how far apart should fence posts be?', mode: 'fact', domain: 'fences', budget: { maxNodes: 3, rate: 2 } };
   const envOf = (r = rec): MeshQueryEnvelope => ({ query, recognition: presentRecognition(r), presenterDid: aEmId.did });
-  const policyWith = (s: StatusListResolver): MeshPolicy => ({ recognizedIssuer: bSovId.did, tier: 'trusted', maxArrivalDepth: 1, statusList: s });
+  const policyWith = (s: StatusListResolver): MeshPolicy => ({ recognizedIssuer: bSovId.did, tierOrder: ['trusted'], statusList: s });
 
   const liveResolver = new StatusListResolver(bWarden, { statusListCredential, expectedIssuer: bSovId.did, maxAgeMs: 0 });
-  const meshB = new MeshWarden(bWarden, bWardenId.name, cfgB, policyWith(liveResolver), partition);
+  const meshB = new MeshWarden(bWarden, bWardenId.name, cfgB, policyWith(liveResolver), ladder);
 
   // ── HAPPY ──
   step('HAPPY: unrevoked index → ACCEPT; the answer pins the StatusList version + checked-at');
@@ -115,7 +115,7 @@ async function main(): Promise<void> {
   // ── PERSISTENCE ──
   step('PERSISTENCE: a FRESH Warden with NO in-memory state → still REJECTS the revoked recognition');
   const freshResolver = new StatusListResolver(bWarden, { statusListCredential, expectedIssuer: bSovId.did, maxAgeMs: 60_000 });
-  const freshMeshB = new MeshWarden(bWarden, bWardenId.name, cfgB, policyWith(freshResolver), partition);
+  const freshMeshB = new MeshWarden(bWarden, bWardenId.name, cfgB, policyWith(freshResolver), ladder);
   const resFresh = await freshMeshB.handle(envOf());
   check('durable: a brand-new Warden reads the published bit and REJECTS', resFresh.status === 'rejected' && resFresh.check === 'revocation');
 
@@ -124,7 +124,7 @@ async function main(): Promise<void> {
   const badDid = 'did:cid:bagaaieranotarealstatuslist000000000000000000000000000000000';
   const recBad = await issueRecognition({ issuer: bSov, issuerName: bSovId.name, subject: aEmId.did, scope, statusListCredential: badDid, allocationRecord, registry: reg });
   const badResolver = new StatusListResolver(bWarden, { statusListCredential: badDid, expectedIssuer: bSovId.did, maxAgeMs: 60_000 });
-  const badMeshB = new MeshWarden(bWarden, bWardenId.name, cfgB, policyWith(badResolver), partition);
+  const badMeshB = new MeshWarden(bWarden, bWardenId.name, cfgB, policyWith(badResolver), ladder);
   const resFailClosed = await badMeshB.handle(envOf(recBad)); // recBad is unrevoked, but its list can't be resolved
   check('an unresolvable status list DENIES (fail-closed), never allows', resFailClosed.status === 'rejected' && resFailClosed.check === 'revocation');
   check('the denial is specifically fail-closed on unavailability', resFailClosed.status === 'rejected' && /fail-closed|unavailable|unresolvable/.test(resFailClosed.reason));

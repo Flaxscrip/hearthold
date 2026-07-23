@@ -26,7 +26,7 @@ import {
   type MeshQuery,
   type MeshQueryEnvelope,
   type MeshPolicy,
-  type PublicPartition,
+  type PartitionLadder,
   type MeshForwarding,
   type MeshResult,
   type KeymasterHandle,
@@ -79,20 +79,20 @@ async function main(): Promise<void> {
   check('recognitions issued (A←B, A←B@depth1, B←C)', recAB.recognitionId !== recBC.recognitionId);
 
   // Partitions: B does NOT hold the post-spacing fact (so B must forward); C does.
-  const partB: PublicPartition = { domain: 'fences', facts: [{ ref: 'gate-latch', provenance: 'asserted', confidence: 1, keywords: ['gate', 'latch', 'hinge'], narrative: 'B: use self-closing hinges on a pool gate.' }] };
-  const partC: PublicPartition = { domain: 'fences', facts: [{ ref: 'post-spacing', provenance: 'asserted', confidence: 1, keywords: ['post', 'spacing', 'apart', 'space'], narrative: 'Sovereign C asserts: set posts 8 feet on center, 2 feet deep in concrete.' }] };
+  const ladderB: PartitionLadder = [{ name: 'gates', domain: 'fences', access: { minTier: 'trusted', maxArrivalDepth: 1 }, facts: [{ ref: 'gate-latch', provenance: 'asserted', confidence: 1, keywords: ['gate', 'latch', 'hinge'], narrative: 'B: use self-closing hinges on a pool gate.' }] }];
+  const ladderC: PartitionLadder = [{ name: 'notes', domain: 'fences', access: { minTier: 'trusted', maxArrivalDepth: 2 }, facts: [{ ref: 'post-spacing', provenance: 'asserted', confidence: 1, keywords: ['post', 'spacing', 'apart', 'space'], narrative: 'Sovereign C asserts: set posts 8 feet on center, 2 feet deep in concrete.' }] }];
 
   // Durable revocation is required — each Warden resolves the StatusList for the recognitions it honors.
   // Empty here: no revocations in this suite.
   const bStatus = new StatusListResolver(bWarden, { statusListCredential: bList.statusListCredential, expectedIssuer: bSovId.did, maxAgeMs: 60_000 });
   const cStatus = new StatusListResolver(cWarden, { statusListCredential: cList.statusListCredential, expectedIssuer: cSovId.did, maxAgeMs: 60_000 });
-  const polB: MeshPolicy = { recognizedIssuer: bSovId.did, tier: 'trusted', maxArrivalDepth: 1, statusList: bStatus, maxRelayDepth: 1 };
-  const polC: MeshPolicy = { recognizedIssuer: cSovId.did, tier: 'trusted', maxArrivalDepth: 1, statusList: cStatus, maxRelayDepth: 1 };
+  const polB: MeshPolicy = { recognizedIssuer: bSovId.did, tierOrder: ['trusted'], statusList: bStatus, maxRelayDepth: 1 };
+  const polC: MeshPolicy = { recognizedIssuer: cSovId.did, tierOrder: ['trusted'], statusList: cStatus, maxRelayDepth: 1 };
 
   // C's Warden (answerer). Give it a forwarding capability with NO friends so a query it can't answer hits
   // the depth-exhaustion stop (DEPTH-STOP) rather than a bare partition miss.
   const cForwarding: MeshForwarding = { emissary: cEmissary, emissaryName: cEmId.name, emissaryDid: cEmId.did, friends: [], reachFriend: async () => ({ status: 'no-answer', reason: 'C has no onward friend' }) };
-  const meshC = new MeshWarden(cWarden, cWardenId.name, cfgC, polC, partC, cForwarding);
+  const meshC = new MeshWarden(cWarden, cWardenId.name, cfgC, polC, ladderC, cForwarding);
 
   // B's Warden (relay). Its Emissary crosses to C under B's recognition of C. reachFriend records the
   // forwarded envelope so we can inspect what C learns (QUERY-EXPOSURE).
@@ -108,9 +108,9 @@ async function main(): Promise<void> {
     friends: [{ cred: recBC, recognitionId: recBC.recognitionId, confidence: 0.8, friendWardenDid: cWardenId.did, domain: 'fences' }],
     reachFriend: reachC,
   };
-  const meshB = new MeshWarden(bWarden, bWardenId.name, cfgB, polB, partB, bForwarding);
+  const meshB = new MeshWarden(bWarden, bWardenId.name, cfgB, polB, ladderB, bForwarding);
 
-  const q = (over: Partial<MeshQuery> = {}): MeshQuery => ({ text: 'how far apart should fence posts be?', mode: 'fact', domain: 'fences', depth: 1, budget: { maxNodes: 3, rate: 2 }, depthRemaining: 1, ...over });
+  const q = (over: Partial<MeshQuery> = {}): MeshQuery => ({ text: 'how far apart should fence posts be?', mode: 'fact', domain: 'fences', budget: { maxNodes: 3, rate: 2 }, depthRemaining: 1, ...over });
   const env = (query: MeshQuery, rec = recAB): MeshQueryEnvelope => ({ query, recognition: presentRecognition(rec), presenterDid: aEmId.did });
 
   // ── HAPPY-2HOP ──
@@ -190,7 +190,7 @@ async function main(): Promise<void> {
 
   // ── BROKEN-RELAY-RECOGNITION ──
   step('BROKEN-RELAY-RECOGNITION: B lacks a valid recognition of C → clean no-answer (never a forged one)');
-  const meshBNoFriend = new MeshWarden(bWarden, bWardenId.name, cfgB, polB, partB, { ...bForwarding, friends: [] });
+  const meshBNoFriend = new MeshWarden(bWarden, bWardenId.name, cfgB, polB, ladderB, { ...bForwarding, friends: [] });
   const rBroken = await meshBNoFriend.handle(env(q()));
   check('A gets a clean no-answer, not a fabricated answer', rBroken.status === 'no-answer');
   if (rBroken.status === 'no-answer') process.stdout.write(`      → ${rBroken.reason}\n`);
@@ -205,7 +205,7 @@ async function main(): Promise<void> {
   step('CONFIDENCE-BOUNDS: a recognized-but-dishonest relay reporting edgeConfidence 1.2 → REJECT (bounds guard)');
   // B is genuinely recognized, but signs a relay assertion claiming an edge confidence > 1 — which would
   // amplify path confidence above the A→B edge and break monotonicity. A's bounds check must refuse it.
-  const meshBBadConf = new MeshWarden(bWarden, bWardenId.name, cfgB, polB, partB, {
+  const meshBBadConf = new MeshWarden(bWarden, bWardenId.name, cfgB, polB, ladderB, {
     ...bForwarding,
     friends: [{ cred: recBC, recognitionId: recBC.recognitionId, confidence: 1.2, friendWardenDid: cWardenId.did, domain: 'fences' }],
   });

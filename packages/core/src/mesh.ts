@@ -114,13 +114,22 @@ export interface MeshQuery {
   text: string;
   mode: 'fact' | 'reasoning';
   domain: string;
-  /** Per-hop arrival depth — always 1 (each hop is a fresh 1-hop presentation to the next Warden). */
-  depth: number;
   budget: QueryBudget;
+  /**
+   * Arrival depth — how many hops the query travelled from the origin to reach the current node (1 at the
+   * first hop; INCREMENTED on each forward). One of the two partition-ladder axes. Absent ⇒ 1. Set by the
+   * sender, honoured by the recognizing receiver — the same trust model as `depthRemaining`.
+   */
+  arrivalDepth?: number;
+  /**
+   * Composed path confidence so far (product of the edge confidences up to the presenter). Threaded by
+   * relays so the answering node can gate on the whole path, not just its local edge. Absent ⇒ 1.
+   */
+  pathConfidence?: number;
   /**
    * Propagation budget (depth-2): forwards still allowed. A recognition of `maxDepth k` authorizes `k-1`
    * forwards from where it is presented. Set by the origin from its recognition; strictly decremented on
-   * each forward. `< 1` ⇒ this node cannot forward. Absent ⇒ 0 (v1 answer-only).
+   * each forward. `< 1` ⇒ this node cannot forward. Absent ⇒ 0 (answer-only).
    */
   depthRemaining?: number;
   /** Warden DIDs already on the path — the cycle guard rejects forwarding to any node already here. */
@@ -169,12 +178,16 @@ export interface MeshQueryEnvelope {
   presenterDid: string;
 }
 
-/** A node's admission policy (v1: single tier, arrival depth 1 only). */
+/** A node's admission policy. Tier ordering + revocation are policy; the partition ladder is passed separately. */
 export interface MeshPolicy {
   /** The Sovereign whose recognitions this node honors (its own). */
   recognizedIssuer: string;
-  tier: string;
-  maxArrivalDepth: number;
+  /**
+   * EXPLICIT tier ranking, lowest → highest (e.g. `['world','acquaintance','close-friend']`). Rank is the
+   * index; a tier not in this list has NO rank and reaches nothing (deny by default). Never compare tier
+   * name strings — that is a bug waiting to happen; rank through this list.
+   */
+  tierOrder: string[];
   /**
    * Durable revocation — REQUIRED: a resolver over the issuer's published Bitstring StatusList asset
    * (fail-closed, version-pinned). No in-memory fallback; durability is not opt-in. For a node with no
@@ -182,14 +195,13 @@ export interface MeshPolicy {
    */
   statusList: StatusListResolver;
   /**
-   * The partition-permitted forward axis (depth-2): how many forwards this node is willing to relay. The
-   * effective reach at this hop is `min(recognition.maxDepth - 1, maxRelayDepth)` — whichever is tighter.
-   * Absent ⇒ 0 (this node does not relay; v1 answer-only).
+   * How many forwards this node is willing to RELAY (the propagation axis — distinct from partition
+   * arrival-depth gating). Effective reach = `min(recognition.maxDepth - 1, maxRelayDepth)`. Absent ⇒ 0.
    */
   maxRelayDepth?: number;
 }
 
-/** One fact in B's public partition, with its provenance. */
+/** One fact in a partition, with its provenance. */
 export interface PartitionFact {
   ref: string;
   provenance: 'asserted' | 'inferred';
@@ -197,10 +209,30 @@ export interface PartitionFact {
   narrative: string;
   keywords: string[];
 }
-export interface PublicPartition {
+
+/**
+ * A partition's access policy — TWO INDEPENDENT axes, both of which must hold (ANDed). Never collapse them
+ * into one score: "reached me through trusted hops" (depth) must not silently become "I trust them" (tier).
+ */
+export interface PartitionAccess {
+  /** Minimum recognition tier (a name in the policy's `tierOrder`) the presenter must hold. */
+  minTier: string;
+  /** Maximum arrival depth: the query must have reached this node in ≤ this many hops. */
+  maxArrivalDepth: number;
+  /** Optional: minimum composed path confidence. */
+  minPathConfidence?: number;
+}
+
+/** One rung of the ladder: a named, domain-scoped, access-gated set of facts. */
+export interface Partition {
+  name: string;
   domain: string;
   facts: PartitionFact[];
+  access: PartitionAccess;
 }
+
+/** An ordered ladder of gated partitions (e.g. world-public → acquaintance → close-friend). */
+export type PartitionLadder = Partition[];
 
 /** The signed, returned evidence graph. `proof` is B's Warden's signature over everything above it. */
 export interface MeshAnswer {
@@ -226,11 +258,44 @@ export type MeshResult =
   /** No local answer and no valid forward — a CLEAN miss, never a fabricated answer (BROKEN-RELAY). */
   | { status: 'no-answer'; reason: string };
 
-/** v1 reasoning: a keyword lookup over the seeded public partition (an LLM call would slot in here). */
-export function reasonOverPartition(query: MeshQuery, partition: PublicPartition): PartitionFact | null {
-  if (query.domain !== partition.domain) return null;
+/**
+ * The set of ladder rungs a presenter may read from, given (tier, arrivalDepth, pathConfidence). DENY BY
+ * DEFAULT: a rung is included only if BOTH axes hold (tier rank ≥ minTier rank AND arrivalDepth ≤
+ * maxArrivalDepth), plus the optional confidence floor. The axes are ANDed and never merged into one score.
+ */
+export function permittedPartitions(
+  ladder: PartitionLadder,
+  tierOrder: string[],
+  presenterTier: string,
+  arrivalDepth: number,
+  pathConfidence: number,
+): Partition[] {
+  const presenterRank = tierOrder.indexOf(presenterTier);
+  if (presenterRank < 0) return []; // an unranked tier reaches nothing
+  return ladder.filter((p) => {
+    const needRank = tierOrder.indexOf(p.access.minTier);
+    if (needRank < 0) return false; // a rung requiring an unknown tier is unreachable
+    if (presenterRank < needRank) return false; // TIER axis
+    if (arrivalDepth > p.access.maxArrivalDepth) return false; // DEPTH axis (independent — both must hold)
+    if (p.access.minPathConfidence != null && pathConfidence < p.access.minPathConfidence) return false;
+    return true;
+  });
+}
+
+/**
+ * Reason ONLY over the permitted rungs (SANDBOXED — a fact in a gated rung is unreachable, not merely
+ * unranked). A keyword lookup here; an LLM call restricted to these partitions would slot in identically.
+ * Returns the matching fact + its source rung, or null. The caller must give the SAME response for a null
+ * here whether a gated rung secretly matched or nothing matched at all (INDISTINGUISHABILITY).
+ */
+export function reasonOverPartitions(query: MeshQuery, permitted: Partition[]): { fact: PartitionFact; partition: string } | null {
   const q = query.text.toLowerCase();
-  return partition.facts.find((f) => f.keywords.some((k) => q.includes(k))) ?? null;
+  for (const p of permitted) {
+    if (p.domain !== query.domain) continue;
+    const hit = p.facts.find((f) => f.keywords.some((k) => q.includes(k)));
+    if (hit) return { fact: hit, partition: p.name };
+  }
+  return null;
 }
 
 /**
@@ -292,8 +357,9 @@ export interface ForwardedAnswer {
 
 /**
  * B's Warden mesh backend. Never faces a foreign node: it is handed a neutral `MeshQueryEnvelope` by B's
- * edge, runs admission (recognition valid + names the presenter + tier + not revoked + arrival depth),
- * reasons over the public partition, and returns a signed answer pairwise-encrypted to A's Emissary.
+ * edge, admits it (recognition valid + names the presenter + not revoked + forwarding authority), then
+ * reasons SANDBOXED over the partition rungs the presenter's (tier, arrivalDepth) permit, and returns a
+ * signed answer pairwise-encrypted to A's Emissary. Deny by default; gated rungs are unreachable.
  */
 export class MeshWarden {
   constructor(
@@ -301,7 +367,8 @@ export class MeshWarden {
     private readonly wardenName: string,
     private readonly config: HearthholdConfig,
     private readonly policy: MeshPolicy,
-    private readonly partition: PublicPartition,
+    /** The ordered ladder of gated partitions this node hosts (world-public → … → close-friend). */
+    private readonly ladder: PartitionLadder,
     /** Depth-2: the forwarding capability (this node's Emissary + friend recognitions). Omit ⇒ answer-only. */
     private readonly forwarding?: MeshForwarding,
   ) {}
@@ -316,8 +383,8 @@ export class MeshWarden {
     // 2. It must name the presenter (the admission token is bound to A's Emissary).
     if (d.subject !== envelope.presenterDid) return { ok: false, reason: 'recognition does not name the presenting Emissary', check: 'binding' };
 
-    // 3. Tier (v1: single recognized tier).
-    if (d.tier !== this.policy.tier) return { ok: false, reason: `tier '${String(d.tier)}' is not recognized (need '${this.policy.tier}')`, check: 'tier' };
+    // (Tier + arrival-depth are NOT admission gates — they select which partition RUNGS the presenter may
+    //  read, deny-by-default, in handle(). Admission verifies the recognition; the ladder gates the answer.)
 
     // 4. Revocation — read the recognition's bit in the durable Bitstring StatusList, FAIL-CLOSED if the
     //    fact is unavailable. The recognition must point at the list this node checks. Carry the pin so the
@@ -330,11 +397,6 @@ export class MeshWarden {
     if (!rc.available) return { ok: false, reason: `revocation status unavailable — deny (fail-closed): ${rc.reason}`, check: 'revocation' };
     if (rc.revoked) return { ok: false, reason: 'recognition has been revoked (status bit set)', check: 'revocation' };
     const statusPin = rc.pin;
-
-    // 5. Arrival depth (v1: depth-1 partition only — each hop is a fresh 1-hop presentation).
-    if (envelope.query.depth !== this.policy.maxArrivalDepth) {
-      return { ok: false, reason: `arrival depth ${envelope.query.depth} exceeds partition policy (depth ${this.policy.maxArrivalDepth} only)`, check: 'depth' };
-    }
 
     // 6. Depth authority (FIX-FIRST): the query's remaining forward budget must not exceed what the
     //    RECOGNITION authorized (maxDepth-1 forwards) NOR what this partition permits (maxRelayDepth) —
@@ -357,10 +419,18 @@ export class MeshWarden {
   async handle(envelope: MeshQueryEnvelope): Promise<MeshResult> {
     const adm = await this.admit(envelope);
     if (!adm.ok) return { status: 'rejected', reason: adm.reason ?? 'admission denied', check: adm.check ?? 'admission' };
+    const d = adm.disclosed ?? {};
 
-    // 1. Answer locally if we can.
-    const fact = reasonOverPartition(envelope.query, this.partition);
-    if (fact) {
+    // Two-axis gating (deny by default): which rungs does (tier, arrivalDepth, composed path confidence)
+    // permit? The composed confidence is this path's product so far × the presenter's local edge.
+    const arrivalDepth = envelope.query.arrivalDepth ?? 1;
+    const pathConfidence = (envelope.query.pathConfidence ?? 1) * Number(d.confidence ?? 0);
+    const permitted = permittedPartitions(this.ladder, this.policy.tierOrder, String(d.tier ?? ''), arrivalDepth, pathConfidence);
+
+    // 1. Reason SANDBOXED over the permitted rungs only — a gated rung is unreachable, not merely unranked.
+    const hit = reasonOverPartitions(envelope.query, permitted);
+    if (hit) {
+      const fact = hit.fact;
       const km = this.warden.keymaster;
       await km.setCurrentId(this.wardenName);
       const answeredBy = (await km.resolveDID(this.wardenName)).didDocument?.id ?? '';
@@ -368,7 +438,7 @@ export class MeshWarden {
         reference: fact.ref,
         provenance: fact.provenance,
         factConfidence: fact.confidence,
-        recognitionConfidence: Number(adm.disclosed?.confidence ?? 0),
+        recognitionConfidence: Number(d.confidence ?? 0),
         narrative: fact.narrative,
         domain: envelope.query.domain,
         answeredBy,
@@ -382,13 +452,16 @@ export class MeshWarden {
       return { status: 'granted', answerDid };
     }
 
-    // 2. No local answer — forward once, if configured and authorized. Never a fabricated answer.
-    if (!this.forwarding) return { status: 'rejected', reason: 'no answer in the public partition for that query', check: 'partition' };
-    return this.forward(envelope);
+    // 2. No PERMITTED answer. INDISTINGUISHABILITY: this response is identical whether a gated rung secretly
+    //    matched or nothing matched at all — the reasoning above literally cannot see gated rungs, so "no
+    //    answer" is never an oracle for what exists in partitions the presenter can't reach. Forward if we
+    //    can (unchanged by any gated match); otherwise a CONSTANT no-answer.
+    if (this.forwarding) return this.forward(envelope, pathConfidence);
+    return { status: 'no-answer', reason: 'no answer available' };
   }
 
   /** Depth-2 relay: this node's Emissary crosses to a recognized friend, then this Warden re-packages. */
-  private async forward(incoming: MeshQueryEnvelope): Promise<MeshResult> {
+  private async forward(incoming: MeshQueryEnvelope, pathConfidence: number): Promise<MeshResult> {
     const f = this.forwarding!;
     const remaining = incoming.query.depthRemaining ?? 0;
     // Propagation depth exhausted: a hard stop on forwarding (DEPTH-STOP), distinct from a clean no-answer.
@@ -406,8 +479,15 @@ export class MeshWarden {
       return { status: 'rejected', reason: `cycle: ${friend.friendWardenDid.slice(0, 24)}… is already on the path`, check: 'cycle' };
     }
 
-    // Attenuate the query for the forward (strictly decrement depthRemaining; scope/budget must be ⊆).
-    const forwardQuery: MeshQuery = { ...incoming.query, depthRemaining: remaining - 1, visited: [...visited, myDid] };
+    // Attenuate the query for the forward: strictly decrement depthRemaining; INCREMENT arrivalDepth (the
+    // friend is one hop deeper from the origin); thread the composed pathConfidence so far. Scope/budget ⊆.
+    const forwardQuery: MeshQuery = {
+      ...incoming.query,
+      arrivalDepth: (incoming.query.arrivalDepth ?? 1) + 1,
+      pathConfidence,
+      depthRemaining: remaining - 1,
+      visited: [...visited, myDid],
+    };
     const chk = budgetSubset(forwardQuery, incoming.query);
     if (!chk.ok) return { status: 'rejected', reason: `budget attenuation: ${chk.reason}`, check: 'budget' };
 

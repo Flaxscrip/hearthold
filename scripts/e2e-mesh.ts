@@ -30,7 +30,7 @@ import {
   type MeshQuery,
   type MeshQueryEnvelope,
   type MeshPolicy,
-  type PublicPartition,
+  type PartitionLadder,
   type KeymasterHandle,
 } from '@hearthold/core';
 
@@ -82,21 +82,25 @@ async function main(): Promise<void> {
   const chain = await verifyAttenuationChain(delegation.vcDid, { keymaster: aWarden as KeymasterHandle, expectedRootIssuer: aWardenId.did });
   check('the delegation is a valid attenuation credential from A\'s Warden', chain.ok);
 
-  // B's public partition (a seeded fence-builder note) + admission policy.
-  const partition: PublicPartition = {
-    domain: 'fences',
-    facts: [
-      { ref: 'post-spacing', provenance: 'asserted', confidence: 1.0, keywords: ['post', 'spacing', 'apart', 'space'], narrative: 'Sovereign B asserts: set posts 8 feet on center for a cedar privacy fence, 2 feet deep in concrete.' },
-      { ref: 'concrete-cure', provenance: 'inferred', confidence: 0.65, keywords: ['concrete', 'cure', 'set'], narrative: "B's AI inferred from B's notes: concrete usually cures enough to hang panels in 24-48 hours." },
-    ],
-  };
+  // B's partition ladder (one rung here; the full ladder is exercised in e2e-partition-ladder) + policy.
+  const ladder: PartitionLadder = [
+    {
+      name: 'fence-notes',
+      domain: 'fences',
+      access: { minTier: 'trusted', maxArrivalDepth: 1 },
+      facts: [
+        { ref: 'post-spacing', provenance: 'asserted', confidence: 1.0, keywords: ['post', 'spacing', 'apart', 'space'], narrative: 'Sovereign B asserts: set posts 8 feet on center for a cedar privacy fence, 2 feet deep in concrete.' },
+        { ref: 'concrete-cure', provenance: 'inferred', confidence: 0.65, keywords: ['concrete', 'cure', 'set'], narrative: "B's AI inferred from B's notes: concrete usually cures enough to hang panels in 24-48 hours." },
+      ],
+    },
+  ];
   // Durable revocation is required — B's Warden resolves the Sovereign's StatusList (maxAge 0 ⇒ a later
   // publish is seen at once).
   const statusList = new StatusListResolver(bWarden, { statusListCredential, expectedIssuer: bSovId.did, maxAgeMs: 0 });
-  const policy: MeshPolicy = { recognizedIssuer: bSovId.did, tier: 'trusted', maxArrivalDepth: 1, statusList };
-  const meshB = new MeshWarden(bWarden, bWardenId.name, configB, policy, partition);
+  const policy: MeshPolicy = { recognizedIssuer: bSovId.did, tierOrder: ['trusted'], statusList };
+  const meshB = new MeshWarden(bWarden, bWardenId.name, configB, policy, ladder);
 
-  const validQuery: MeshQuery = { text: 'how far apart should fence posts be?', mode: 'fact', domain: 'fences', depth: 1, budget: { maxNodes: 3, rate: 2 } };
+  const validQuery: MeshQuery = { text: 'how far apart should fence posts be?', mode: 'fact', domain: 'fences', budget: { maxNodes: 3, rate: 2 } };
   const envelopeOf = (q: MeshQuery, rec = recognition): MeshQueryEnvelope => ({ query: q, recognition: presentRecognition(rec), presenterDid: aEmId.did });
 
   // ── HAPPY ──
@@ -159,11 +163,11 @@ async function main(): Promise<void> {
   check('B REJECTS the unrecognized recognition', rBogus.status === 'rejected' && rBogus.check === 'recognition');
   if (rBogus.status === 'rejected') process.stdout.write(`      → ${rBogus.reason}\n`);
 
-  // ── DEPTH-VIOLATION ──
-  step('DEPTH-VIOLATION: query arrives claiming depth 2 → B\'s depth-1 partition policy REJECTS');
-  const rDepth = await meshB.handle(envelopeOf({ ...validQuery, depth: 2 }));
-  check('B REJECTS arrival depth 2', rDepth.status === 'rejected' && rDepth.check === 'depth');
-  if (rDepth.status === 'rejected') process.stdout.write(`      → ${rDepth.reason}\n`);
+  // ── DEPTH-GATING ──
+  step('DEPTH-GATING: an arrival-depth-2 query cannot reach the depth-1-only rung → no-answer (gated)');
+  const rDepth = await meshB.handle(envelopeOf({ ...validQuery, arrivalDepth: 2 }));
+  check('a depth-2 arrival gets no-answer — the fact is depth-gated, not served', rDepth.status === 'no-answer');
+  if (rDepth.status === 'no-answer') process.stdout.write(`      → ${rDepth.reason}\n`);
 
   // ── BUDGET-EXCEEDED (A-side, attenuation scope) ──
   step('BUDGET-EXCEEDED: A\'s Emissary tries to exceed its delegated budget → blocked A-side (never reaches B)');
