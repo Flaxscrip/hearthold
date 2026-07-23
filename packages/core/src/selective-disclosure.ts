@@ -1,7 +1,8 @@
 /**
- * Selective disclosure ("Pattern A") for Hearthold VCs on Archon — SD-JWT-style salted-hash disclosure
- * adapted to Archon primitives. The enabling primitive for the privacy-preserving MCP/A2A transport
- * binding, so this is a reusable module, sibling to `attenuation.ts`.
+ * Salted-hash selective disclosure for Hearthold VCs on Archon. We rederived this independently, then
+ * adopted the shape of the standard: it matches the salted-hash approach of SD-JWT (RFC 9901). The enabling
+ * primitive for the privacy-preserving MCP/A2A transport binding, so this is a reusable module, sibling to
+ * `attenuation.ts`.
  *
  * The problem: Archon challenge/response is credential-LEVEL — the issuer signature covers the WHOLE VC,
  * so a disclosed subset is unsigned. Selective disclosure can't be retrofitted at presentation; it must be

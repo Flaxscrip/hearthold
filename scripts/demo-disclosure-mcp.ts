@@ -1,6 +1,6 @@
 /**
  * demo (task 7): the transport-binding leapfrog. A mock MCP endpoint challenges for ONE scope fact; the
- * holder responds with a Pattern-A Presentation encrypted to the endpoint; the endpoint verifies and
+ * holder responds with a salted-hash-disclosure Presentation encrypted to the endpoint; the endpoint verifies and
  * authorizes — WITHOUT seeing the rest of the credential. Runnable walkthrough (not assertions).
  *
  *   HEARTHOLD_GATEKEEPER_URL=http://flaxlap.local:4222 HEARTHOLD_REGISTRY=local \
@@ -34,7 +34,7 @@ async function main(): Promise<void> {
   const agentId = await ensureIdentity(agent, config);
   const mcpId = await ensureIdentity(mcp, config);
 
-  say('\n══════════ Pattern-A selective disclosure over a mock MCP transport ══════════');
+  say('\n══════════ salted-hash selective disclosure over a mock MCP transport ══════════');
   say(`  issuer (Warden): ${wardenId.did.slice(0, 30)}…`);
   say(`  holder (agent):  ${agentId.did.slice(0, 30)}…`);
   say(`  endpoint (MCP):  ${mcpId.did.slice(0, 30)}…`);

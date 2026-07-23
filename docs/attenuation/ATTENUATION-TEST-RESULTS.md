@@ -1,4 +1,4 @@
-# Attenuation-VC ("Pattern 2") — Test Results
+# Verifier-Enforced Attenuation — Test Results
 
 Working prototype of chain-attenuation for `did:cid` verifiable credentials, run **live** against an
 Archon Keymaster/Gatekeeper (`@didcid/keymaster` 0.6.0 → Drawbridge on `flaxlap.local:4222`,

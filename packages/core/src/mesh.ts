@@ -162,12 +162,11 @@ export interface MeshPolicy {
   tier: string;
   maxArrivalDepth: number;
   /**
-   * Durable revocation: a resolver over the issuer's published RevocationList asset (fail-closed, version-
-   * pinned). Preferred when set. See revocation.ts.
+   * Durable revocation — REQUIRED: a resolver over the issuer's published RevocationList asset (fail-closed,
+   * version-pinned). There is no in-memory fallback; durability is not opt-in. For a node with no
+   * revocations, point it at a freshly-created (empty) RevocationList. See revocation.ts.
    */
-  revocation?: RevocationResolver;
-  /** Legacy in-memory revoked recognitionIds — used only when `revocation` is absent. NOT durable. */
-  revoked?: Set<string>;
+  revocation: RevocationResolver;
   /**
    * The partition-permitted forward axis (depth-2): how many forwards this node is willing to relay. The
    * effective reach at this hop is `min(recognition.maxDepth - 1, maxRelayDepth)` — whichever is tighter.
@@ -306,18 +305,13 @@ export class MeshWarden {
     // 3. Tier (v1: single recognized tier).
     if (d.tier !== this.policy.tier) return { ok: false, reason: `tier '${String(d.tier)}' is not recognized (need '${this.policy.tier}')`, check: 'tier' };
 
-    // 4. Revocation — durable list preferred; FAIL-CLOSED if the fact is unavailable. Carry the pin so the
+    // 4. Revocation — resolve the durable list, FAIL-CLOSED if the fact is unavailable. Carry the pin so the
     //    answer can bind the exact list version checked (after-the-fact dispute).
     const recognitionId = typeof d.recognitionId === 'string' ? d.recognitionId : '';
-    let revocationPin: RevocationListPin | undefined;
-    if (this.policy.revocation) {
-      const rc = await this.policy.revocation.check(recognitionId);
-      if (!rc.available) return { ok: false, reason: `revocation status unavailable — deny (fail-closed): ${rc.reason}`, check: 'revocation' };
-      if (rc.revoked) return { ok: false, reason: 'recognition has been revoked (published list)', check: 'revocation' };
-      revocationPin = rc.pin;
-    } else if (recognitionId && this.policy.revoked?.has(recognitionId)) {
-      return { ok: false, reason: 'recognition has been revoked by B', check: 'revocation' };
-    }
+    const rc = await this.policy.revocation.check(recognitionId);
+    if (!rc.available) return { ok: false, reason: `revocation status unavailable — deny (fail-closed): ${rc.reason}`, check: 'revocation' };
+    if (rc.revoked) return { ok: false, reason: 'recognition has been revoked (published list)', check: 'revocation' };
+    const revocationPin = rc.pin;
 
     // 5. Arrival depth (v1: depth-1 partition only — each hop is a fresh 1-hop presentation).
     if (envelope.query.depth !== this.policy.maxArrivalDepth) {

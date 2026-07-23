@@ -19,6 +19,9 @@ import {
   verifyAttenuationChain,
   issueRecognition,
   presentRecognition,
+  createRevocationList,
+  publishRevocation,
+  RevocationResolver,
   delegatedScope,
   scopeQueryToDelegation,
   MeshWarden,
@@ -82,7 +85,11 @@ async function main(): Promise<void> {
       { ref: 'concrete-cure', provenance: 'inferred', confidence: 0.65, keywords: ['concrete', 'cure', 'set'], narrative: "B's AI inferred from B's notes: concrete usually cures enough to hang panels in 24-48 hours." },
     ],
   };
-  const policy: MeshPolicy = { recognizedIssuer: bSovId.did, tier: 'trusted', maxArrivalDepth: 1, revoked: new Set() };
+  // Durable revocation is required — B's Sovereign owns an (initially empty) RevocationList; B's Warden
+  // resolves it (maxAge 0 ⇒ a later publish is seen at once).
+  const { listDid } = await createRevocationList(bSov, bSovId.name, configB);
+  const revocation = new RevocationResolver(bWarden, { listDid, expectedIssuer: bSovId.did, maxAgeMs: 0 });
+  const policy: MeshPolicy = { recognizedIssuer: bSovId.did, tier: 'trusted', maxArrivalDepth: 1, revocation };
   const meshB = new MeshWarden(bWarden, bWardenId.name, configB, policy, partition);
 
   const validQuery: MeshQuery = { text: 'how far apart should fence posts be?', mode: 'fact', domain: 'fences', depth: 1, budget: { maxNodes: 3, rate: 2 } };
@@ -158,9 +165,9 @@ async function main(): Promise<void> {
   check('over-BUDGET (maxNodes 100 > delegated 10) blocked A-side', !overBudget.ok);
   if (!overBudget.ok) process.stdout.write(`      → ${overBudget.reason}\n`);
 
-  // ── REVOKED-RECOGNITION (run last — mutates B's policy) ──
-  step('REVOKED-RECOGNITION: B revokes the cred, A presents it → REJECT');
-  policy.revoked.add(recognition.recognitionId);
+  // ── REVOKED-RECOGNITION (run last — publishes to the durable list) ──
+  step('REVOKED-RECOGNITION: B\'s Sovereign publishes a revocation, A presents the cred → REJECT');
+  await publishRevocation(bSov, bSovId.name, listDid, recognition.recognitionId, configB);
   const rRevoked = await meshB.handle(envelopeOf(validQuery));
   check('B REJECTS the revoked recognition', rRevoked.status === 'rejected' && rRevoked.check === 'revocation');
   if (rRevoked.status === 'rejected') process.stdout.write(`      → ${rRevoked.reason}\n`);

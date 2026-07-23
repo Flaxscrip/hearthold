@@ -1,5 +1,5 @@
 /**
- * e2e: attenuation-VC "Pattern 2" — the full test matrix, live against Archon.
+ * e2e: verifier-enforced attenuation for VCs — the full test matrix, live against Archon.
  *
  * The deliverable is the VERIFIER correctly REJECTING the violations it is designed to catch. A REJECT with
  * the right reason is a PASS; we never loosen the verifier to turn a rejection green. Run:

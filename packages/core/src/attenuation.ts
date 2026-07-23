@@ -1,5 +1,6 @@
 /**
- * Attenuation-VC model ("Pattern 2") over Archon did:cid Asset DIDs.
+ * Verifier-enforced attenuation for VCs over Archon did:cid Asset DIDs — the verifier walks the chain and
+ * checks the subset relation at each hop (not issuer convention, and not cryptographic constraint).
  *
  * Each hop in a delegation chain is its OWN Asset DID, controlled by an Agent DID (the attenuating actor,
  * e.g. the Warden). Two layers live in the asset:

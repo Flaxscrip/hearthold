@@ -1,4 +1,4 @@
-# Selective Disclosure ("Pattern A") — Test Results
+# Salted-Hash Selective Disclosure — Test Results
 
 SD-JWT-style property-level selective disclosure for Hearthold VCs on Archon, run **live** against an
 Archon Keymaster/Gatekeeper (`@didcid/keymaster` 0.6.0 → Drawbridge on `flaxlap.local:4222`,
@@ -19,9 +19,10 @@ npm run e2e:disclosure          # the full REJECT/ACCEPT matrix
 npm run demo:disclosure-mcp     # the mock-MCP transport-binding demo
 ```
 
-> **Scope (read this first).** Pattern A gives property-**HIDING**, not unlinkability. The issuer
-> signature is a stable value, so an endpoint can correlate repeat presentations of the same credential.
-> Unlinkability is a separate BBS+ tier and is **out of scope** — see [FINDINGS.md](./FINDINGS.md).
+> **Scope (read this first).** Salted-hash disclosure gives property-**HIDING**, not unlinkability. The
+> issuer signature is a stable value, so an endpoint can correlate repeat presentations of the same
+> credential. Unlinkability is a separate BBS+ anonymous-credential tier and is **out of scope** — see
+> [FINDINGS.md](./FINDINGS.md).
 
 ---
 
@@ -113,11 +114,11 @@ not. This is why every property is salted before hashing.
 
 ## MCP demo transcript (task 7 — the transport-binding leapfrog)
 
-A mock MCP endpoint challenges for one scope fact; the holder answers with a Pattern-A Presentation
-**encrypted to the endpoint**; the endpoint verifies and authorizes without seeing the rest.
+A mock MCP endpoint challenges for one scope fact; the holder answers with a salted-hash-disclosure
+Presentation **encrypted to the endpoint**; the endpoint verifies and authorizes without seeing the rest.
 
 ```
-══════════ Pattern-A selective disclosure over a mock MCP transport ══════════
+══════════ salted-hash selective disclosure over a mock MCP transport ══════════
   issuer (Warden): did:cid:bagaaieraxx2ycorsxafhq…
   holder (agent):  did:cid:bagaaiera4v7vrwjdcezay…
   endpoint (MCP):  did:cid:bagaaieraefdx4tceggfsz…

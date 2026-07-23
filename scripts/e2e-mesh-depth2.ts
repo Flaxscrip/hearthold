@@ -17,6 +17,8 @@ import {
   ensureIdentity,
   issueRecognition,
   presentRecognition,
+  createRevocationList,
+  RevocationResolver,
   MeshWarden,
   receiveForwardedAnswer,
   budgetSubset,
@@ -75,8 +77,14 @@ async function main(): Promise<void> {
   const partB: PublicPartition = { domain: 'fences', facts: [{ ref: 'gate-latch', provenance: 'asserted', confidence: 1, keywords: ['gate', 'latch', 'hinge'], narrative: 'B: use self-closing hinges on a pool gate.' }] };
   const partC: PublicPartition = { domain: 'fences', facts: [{ ref: 'post-spacing', provenance: 'asserted', confidence: 1, keywords: ['post', 'spacing', 'apart', 'space'], narrative: 'Sovereign C asserts: set posts 8 feet on center, 2 feet deep in concrete.' }] };
 
-  const polB: MeshPolicy = { recognizedIssuer: bSovId.did, tier: 'trusted', maxArrivalDepth: 1, revoked: new Set(), maxRelayDepth: 1 };
-  const polC: MeshPolicy = { recognizedIssuer: cSovId.did, tier: 'trusted', maxArrivalDepth: 1, revoked: new Set(), maxRelayDepth: 1 };
+  // Durable revocation is required — each Sovereign owns an (empty) RevocationList; each Warden resolves
+  // the one for the recognitions it honors. Empty here: no revocations in this suite.
+  const bList = await createRevocationList(bSov, bSovId.name, cfgB);
+  const cList = await createRevocationList(cSov, cSovId.name, cfgC);
+  const bRevocation = new RevocationResolver(bWarden, { listDid: bList.listDid, expectedIssuer: bSovId.did, maxAgeMs: 60_000 });
+  const cRevocation = new RevocationResolver(cWarden, { listDid: cList.listDid, expectedIssuer: cSovId.did, maxAgeMs: 60_000 });
+  const polB: MeshPolicy = { recognizedIssuer: bSovId.did, tier: 'trusted', maxArrivalDepth: 1, revocation: bRevocation, maxRelayDepth: 1 };
+  const polC: MeshPolicy = { recognizedIssuer: cSovId.did, tier: 'trusted', maxArrivalDepth: 1, revocation: cRevocation, maxRelayDepth: 1 };
 
   // C's Warden (answerer). Give it a forwarding capability with NO friends so a query it can't answer hits
   // the depth-exhaustion stop (DEPTH-STOP) rather than a bare partition miss.

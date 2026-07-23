@@ -1,4 +1,4 @@
-# Selective Disclosure ("Pattern A") — Findings
+# Salted-Hash Selective Disclosure — Findings
 
 What worked, what Archon made awkward, and the honest scope boundary. Grounded on **real calls** against a
 live node (`@didcid/keymaster` 0.6.0 → `flaxlap.local:4222`, `registry=local`) — the grounding harness is
@@ -48,8 +48,8 @@ slot for. (See "awkward" below.)
 - **Hiding covers names, not just values.** Because the digest is over `{name, salt, value}`, an undisclosed
   property leaks neither its value nor its name — only its existence as one opaque entry.
 - **Pairwise transport is the existing primitive.** The Presentation is `encryptJSON`'d to the endpoint and
-  `decryptJSON`'d on receipt — the same pairwise encryption Archon challenge/response uses — so Pattern A
-  drops straight onto the MCP/A2A transport binding (demo task 7).
+  `decryptJSON`'d on receipt — the same pairwise encryption Archon challenge/response uses — so this
+  disclosure model drops straight onto the MCP/A2A transport binding (demo task 7).
 
 ## What Archon made awkward (and the workaround)
 
@@ -65,19 +65,19 @@ slot for. (See "awkward" below.)
   (standard for SD-JWT's `_sd` array). Values and names are hidden; the count is not. If count-hiding is
   required, pad with decoy digests at issuance — not done here.
 
-## IMPORTANT — Pattern A gives property-HIDING, NOT unlinkability
+## IMPORTANT — salted-hash disclosure gives property-HIDING, NOT unlinkability
 
-State this plainly: **Pattern A does not provide unlinkability.** The issuer signature over the digest array
-is a **stable value**, and the full `sd` array ships on every presentation. An endpoint (or two colluding
-endpoints) can therefore **correlate repeat presentations of the same credential** by its signature or its
-digest set — even across presentations that disclose different subsets. Pattern A hides the *undisclosed
+State this plainly: **salted-hash disclosure does not provide unlinkability.** The issuer signature over the
+digest array is a **stable value**, and the full `sd` array ships on every presentation. An endpoint (or two
+colluding endpoints) can therefore **correlate repeat presentations of the same credential** by its signature
+or its digest set — even across presentations that disclose different subsets. It hides the *undisclosed
 property values and names*; it does **not** hide *that it is the same credential presenting again*.
 
 Unlinkability — where each presentation is cryptographically unlinkable to the others and to issuance — is a
-separate tier requiring **BBS+ / anonymous-credential** signatures (per-presentation proofs, not a reused
-issuer signature). That is **out of scope** here and is not implied anywhere in this module or its tests.
-Nothing in the code or docs should be read as providing unlinkability; if a deployment needs it, it needs
-the BBS+ tier, not this one.
+separate tier: **BBS+ anonymous-credential disclosure** (per-presentation proofs, not a reused issuer
+signature). That is **out of scope** here and is not implied anywhere in this module or its tests. Nothing in
+the code or docs should be read as providing unlinkability; if a deployment needs it, it needs the BBS+ tier,
+not this one.
 
 ## Residuals / next steps
 
@@ -86,5 +86,8 @@ the BBS+ tier, not this one.
   presented via challenge/response — heavier, and it still needs the disclosures shipped out-of-band
   alongside the VP.
 - **Count-hiding** via decoy digests (padding `sd` to a fixed length) if `sd.length` metadata matters.
-- **Unlinkability** via a BBS+ tier — the natural successor when correlation resistance, not just property
-  hiding, is required. This module is the property-hiding layer beneath it.
+- **Merkle-tree selective disclosure** — a deferred alternative to the salted-hash array: a signed Merkle
+  root plus inclusion proofs, giving log-size disclosures instead of shipping the whole digest set. Same
+  property-hiding, smaller presentations; not built.
+- **BBS+ anonymous-credential disclosure** — the unlinkable tier, the natural successor when correlation
+  resistance (not just property hiding) is required. This module is the property-hiding layer beneath it.

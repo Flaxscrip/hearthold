@@ -1,5 +1,5 @@
 /**
- * e2e: Pattern-A selective disclosure — the full test matrix, live against Archon.
+ * e2e: salted-hash selective disclosure — the full test matrix, live against Archon.
  *
  * The deliverable is the verifier ACCEPTing a valid subset disclosure and REJECTing every forgery. A
  * correct REJECT is a PASS; the verifier is never loosened to green a rejection. Run:

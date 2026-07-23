@@ -1,4 +1,4 @@
-# Attenuation-VC ("Pattern 2") — Findings
+# Verifier-Enforced Attenuation — Findings
 
 What worked, what Archon made awkward, and where the model needed a workaround. Everything below is
 grounded in **real API calls** against a live node (`@didcid/keymaster` 0.6.0 → `flaxlap.local:4222`,
@@ -6,6 +6,11 @@ grounded in **real API calls** against a live node (`@didcid/keymaster` 0.6.0 �
 [`scripts/smoke-attenuation-api.ts`](../../scripts/smoke-attenuation-api.ts) (`npm run smoke:attenuation`).
 
 ## Verdict
+
+This is **verifier-enforced attenuation**: the verifier walks the chain and checks the subset relation at
+each hop. It is the middle of three tiers — stronger than *issuer-convention attenuation* (non-expansion by
+convention only, which we rejected as unenforceable), and weaker than *cryptographically-constrained
+attenuation* (over-expansion made unrepresentable, macaroon/capability-style — deferred, see Residuals).
 
 The model is **buildable and works as specified** on stock Archon. No blocker. The verifier ACCEPTs a valid
 chain and REJECTs all six violation classes with the intended reasons (see
@@ -126,3 +131,6 @@ payload to `{read on X}` and the recomputed commitment matched the cleartext `au
   lighter, sufficient encryption-scope disclosure.
 - **ZK subset proof** would let the verifier enforce `⊆` with zero disclosure — the natural follow-on if
   authority sets must stay private end-to-end.
+- **Cryptographically-constrained attenuation** (macaroon / capability-style) is the deferred stronger tier:
+  each hop's key is derived so that over-expansion is *unrepresentable* rather than caught by a verifier
+  walk. It removes the "verifier is the only enforcement point" caveat, at the cost of a different key model.
