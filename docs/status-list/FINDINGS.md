@@ -36,12 +36,30 @@ non-Sovereign `mergeData` was refused by the controller model. No size blocker.
 - **`mergeData` merges top-level keys.** We rewrite the full signed body (`issuer/statusPurpose/encodedList/
   listVersion/updatedAt/proof`) each publish, so the merge is a replacement; a partial update would retain a
   stale `encodedList`. Same footgun as before, same discipline.
-- **Index reuse is the issuer's problem, off-chain.** The assigned-index set must NOT be published (that
-  would re-leak volume), so the issuer keeps it privately. In this prototype it is an in-process `Set`;
-  a production issuer needs durable private allocation state (not an Archon asset). Random assignment over
-  131,072 makes accidental collision negligible for realistic issuance, but correctness wants the set.
 - **base64 inflates the payload ~33%.** The W3C `encodedList` is GZIP **then** base64; the ~16 KB compressed
   worst case becomes ~21 KB on the wire. Well within Archon's asset limits, but noted.
+
+## The collision bound that motivated durable allocation (on the record, not quietly fixed)
+
+The first cut assigned indices randomly with **no persistent record** of what had been allocated — an
+in-process `Set` at best. That is a **correctness bound**, not a privacy nicety: random assignment over
+131,072 slots hits birthday collisions sooner than intuition suggests — **~14% odds of at least one
+collision by 200 issued recognitions, roughly even by ~400.** A collision is not cosmetic: two recognitions
+share a bit, so **revoking one silently revokes the other**, or a newly issued recognition is **born revoked**
+because its slot was already set. Neither failure is visible at issuance.
+
+The fix (see [`packages/core/src/allocation.ts`](../../packages/core/src/allocation.ts), `npm run
+e2e:allocation`): the issuing Sovereign keeps a durable **AllocationRecord** (recognitionId → index) as a
+second Archon asset it OWNS and **seals to itself** (`sealForWarden` to its own DID). Allocation reads the
+record, picks a random **free** index, writes it back, returns it — collision-free by construction. This
+costs **nothing** in herd privacy: herd privacy is about what a verifier learns from the public list; the
+issuer already knows who it issued to, so recording that in its own sealed vault reveals nothing new to
+anyone. Concurrency is optimistic + **version-pinned**: read at version N, re-check the head is still N
+before writing, retry on conflict; a post-write verify is the backstop. Exhaustion is a **clear error**,
+never a silent reuse (rolling to a fresh list is deferred). `publishRevocation` now takes a `recognitionId`
+and resolves the index through the record — the caller tracks nothing. All grounded live (NO-COLLISION over
+a constrained space where random ~certainly collides; RESTART-SAFETY across a fresh issuer; CONCURRENCY with
+a forced version conflict; SEALED against a third party; EXHAUSTION).
 
 ## IMPORTANT — herd privacy REDUCES but does NOT ELIMINATE volume leakage
 
@@ -54,12 +72,23 @@ length **is** the count, but **not zero**. Herd privacy here is a reduction, not
 it as perfect. (Eliminating it would need padding the compressed form to a constant size, or a scheme that
 doesn't ship the raw bitstring — out of scope.)
 
+## Scoping — what herd privacy protects, and what it does not
+
+Herd privacy protects against the **issuer** (or the list host) learning **which credential a verifier is
+checking**: the verifier fetches the *whole* list and reads one bit locally, so no per-credential query is
+observable. It does **not** hide a credential's status from a **verifier who already holds the credential**:
+that verifier knows the credential's `statusListIndex` and can fetch the list repeatedly to watch that one
+bit over time. That is **inherent to the W3C Bitstring Status List design**, not a defect of this
+implementation — the status of a credential you hold is meant to be checkable — but it should be stated, not
+assumed. (It also implies the disclosed `statusListIndex` is visible to the checker; that is fine here, where
+the checker is the recognizer.)
+
 ## DEFERRED-SCOPE — named, not built
 
 - **Constant-size encoding.** Padding the compressed `encodedList` to a fixed size (or encrypting it) would
   close the residual size-correlation leak above. Not done — the W3C form ships the GZIP'd bitstring as-is.
-- **Durable private index allocation.** The issuer's assigned-index set is in-process here; a real issuer
-  needs persistent private allocation (off Archon, since publishing it re-leaks volume).
+- **Status-list rollover on exhaustion.** When a list's 131,072 slots are all allocated, allocation errors
+  cleanly (no reuse). Rolling to a *fresh* status list (a new asset + migrating the pointer) is not built.
 - **Cross-issuer status lists.** This checks a list you **own** (issuer == checker). Consulting a list
   published by a different Sovereign is a separate trust + freshness problem.
 - **Revoking an attenuation/delegation chain.** Status lists here cover **recognition** revocation only; a
@@ -72,6 +101,6 @@ doesn't ship the raw bitstring — out of scope.)
 ## Residuals / next steps
 
 - **Constant-size `encodedList`** is the clean successor for closing the compressed-size correlation.
-- **Durable index allocation** is a small, mechanical hardening for a real issuer.
+- **Status-list rollover** (fresh list on exhaustion) generalizes the allocation record to multiple lists.
 - **Suspension + cross-issuer** generalize the same asset + pin discipline to new status purposes and trust
   edges.

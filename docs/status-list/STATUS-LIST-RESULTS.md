@@ -30,12 +30,17 @@ version-pinning discipline as everywhere else (record BOTH `versionSequence` and
 - **List as an Archon asset.** The Sovereign owns a `StatusList` (its own `did:cid`), `addProof`-signed,
   whose `encodedList` is a **GZIP-compressed, base64** bitstring of the **W3C minimum 131,072 bits** — the
   minimum exists to provide herd privacy, so it is not shrunk.
-- **Random index per recognition.** `issueRecognition` allocates a **random** `statusListIndex` (never
-  sequential — sequential indices would leak issuance order and time) and records the `statusListCredential`
-  DID in the credential. The issuer keeps a private assigned-index set to avoid reuse; that set is **never
-  published**.
-- **Revoke = set the bit.** `publishRevocation(index)` flips the bit and updates the asset (new version).
-  Idempotent: setting an already-set bit mints no new version.
+- **Random, durable, collision-free index per recognition.** `issueRecognition` allocates a **random**
+  `statusListIndex` through a durable, sealed **AllocationRecord** (see below) — never sequential (that would
+  leak issuance order/time) and never colliding (which would silently cross-revoke). It records the
+  `statusListCredential` DID in the credential.
+- **Revoke by recognitionId.** `publishRevocation(recognitionId)` resolves the index through the record,
+  flips the bit, and updates the asset (new version). The caller tracks no indices. Idempotent.
+- **AllocationRecord — a second, SEALED asset.** The Sovereign owns a record (recognitionId → index) sealed
+  to its own key (`sealForWarden` to its own DID). Only the Sovereign reads it; a verifier fetching the
+  public bitstring never sees it, so herd privacy is unaffected. Allocation is optimistic + version-pinned
+  (read at N, re-check the head is N before writing, retry on conflict); exhaustion is a clear error, never a
+  reuse. Full matrix: [`scripts/e2e-allocation.ts`](../../scripts/e2e-allocation.ts) — `npm run e2e:allocation`.
 - **Check at admission, FAIL-CLOSED.** `admit` reads the recognition's bit through a `StatusListResolver`
   (max-age cache, version pin). It first checks the recognition points at the list this node checks, then
   reads the bit; unresolvable / unsigned / wrong-issuer / stale-and-unrefreshable → **DENY**.
@@ -78,6 +83,21 @@ resolving that **exact pinned version** reads the recognition's bit as **0** and
 answer. After a later revocation, the **current** version reads the bit as **1** while the **pinned
 historical version still reads 0** (immutable, content-addressed history). "Answered under a revoked
 recognition" is falsifiable.
+
+## Durable allocation matrix (`npm run e2e:allocation`) — every case the expected verdict (live)
+
+The sealed AllocationRecord closes the birthday-collision correctness bound (see FINDINGS). A correct
+error is a PASS.
+
+| Case | Result |
+|---|---|
+| NO-COLLISION | 120 indices in a 150-slot space (random would ~certainly collide) → **all distinct** |
+| RESTART-SAFETY | a **fresh issuer** with no in-memory state allocates 10 more → collides with none of the earlier batch |
+| CONCURRENCY | a forced version conflict → the racing allocation **retries** (attempts > 1); both end distinct, neither overwrites |
+| SEALED | a third party resolving the record **cannot decrypt** it; no recognitionId/index in its cleartext |
+| REVOKE-BY-ID | `publishRevocation(recognitionId)` sets the bit at the index the record holds |
+| EXHAUSTION | a full 4-slot space throws `status list exhausted …` — a clear error, **never a silent reuse** |
+| INDEX-RANDOMNESS | 8 full-space allocations span ~90k of 131,072, distinct, non-sequential |
 
 ## Task 1 (blocker) — the ~16KB payload works
 

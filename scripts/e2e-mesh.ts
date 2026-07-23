@@ -20,6 +20,7 @@ import {
   issueRecognition,
   presentRecognition,
   createStatusList,
+  createAllocationRecord,
   publishRevocation,
   StatusListResolver,
   delegatedScope,
@@ -62,12 +63,14 @@ async function main(): Promise<void> {
 
   step('B\'s Sovereign owns a Bitstring StatusList + RECOGNIZES A\'s Emissary (revocable via a random index)');
   const { statusListCredential } = await createStatusList(bSov, bSovId.name, configB);
+  const allocationRecord = await createAllocationRecord(bSov, bSovId.name, configB);
   const recognition = await issueRecognition({
     issuer: bSov,
     issuerName: bSovId.name,
     subject: aEmId.did,
     scope: { tier: 'trusted', confidence: 0.9, domain: 'fences', mode: 'fact', maxDepth: 1 },
     statusListCredential,
+    allocationRecord,
     registry: reg,
   });
   check('recognition issued by B\'s Sovereign, naming A\'s Emissary', recognition.statusListIndex >= 0);
@@ -140,12 +143,16 @@ async function main(): Promise<void> {
 
   // ── NO-RECOGNITION ──
   step('NO-RECOGNITION: A presents a cred not signed by a Sovereign B recognizes → REJECT at admission');
+  // Issued by A's OWN Warden (with its OWN status list + allocation record) — not a Sovereign B recognizes.
+  const aStatus = await createStatusList(aWarden, aWardenId.name, configA);
+  const aAlloc = await createAllocationRecord(aWarden, aWardenId.name, configA);
   const bogus = await issueRecognition({
-    issuer: aWarden, // A's OWN Warden — not a Sovereign B recognizes
+    issuer: aWarden,
     issuerName: aWardenId.name,
     subject: aEmId.did,
     scope: { tier: 'trusted', confidence: 0.9, domain: 'fences', mode: 'fact', maxDepth: 1 },
-    statusListCredential, // value is irrelevant — B rejects at the signature check before revocation
+    statusListCredential: aStatus.statusListCredential,
+    allocationRecord: aAlloc,
     registry: reg,
   });
   const rBogus = await meshB.handle(envelopeOf(validQuery, bogus));
@@ -169,7 +176,7 @@ async function main(): Promise<void> {
 
   // ── REVOKED-RECOGNITION (run last — sets the recognition's bit in the durable StatusList) ──
   step('REVOKED-RECOGNITION: B\'s Sovereign sets the recognition\'s status bit, A presents the cred → REJECT');
-  await publishRevocation(bSov, bSovId.name, statusListCredential, recognition.statusListIndex, configB);
+  await publishRevocation(bSov, bSovId.name, statusListCredential, recognition.recognitionId, allocationRecord, configB);
   const rRevoked = await meshB.handle(envelopeOf(validQuery));
   check('B REJECTS the revoked recognition', rRevoked.status === 'rejected' && rRevoked.check === 'revocation');
   if (rRevoked.status === 'rejected') process.stdout.write(`      → ${rRevoked.reason}\n`);

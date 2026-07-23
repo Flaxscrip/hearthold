@@ -77,6 +77,7 @@
     "e2e:mesh": "npm run build && node --experimental-strip-types scripts/e2e-mesh.ts",
     "e2e:mesh-depth2": "npm run build && node --experimental-strip-types scripts/e2e-mesh-depth2.ts",
     "e2e:status-list": "npm run build && node --experimental-strip-types scripts/e2e-status-list.ts",
+    "e2e:allocation": "npm run build && node --experimental-strip-types scripts/e2e-allocation.ts",
     "smoke:status-list": "npm run build && node --experimental-strip-types scripts/smoke-status-list.ts",
     "smoke:disclosure": "npm run build && node --experimental-strip-types scripts/smoke-disclosure-api.ts",
     "demo:disclosure-mcp": "npm run build && node --experimental-strip-types scripts/demo-disclosure-mcp.ts",

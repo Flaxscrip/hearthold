@@ -18,6 +18,7 @@ import {
   issueRecognition,
   presentRecognition,
   createStatusList,
+  createAllocationRecord,
   StatusListResolver,
   MeshWarden,
   receiveForwardedAnswer,
@@ -70,9 +71,11 @@ async function main(): Promise<void> {
   step('Each Sovereign owns a Bitstring StatusList; issue recognitions: B←A (0.9,d2), B←A@d1, C←B (0.8,d2)');
   const bList = await createStatusList(bSov, bSovId.name, cfgB);
   const cList = await createStatusList(cSov, cSovId.name, cfgC);
-  const recAB = await issueRecognition({ issuer: bSov, issuerName: bSovId.name, subject: aEmId.did, scope: { tier: 'trusted', confidence: 0.9, domain: 'fences', mode: 'fact', maxDepth: 2 }, statusListCredential: bList.statusListCredential, registry: reg });
-  const recAB_d1 = await issueRecognition({ issuer: bSov, issuerName: bSovId.name, subject: aEmId.did, scope: { tier: 'trusted', confidence: 0.9, domain: 'fences', mode: 'fact', maxDepth: 1 }, statusListCredential: bList.statusListCredential, registry: reg });
-  const recBC = await issueRecognition({ issuer: cSov, issuerName: cSovId.name, subject: bEmId.did, scope: { tier: 'trusted', confidence: 0.8, domain: 'fences', mode: 'fact', maxDepth: 2 }, statusListCredential: cList.statusListCredential, registry: reg });
+  const bAlloc = await createAllocationRecord(bSov, bSovId.name, cfgB);
+  const cAlloc = await createAllocationRecord(cSov, cSovId.name, cfgC);
+  const recAB = await issueRecognition({ issuer: bSov, issuerName: bSovId.name, subject: aEmId.did, scope: { tier: 'trusted', confidence: 0.9, domain: 'fences', mode: 'fact', maxDepth: 2 }, statusListCredential: bList.statusListCredential, allocationRecord: bAlloc, registry: reg });
+  const recAB_d1 = await issueRecognition({ issuer: bSov, issuerName: bSovId.name, subject: aEmId.did, scope: { tier: 'trusted', confidence: 0.9, domain: 'fences', mode: 'fact', maxDepth: 1 }, statusListCredential: bList.statusListCredential, allocationRecord: bAlloc, registry: reg });
+  const recBC = await issueRecognition({ issuer: cSov, issuerName: cSovId.name, subject: bEmId.did, scope: { tier: 'trusted', confidence: 0.8, domain: 'fences', mode: 'fact', maxDepth: 2 }, statusListCredential: cList.statusListCredential, allocationRecord: cAlloc, registry: reg });
   check('recognitions issued (A←B, A←B@depth1, B←C)', recAB.recognitionId !== recBC.recognitionId);
 
   // Partitions: B does NOT hold the post-spacing fact (so B must forward); C does.

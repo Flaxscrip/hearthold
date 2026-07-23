@@ -19,10 +19,10 @@
  */
 
 import { gzipSync, gunzipSync } from 'node:zlib';
-import { randomInt } from 'node:crypto';
 
 import type { KeymasterHandle } from './keymaster.js';
 import type { HearthholdConfig } from './config.js';
+import { lookupIndex } from './allocation.js';
 
 /** W3C minimum length. The minimum EXISTS to provide herd privacy — do not shrink it. */
 export const STATUS_LIST_LENGTH = 131_072;
@@ -51,21 +51,7 @@ function setBit(bytes: Uint8Array, index: number): void {
   bytes[index >>> 3]! |= 0x80 >>> (index & 7);
 }
 
-/**
- * Allocate a RANDOM index within the free space — never sequential. Sequential indices leak issuance order
- * and time, re-introducing the correlation the bitstring exists to prevent. Pass the issuer's private
- * `assigned` set to avoid reuse; it is NEVER published (publishing it would re-leak volume).
- */
-export function assignStatusIndex(assigned?: Set<number>): number {
-  for (let tries = 0; tries < 10_000; tries++) {
-    const i = randomInt(STATUS_LIST_LENGTH);
-    if (!assigned || !assigned.has(i)) {
-      assigned?.add(i);
-      return i;
-    }
-  }
-  throw new Error('status list free space exhausted');
-}
+// Indices are allocated durably + collision-free via the sealed AllocationRecord — see allocation.ts.
 
 // ── Schemas ──────────────────────────────────────────────────────────────────────────────────────────
 
@@ -113,17 +99,21 @@ export async function createStatusList(
 }
 
 /**
- * Revoke — set the bit at `statusListIndex` and update the asset. Idempotent: setting an already-set bit is
- * not an error and mints no new version. Returns the pin of the resulting (or existing) list version.
+ * Revoke `recognitionId` — resolve its index through the sealed AllocationRecord, set that bit, and update
+ * the asset. The caller does NOT track indices. Idempotent: setting an already-set bit mints no new version.
+ * Returns the pin (+ the resolved index) of the resulting (or existing) list version.
  */
 export async function publishRevocation(
   issuer: KeymasterHandle,
   issuerName: string,
   statusListCredential: string,
-  statusListIndex: number,
+  recognitionId: string,
+  allocationRecord: string,
   config: HearthholdConfig,
-): Promise<{ pin: StatusListPin; listVersion: number; alreadyRevoked: boolean }> {
+): Promise<{ pin: StatusListPin; listVersion: number; alreadyRevoked: boolean; statusListIndex: number }> {
   const km = issuer.keymaster;
+  const statusListIndex = await lookupIndex(issuer, issuerName, allocationRecord, recognitionId);
+  if (statusListIndex === null) throw new Error(`recognition ${recognitionId} has no allocated index in the record`);
   await km.setCurrentId(issuerName);
   const issuerDid = (await km.resolveDID(issuerName)).didDocument?.id ?? '';
   const doc = await km.resolveDID(statusListCredential);
@@ -131,14 +121,14 @@ export async function publishRevocation(
   const bytes = decodeBitstring(cur.encodedList);
 
   if (getBit(bytes, statusListIndex)) {
-    return { pin: pinOf(statusListCredential, doc), listVersion: cur.listVersion ?? 0, alreadyRevoked: true };
+    return { pin: pinOf(statusListCredential, doc), listVersion: cur.listVersion ?? 0, alreadyRevoked: true, statusListIndex };
   }
   setBit(bytes, statusListIndex);
   const listVersion = (cur.listVersion ?? 0) + 1;
   const body: StatusListBody = { issuer: issuerDid, statusPurpose: 'revocation', encodedList: encodeBitstring(bytes), listVersion, updatedAt: new Date().toISOString() };
   const signed = (await km.addProof(body, issuerName)) as unknown as Record<string, unknown>;
   await km.mergeData(statusListCredential, signed); // controller-signed update → new version
-  return { pin: pinOf(statusListCredential, await km.resolveDID(statusListCredential)), listVersion, alreadyRevoked: false };
+  return { pin: pinOf(statusListCredential, await km.resolveDID(statusListCredential)), listVersion, alreadyRevoked: false, statusListIndex };
 }
 
 // ── Checker side (resolver with max-age cache + fail-closed + version pin) ──────────────────────────────

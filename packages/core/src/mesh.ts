@@ -31,8 +31,9 @@ import {
   type IssuedDisclosureCredential,
   type Presentation,
 } from './selective-disclosure.js';
-import { assignStatusIndex } from './status-list.js';
+import { STATUS_LIST_LENGTH } from './status-list.js';
 import type { StatusListResolver, StatusListPin } from './status-list.js';
+import { allocateIndex } from './allocation.js';
 
 // ── Recognition (B's Sovereign recognizes A's Emissary) ────────────────────────────────────────────────
 
@@ -53,7 +54,7 @@ export interface RecognitionScope {
  * the issuer's `statusListCredential`; a set bit means revoked. `recognitionId` remains as an opaque identity
  * label (used in relay assertions) but is NOT the revocation key and never enters the published list.
  *
- * Pass the issuer's private `assignedIndices` set to avoid index reuse across issuances (never published).
+ * The index is allocated durably + collision-free through the issuer's sealed AllocationRecord (allocation.ts).
  */
 export async function issueRecognition(args: {
   issuer: KeymasterHandle;
@@ -62,12 +63,12 @@ export async function issueRecognition(args: {
   scope: Omit<RecognitionScope, 'subject'>;
   /** The issuer's StatusList asset DID — recorded in the credential so a checker resolves the right list. */
   statusListCredential: string;
+  /** The issuer's sealed AllocationRecord DID — where the durable recognitionId → index mapping lives. */
+  allocationRecord: string;
   registry: string;
-  /** Issuer-private set of already-assigned indices (avoids reuse). Never published. */
-  assignedIndices?: Set<number>;
 }): Promise<IssuedDisclosureCredential & { recognitionId: string; statusListIndex: number; statusListCredential: string }> {
   const recognitionId = randomUUID();
-  const statusListIndex = assignStatusIndex(args.assignedIndices);
+  const { index: statusListIndex } = await allocateIndex(args.issuer, args.issuerName, args.allocationRecord, recognitionId, STATUS_LIST_LENGTH);
   const cred = await issueDisclosureCredential({
     issuer: args.issuer,
     issuerName: args.issuerName,

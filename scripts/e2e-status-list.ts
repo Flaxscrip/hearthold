@@ -20,6 +20,7 @@ import {
   issueRecognition,
   presentRecognition,
   createStatusList,
+  createAllocationRecord,
   publishRevocation,
   auditRevocationAt,
   decodeBitstring,
@@ -61,10 +62,10 @@ async function main(): Promise<void> {
 
   step('B\'s Sovereign creates a Bitstring StatusList asset + recognizes A (random index)');
   const { statusListCredential } = await createStatusList(bSov, bSovId.name, cfgB);
-  const assigned = new Set<number>();
+  const allocationRecord = await createAllocationRecord(bSov, bSovId.name, cfgB);
   const scope = { tier: 'trusted', confidence: 0.9, domain: 'fences', mode: 'fact' as const, maxDepth: 1 };
-  const rec = await issueRecognition({ issuer: bSov, issuerName: bSovId.name, subject: aEmId.did, scope, statusListCredential, registry: reg, assignedIndices: assigned });
-  const rec2 = await issueRecognition({ issuer: bSov, issuerName: bSovId.name, subject: aEmId.did, scope, statusListCredential, registry: reg, assignedIndices: assigned });
+  const rec = await issueRecognition({ issuer: bSov, issuerName: bSovId.name, subject: aEmId.did, scope, statusListCredential, allocationRecord, registry: reg });
+  const rec2 = await issueRecognition({ issuer: bSov, issuerName: bSovId.name, subject: aEmId.did, scope, statusListCredential, allocationRecord, registry: reg });
   check('StatusList + recognition issued (random index)', statusListCredential.startsWith('did:') && rec.statusListIndex >= 0 && rec.statusListIndex < STATUS_LIST_LENGTH);
   process.stdout.write(`      recognition status index = ${rec.statusListIndex} (of ${STATUS_LIST_LENGTH})\n`);
 
@@ -96,12 +97,12 @@ async function main(): Promise<void> {
 
   // ── REVOKED-BIT ──
   step('REVOKED-BIT: set the recognition\'s bit → REJECT; setting it twice is idempotent');
-  const pub = await publishRevocation(bSov, bSovId.name, statusListCredential, rec.statusListIndex, cfgB);
+  const pub = await publishRevocation(bSov, bSovId.name, statusListCredential, rec.recognitionId, allocationRecord, cfgB);
   check('bit set (new list version)', pub.alreadyRevoked === false && pub.pin.versionSequence > (happyPin?.versionSequence ?? 0));
   const resRevoked = await meshB.handle(envOf());
   check('B REJECTS the now-revoked recognition', resRevoked.status === 'rejected' && resRevoked.check === 'revocation');
   if (resRevoked.status === 'rejected') process.stdout.write(`      → ${resRevoked.reason}\n`);
-  const pub2 = await publishRevocation(bSov, bSovId.name, statusListCredential, rec.statusListIndex, cfgB);
+  const pub2 = await publishRevocation(bSov, bSovId.name, statusListCredential, rec.recognitionId, allocationRecord, cfgB);
   check('setting the bit twice is idempotent (no new version)', pub2.alreadyRevoked === true && pub2.pin.versionSequence === pub.pin.versionSequence);
 
   // ── AUDIT-REPLAY (post) ──
@@ -121,7 +122,7 @@ async function main(): Promise<void> {
   // ── FAIL-CLOSED ──
   step('FAIL-CLOSED: an unresolvable StatusList → DENY, even for an unrevoked recognition');
   const badDid = 'did:cid:bagaaieranotarealstatuslist000000000000000000000000000000000';
-  const recBad = await issueRecognition({ issuer: bSov, issuerName: bSovId.name, subject: aEmId.did, scope, statusListCredential: badDid, registry: reg, assignedIndices: assigned });
+  const recBad = await issueRecognition({ issuer: bSov, issuerName: bSovId.name, subject: aEmId.did, scope, statusListCredential: badDid, allocationRecord, registry: reg });
   const badResolver = new StatusListResolver(bWarden, { statusListCredential: badDid, expectedIssuer: bSovId.did, maxAgeMs: 60_000 });
   const badMeshB = new MeshWarden(bWarden, bWardenId.name, cfgB, policyWith(badResolver), partition);
   const resFailClosed = await badMeshB.handle(envOf(recBad)); // recBad is unrevoked, but its list can't be resolved
@@ -147,7 +148,7 @@ async function main(): Promise<void> {
   step('INDEX-RANDOMNESS: indices across a batch of issuances are NOT sequential (the privacy property)');
   const batch: number[] = [rec.statusListIndex, rec2.statusListIndex];
   for (let i = 0; i < 6; i++) {
-    const r = await issueRecognition({ issuer: bSov, issuerName: bSovId.name, subject: aEmId.did, scope, statusListCredential, registry: reg, assignedIndices: assigned });
+    const r = await issueRecognition({ issuer: bSov, issuerName: bSovId.name, subject: aEmId.did, scope, statusListCredential, allocationRecord, registry: reg });
     batch.push(r.statusListIndex);
   }
   const spread = Math.max(...batch) - Math.min(...batch);
@@ -160,7 +161,7 @@ async function main(): Promise<void> {
   const lenNow = decodeBitstring(((await bWarden.keymaster.resolveDID(statusListCredential)).didDocumentData as SignedStatusList).encodedList).length;
   check(`bitstring is the fixed ${STATUS_LIST_LENGTH}-bit minimum (${STATUS_LIST_BYTES} bytes), independent of set bits`, lenNow === STATUS_LIST_BYTES);
   // Setting more bits does not change the length.
-  await publishRevocation(bSov, bSovId.name, statusListCredential, rec2.statusListIndex, cfgB);
+  await publishRevocation(bSov, bSovId.name, statusListCredential, rec2.recognitionId, allocationRecord, cfgB);
   const lenAfter = decodeBitstring(((await bWarden.keymaster.resolveDID(statusListCredential)).didDocumentData as SignedStatusList).encodedList).length;
   check('bitstring length is unchanged after more revocations', lenAfter === STATUS_LIST_BYTES);
 
