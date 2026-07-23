@@ -40,10 +40,13 @@ path where a high tier compensates for too-great a depth, or vice versa (AXIS-IN
   incremented on each forward by the relay). A presenter can only *inflate* its own depth, which merely
   **restricts** its access — there is no incentive, and no attack, in the depth axis; depth accrues only
   through trusted relays that increment it honestly (the same trust model as `depthRemaining`/`visited`).
-- **Composed path confidence, for the optional `minPathConfidence` axis.** Each hop multiplies the
-  presenter's local edge confidence into `query.pathConfidence`, so the answering node gates on the **whole
-  path's** confidence (A→B→C = 0.9 × 0.8), not just its local edge — the same composition A recomputes on
-  return. Optional: a rung without `minPathConfidence` ignores it.
+- **Composed path confidence — a THIRD independent axis (`minPathConfidence`), exercised.** Each hop
+  multiplies the presenter's local edge confidence into `query.pathConfidence`, so the answering node gates
+  on the **whole path's** confidence, not just its local edge — the same composition A recomputes on return.
+  The `verified-only` rung (`minPathConfidence: 0.8`) proves it live: a low-confidence recognition is denied,
+  and a degraded relay path (`0.85 × 0.9 = 0.765 < 0.8`) is denied at the same tier + depth, while an intact
+  path passes. Optional and independent: a rung without `minPathConfidence` ignores it, and it never trades
+  off against tier or depth.
 - **Admission vs. gating are cleanly separated.** `admit()` verifies the recognition and revocation and
   forwarding authority; it no longer checks a single tier or a single arrival depth. The **ladder** decides
   which rungs the answer may come from, in `handle()`. Admission says "this is a valid, unrevoked
@@ -66,7 +69,5 @@ path where a high tier compensates for too-great a depth, or vice versa (AXIS-IN
 
 ## Residuals / next steps
 
-- **Confidence-floor rungs** (`minPathConfidence`) are wired and threaded but not exercised by a dedicated
-  matrix case here — a natural addition.
 - **LLM-backed reasoning** over the permitted set is the obvious upgrade to `reasonOverPartitions`, with the
   sandbox boundary unchanged.

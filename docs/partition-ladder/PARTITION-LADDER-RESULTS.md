@@ -39,11 +39,12 @@ Tier and depth are never merged into a single score.
 
 ## The demo — a realistic three-rung ladder (fence-builder)
 
-| Rung | `minTier` | `maxArrivalDepth` | Fact |
-|---|---|---|---|
-| **world-public** | `world` | 2 | "set posts 8 ft on center" (general advice) |
-| **acquaintance** | `acquaintance` | 2 | "my contractor charges ~$45/linear foot" |
-| **close-friend** | `close-friend` | 1 | "the side gate code is 4-8-1-5" (personal) |
+| Rung | `minTier` | `maxArrivalDepth` | `minPathConfidence` | Fact |
+|---|---|---|---|---|
+| **world-public** | `world` | 2 | — | "set posts 8 ft on center" (general advice) |
+| **acquaintance** | `acquaintance` | 2 | — | "my contractor charges ~$45/linear foot" |
+| **verified-only** | `acquaintance` | 2 | 0.8 | "my supplier gives a 15% pro discount" (share only when the trust chain is strong) |
+| **close-friend** | `close-friend` | 1 | — | "the side gate code is 4-8-1-5" (personal) |
 
 `tierOrder = ['world', 'acquaintance', 'close-friend']`. So a `world` presenter reads only the general
 advice; an `acquaintance` reads that plus the contractor rate; a `close-friend` — and only when arriving
@@ -60,6 +61,7 @@ A correct no-answer is a PASS; access is never widened to go green.
 | WORLD-PUBLIC | a `world` presenter gets the world-public fact; is **denied** the acquaintance and close-friend facts |
 | TIER-GATING | an `acquaintance` reads its own rung but is **denied** the close-friend fact **even though the query matches it** |
 | DEPTH-GATING | a `close-friend` at depth 1 gets the gate code; the **same presenter at depth 2 is denied** (rung is depth-1-only) |
+| CONFIDENCE-GATING | the `verified-only` rung needs composed path confidence ≥ 0.8; a low-confidence recognition **and** a degraded relay path are both **denied** at the same tier + depth |
 | AXIS-INDEPENDENCE | for the same rung: high-tier-but-too-deep **denied**, low-tier-but-shallow **denied**, only both-satisfied granted |
 | SANDBOXING | the answer's content comes **only** from a permitted rung; a gated rung's fact never leaks |
 | INDISTINGUISHABILITY | a query hitting a gated rung and one matching nothing return **byte-identical** responses |
@@ -75,6 +77,16 @@ For the **same** close-friend rung (`minTier: close-friend`, `maxArrivalDepth: 1
 
 Neither axis alone unlocks the rung; only their conjunction does. Depth cannot buy tier, and tier cannot buy
 depth.
+
+### CONFIDENCE-GATING — the composed path confidence, a third independent axis
+
+The `verified-only` rung adds `minPathConfidence: 0.8` on top of tier + depth. Verified live, isolating the
+axis (tier and depth held constant): a **high-confidence** acquaintance (0.9 ≥ 0.8) reaches it; a
+**low-confidence** recognition (0.5 < 0.8) at the same tier and depth is **denied**. Crucially, it is the
+**composed path** confidence that gates, not just the local edge: an intact path at depth 2 (0.9) is
+granted, but a **degraded relay path** — `pathConfidence 0.85 × local edge 0.9 = 0.765 < 0.8` — is **denied**
+at the same depth. Each hop multiplies its edge confidence into the query, so a rung can require that the
+*whole chain* that reached it is strong, not merely the last link.
 
 ### SANDBOXING — a gated fact is unreachable, not unranked
 

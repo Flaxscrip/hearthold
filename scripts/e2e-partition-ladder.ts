@@ -9,7 +9,7 @@
  *   HEARTHOLD_GATEKEEPER_URL=http://flaxlap.local:4222 HEARTHOLD_REGISTRY=local \
  *   node --experimental-strip-types scripts/e2e-partition-ladder.ts
  *
- * Matrix: WORLD-PUBLIC · TIER-GATING · DEPTH-GATING · AXIS-INDEPENDENCE · SANDBOXING · INDISTINGUISHABILITY · LADDER-ORDER.
+ * Matrix: WORLD-PUBLIC · TIER-GATING · DEPTH-GATING · CONFIDENCE-GATING · AXIS-INDEPENDENCE · SANDBOXING · INDISTINGUISHABILITY · LADDER-ORDER.
  */
 import { join } from 'node:path';
 
@@ -61,22 +61,25 @@ async function main(): Promise<void> {
   const ladder: PartitionLadder = [
     { name: 'world-public', domain: 'fences', access: { minTier: 'world', maxArrivalDepth: 2 }, facts: [{ ref: 'post-spacing', provenance: 'asserted', confidence: 1, keywords: ['post', 'spacing', 'apart'], narrative: 'General fence advice: set posts 8 feet on center.' }] },
     { name: 'acquaintance', domain: 'fences', access: { minTier: 'acquaintance', maxArrivalDepth: 2 }, facts: [{ ref: 'contractor-rate', provenance: 'asserted', confidence: 0.9, keywords: ['contractor', 'rate', 'charge', 'cost'], narrative: 'My fence contractor charges about $45 per linear foot.' }] },
+    // A confidence-floor rung: acquaintance tier + depth ≤2 like the one above, but ALSO needs the composed
+    // path confidence to clear 0.8 — a fact you only share when the trust chain that reached you is strong.
+    { name: 'verified-only', domain: 'fences', access: { minTier: 'acquaintance', maxArrivalDepth: 2, minPathConfidence: 0.8 }, facts: [{ ref: 'supplier-discount', provenance: 'asserted', confidence: 0.9, keywords: ['supplier', 'discount', 'wholesale'], narrative: 'My lumber supplier gives a 15% pro discount.' }] },
     { name: 'close-friend', domain: 'fences', access: { minTier: 'close-friend', maxArrivalDepth: 1 }, facts: [{ ref: 'gate-code', provenance: 'asserted', confidence: 1, keywords: ['gate', 'code', 'combination'], narrative: 'The side gate code is 4-8-1-5.' }] },
   ];
-  step('B\'s three-rung ladder: world-public (tier world, depth ≤2) · acquaintance (acquaintance, ≤2) · close-friend (close-friend, depth 1 only)');
-  process.stdout.write('    world-public → "set posts 8ft on center"   acquaintance → "$45/linear foot"   close-friend → "gate code 4-8-1-5"\n');
+  step('B\'s ladder: world-public (world, ≤2) · acquaintance (acquaintance, ≤2) · verified-only (acquaintance, ≤2, conf ≥0.8) · close-friend (close-friend, depth 1)');
+  process.stdout.write('    world-public → "8ft on center"   acquaintance → "$45/ft"   verified-only → "supplier 15% discount"   close-friend → "gate code 4-8-1-5"\n');
 
   const statusList = new StatusListResolver(bWarden, { statusListCredential, expectedIssuer: bSovId.did, maxAgeMs: 60_000 });
   const policy: MeshPolicy = { recognizedIssuer: bSovId.did, tierOrder, statusList };
   const meshB = new MeshWarden(bWarden, bWardenId.name, cfgB, policy, ladder);
 
-  const recAt = (tier: string): Promise<IssuedDisclosureCredential & { recognitionId: string }> =>
-    issueRecognition({ issuer: bSov, issuerName: bSovId.name, subject: aEmId.did, scope: { tier, confidence: 0.9, domain: 'fences', mode: 'fact', maxDepth: 2 }, statusListCredential, allocationRecord, registry: reg });
+  const recAt = (tier: string, confidence = 0.9): Promise<IssuedDisclosureCredential & { recognitionId: string }> =>
+    issueRecognition({ issuer: bSov, issuerName: bSovId.name, subject: aEmId.did, scope: { tier, confidence, domain: 'fences', mode: 'fact', maxDepth: 2 }, statusListCredential, allocationRecord, registry: reg });
   const recWorld = await recAt('world');
   const recAcq = await recAt('acquaintance');
   const recClose = await recAt('close-friend');
 
-  const Q = { post: 'how far apart should fence posts be?', rate: 'what does your contractor charge?', gate: 'what is the gate code?', miss: 'what paint colour is best?' };
+  const Q = { post: 'how far apart should fence posts be?', rate: 'what does your contractor charge?', supplier: 'what supplier discount do you get?', gate: 'what is the gate code?', miss: 'what paint colour is best?' };
   const q = (text: string, arrivalDepth = 1): MeshQuery => ({ text, mode: 'fact', domain: 'fences', budget: { maxNodes: 1, rate: 1 }, arrivalDepth });
   const ask = (rec: IssuedDisclosureCredential, text: string, arrivalDepth = 1): Promise<ReturnType<MeshWarden['handle']> extends Promise<infer R> ? R : never> =>
     meshB.handle({ query: q(text, arrivalDepth), recognition: presentRecognition(rec), presenterDid: aEmId.did } as MeshQueryEnvelope);
@@ -108,6 +111,17 @@ async function main(): Promise<void> {
   check('low tier + depth 1 (acquaintance @ depth 1) → denied', (await ask(recAcq, Q.gate, 1)).status === 'no-answer');
   check('only both-axes-satisfied (close-friend @ depth 1) is granted', (await ask(recClose, Q.gate, 1)).status === 'granted');
 
+  // ── CONFIDENCE-GATING ──
+  step('CONFIDENCE-GATING: the verified-only rung needs composed path confidence ≥ 0.8 — a THIRD, independent axis');
+  const recAcqLow = await recAt('acquaintance', 0.5);
+  check('high-confidence acquaintance (0.9 ≥ 0.8) reaches the verified-only rung', (await reference(await ask(recAcq, Q.supplier))) === 'supplier-discount');
+  check('low-confidence acquaintance (0.5 < 0.8) — same tier + depth — is DENIED', (await ask(recAcqLow, Q.supplier)).status === 'no-answer');
+  // The COMPOSED path (multi-hop) confidence gates, not just the local edge: intact path at depth 2 passes,
+  // but a relay path that degrades it below the floor is denied — same tier + depth, only confidence differs.
+  check('intact path at depth 2 (0.9 ≥ 0.8) is granted', (await reference(await ask(recAcq, Q.supplier, 2))) === 'supplier-discount');
+  const degraded = await meshB.handle({ query: { ...q(Q.supplier, 2), pathConfidence: 0.85 }, recognition: presentRecognition(recAcq), presenterDid: aEmId.did } as MeshQueryEnvelope);
+  check('a degraded relay path (0.85 × 0.9 = 0.765 < 0.8) at the same depth is DENIED', degraded.status === 'no-answer');
+
   // ── SANDBOXING ──
   step('SANDBOXING: the answer\'s content comes ONLY from a permitted rung — a gated rung\'s fact never leaks');
   const worldAnswerRef = await reference(await ask(recWorld, Q.post));
@@ -126,7 +140,7 @@ async function main(): Promise<void> {
   const tierOrder2 = ['world', 'acquaintance', 'colleague', 'close-friend']; // colleague inserted between
   const reach = (tier: string, depth: number): string[] => permittedPartitions(ladder, tierOrder2, tier, depth, 0.9).map((p) => p.name);
   check('close-friend still reaches its rung after the insertion (rank preserved above acquaintance)', reach('close-friend', 1).includes('close-friend'));
-  check('the newly-inserted colleague reaches world-public + acquaintance but NOT close-friend', JSON.stringify(reach('colleague', 1).sort()) === JSON.stringify(['acquaintance', 'world-public']));
+  check('the newly-inserted colleague reaches world-public + acquaintance + verified-only but NOT close-friend', JSON.stringify(reach('colleague', 1).sort()) === JSON.stringify(['acquaintance', 'verified-only', 'world-public']));
   check('explicit ranks, not string compare: index(close-friend) > index(acquaintance) in both orderings', tierOrder2.indexOf('close-friend') > tierOrder2.indexOf('acquaintance') && tierOrder.indexOf('close-friend') > tierOrder.indexOf('acquaintance'));
 
   process.stdout.write(
