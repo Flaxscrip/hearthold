@@ -455,6 +455,8 @@ export interface PathEdge {
 export interface ReceivedForwardedAnswer {
   ok: boolean;
   reason?: string;
+  /** The failing check on rejection, e.g. 'relay' | 'answerer' | 'confidence'. */
+  check?: string;
   answer?: MeshAnswer;
   /** The cryptographically VERIFIED answer signer (C). Verification is NOT recognition (see below). */
   verifiedSigner?: string;
@@ -513,7 +515,18 @@ export async function receiveForwardedAnswer(args: {
   const answerSigner = (answer.proof.verificationMethod ?? '').split('#')[0];
   if (answerSigner !== relay.answerer) return { ok: false, reason: `answer signed by ${answerSigner}, but the relay names answerer ${relay.answerer}`, recognizesAnswerer: false };
 
-  // 3. Mesh-assembled path — A →recognizes→ B →recognizes→ C. No A→C edge is ever synthesized.
+  // 3. Confidence must be a probability in [0,1]. This BOUNDS a recognized-but-dishonest relay: without it,
+  //    a relay reporting edgeConfidence 1.2 would AMPLIFY the path confidence above the A→B edge and break
+  //    monotonicity. The clamp is a bound only — accuracy still rests on B's honesty (see FINDINGS).
+  const inUnit = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 1;
+  if (!inUnit(args.relayEdgeConfidence)) {
+    return { ok: false, reason: `relayEdgeConfidence ${String(args.relayEdgeConfidence)} is not a probability in [0,1]`, check: 'confidence', recognizesAnswerer: false };
+  }
+  if (!inUnit(relay.edgeConfidence)) {
+    return { ok: false, reason: `relay-reported edgeConfidence ${String(relay.edgeConfidence)} is not a probability in [0,1] (a relay cannot amplify path confidence)`, check: 'confidence', recognizesAnswerer: false };
+  }
+
+  // 4. Mesh-assembled path — A →recognizes→ B →recognizes→ C. No A→C edge is ever synthesized.
   const path: PathEdge[] = [
     { from: args.self, to: args.expectedRelay, basis: 'A recognizes B', confidence: args.relayEdgeConfidence },
     { from: args.expectedRelay, to: answerSigner, basis: 'B recognizes C', confidence: relay.edgeConfidence },

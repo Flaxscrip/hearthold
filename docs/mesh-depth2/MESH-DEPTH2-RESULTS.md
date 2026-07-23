@@ -54,6 +54,7 @@ A correct REJECT is a PASS; admission and verification were never loosened.
 | BUDGET-ATTENUATION | REJECT | `forward maxNodes 5 exceeds incoming 1`; and over-scope `mode:reasoning ⊄ mode:fact` |
 | BROKEN-RELAY-RECOGNITION | no-answer | `no recognized friend covers this domain — clean no-answer` (never a fabricated answer) |
 | CONFIDENCE-MONOTONICITY | ≤ each hop | `0.72 ≤ min(0.9, 0.8)` and ≤ every edge |
+| CONFIDENCE-BOUNDS | REJECT | `relay-reported edgeConfidence 1.2 is not a probability in [0,1]` (check `confidence`) — a relay cannot amplify path confidence |
 | CONFIDENTIALITY-2HOP | opaque legs | both legs pairwise-encrypted; **B (relay) can decrypt** leg C→B; a 4th party can decrypt **neither** leg |
 | CYCLE | REJECT | `cycle: <did>… is already on the path` (check `cycle`) |
 
@@ -69,6 +70,23 @@ from recognition, so "A trusts C" is never implied or storable.
 With A's recognition set to `maxDepth 1` (authorizing 0 forwards) but the query needing a forward to reach C,
 B rejects at admission: `depthRemaining 1 exceeds the permitted 0`. This proves the **recognition's own
 depth governs**, not merely the partition policy — the fix-first that v1 lacked.
+
+### CONFIDENCE-MONOTONICITY — enforced, with a stated honesty assumption
+
+Two distinct claims, both true and both stated so neither is over-read:
+
+- **Monotonicity is ENFORCED, not merely observed.** `receiveForwardedAnswer` range-checks every confidence
+  factor — the caller-supplied A→B edge and the relay-reported B→C edge — and **rejects** any value that is
+  not a finite probability in `[0,1]` (check `confidence`). Because both factors are clamped to `[0,1]`, the
+  product is *always* ≤ each factor: the composed path confidence can never exceed a single hop. Without this
+  bound, a recognized-but-dishonest relay reporting `edgeConfidence 1.2` would have amplified the path
+  confidence above the A→B edge — the CONFIDENCE-BOUNDS case proves that forgery is now refused.
+- **Accuracy still rests on the relay's honesty — this is an assumption, not a guarantee.** The clamp bounds
+  B's claim to `[0,1]`; **nothing binds it to C's actual recognition credential for B.** B can still report
+  `1.0` when the real C→B edge is `0.3`. That is *within* A's trust assumption — A recognizes B, and A is
+  trusting B's forwarding claim — but it is a stated assumption, not an implied property. Binding the reported
+  edge confidence to C's issued recognition of B (so B cannot inflate a real 0.3 to 1.0) would require
+  carrying/verifying that credential's confidence field along the return path; it is not done in this tier.
 
 ### CONFIDENTIALITY-2HOP + QUERY-EXPOSURE — called out
 

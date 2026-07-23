@@ -190,6 +190,27 @@ async function main(): Promise<void> {
   check('B REJECTS a forward that would revisit a node already on the path', rCycle.status === 'rejected' && rCycle.check === 'cycle');
   if (rCycle.status === 'rejected') process.stdout.write(`      → ${rCycle.reason}\n`);
 
+  // ── CONFIDENCE-BOUNDS ──
+  step('CONFIDENCE-BOUNDS: a recognized-but-dishonest relay reporting edgeConfidence 1.2 → REJECT (bounds guard)');
+  // B is genuinely recognized, but signs a relay assertion claiming an edge confidence > 1 — which would
+  // amplify path confidence above the A→B edge and break monotonicity. A's bounds check must refuse it.
+  const meshBBadConf = new MeshWarden(bWarden, bWardenId.name, cfgB, polB, partB, {
+    ...bForwarding,
+    friends: [{ cred: recBC, recognitionId: recBC.recognitionId, confidence: 1.2, friendWardenDid: cWardenId.did, domain: 'fences' }],
+  });
+  const badRes = await meshBBadConf.handle(env(q()));
+  let boundsRejected = false;
+  let boundsReason = '';
+  if (badRes.status === 'granted') {
+    const rBad = await receiveForwardedAnswer({ emissary: aEmissary, emissaryName: aEmId.name, answerDid: badRes.answerDid, self: aEmId.did, expectedRelay: bWardenId.did, relayEdgeConfidence: 0.9 });
+    boundsRejected = !rBad.ok && rBad.check === 'confidence';
+    boundsReason = rBad.reason ?? '';
+  }
+  check('A REJECTS a relay assertion whose edgeConfidence > 1 (a relay cannot amplify path confidence)', boundsRejected);
+  if (boundsRejected) process.stdout.write(`      → ${boundsReason}\n`);
+  const rBadCaller = await receiveForwardedAnswer({ emissary: aEmissary, emissaryName: aEmId.name, answerDid: happyDid, self: aEmId.did, expectedRelay: bWardenId.did, relayEdgeConfidence: 1.2 });
+  check('A REJECTS an out-of-range caller-supplied relayEdgeConfidence (1.2)', !rBadCaller.ok && rBadCaller.check === 'confidence');
+
   process.stdout.write(
     failures === 0
       ? '\n✓ mesh depth-2: A→B→C answers with composed confidence + full path provenance; budget, depth, and confidence all attenuate; verification ≠ recognition\n'
