@@ -29,11 +29,54 @@ constructs, pointed at a peerless instance. B6's check carries a `@ts-expect-err
 regression fails the build. This is the batch's requirement met literally: *"B6 should end up impossible by
 type, not merely unobserved by a scan."*
 
+## Two properties, both required — CONFINEMENT of the capability AND ISOLATION of the target
+
+The type guarantee and the runtime check cover **different** properties, and neither substitutes for the other:
+
+- **Capability confinement (structural, by type).** No Hearthold path can import through the private handle —
+  `PrivateGatekeeper` omits the import methods. This proves the *only* code that can import is a `DmzSession`.
+- **Target isolation (runtime, at open).** That `DmzSession` holds a full client and points it at a URL —
+  and "peerless" there is a **configuration** fact, not a type fact. Aim it at a peered gatekeeper (a wrong
+  URL, a profile that gains a mediator, the flaxlap stand-in) and imports propagate exactly as before, with
+  the compiler perfectly content. So `DmzSession.open` **interrogates the target before any session exists**
+  and refuses a non-peerless one.
+
+Confinement without isolation is a locked door in a glass wall: only the DMZ can import, but the DMZ can
+still import into a node that gossips. Both are needed.
+
+### The signal — `listRegistries()`, grounded not guessed
+
+The direct signal is the gatekeeper's own **`listRegistries()`**: a mediator-less node can only anchor on
+non-propagating registries. Grounded live — a peerless Aegis node returns `["local"]`; flaxlap returns
+`["hyperswarm", "BTC:mainnet", "BTC:signet", "ETH:mainnet", "SOL:mainnet-beta", "local"]`. `PEERLESS_REGISTRIES`
+is a strict allowlist (`{local}`): `hyperswarm` (the gossip mediator) or ANY blockchain registry marks the
+target peered. This is a direct signal from the target, not a Hearthold-side heuristic — **no new field had
+to be exposed** (see the coordination note). `assertPeerlessTarget` fails closed three ways:
+
+- **peered** target (a propagating registry present) → `PeeredTargetError`, refused;
+- **undetermined** target (unreachable / `listRegistries` errors / non-array) → `UndeterminedTargetError`,
+  refused — an unverifiable target is never assumed good;
+- the **only** bypass is `assumePeerless: true` — an explicit per-session escape hatch, never a default,
+  never read from config, that **logs loudly**. It exists solely for a stand-in whose peerlessness is
+  verified out of band.
+
+Because the check runs inside `open()` before the session object is constructed, a refused target yields
+**no session at all** — so no `import` call is reachable on a refusal (asserted).
+
+### What this did to `e2e:dmz` (as the constraint intended)
+
+The assertion was **not** weakened to keep the suite running against flaxlap. flaxlap is peered, so a default
+DMZ open against it is now **REFUSED** — and that refusal is the `PEERED-TARGET` test passing. The lifecycle
+(import/verify/teardown) runs against a genuinely peerless node when `HEARTHOLD_DMZ_URL` is set (Aegis's node
+B — interrogated, no escape hatch), and otherwise against the flaxlap stand-in under the **explicit**
+`assumePeerless` escape hatch, which logs loudly. The stand-in is now an acknowledged, per-session choice,
+not a silent assumption.
+
 ## The session lifecycle
 
 | Phase | What happens | Co-sign? |
 |---|---|---|
-| **OPEN** | Warden constructs a DMZ (a full client + a Keymaster bound to a peerless instance). | No — reversible, local, publishes nothing ([`../CO-SIGN-POLICY.md`](../CO-SIGN-POLICY.md)). |
+| **OPEN** | Warden constructs a DMZ, **interrogates the target for peerlessness (`listRegistries()`)**, and refuses a peered/undetermined one before any session exists. | No — reversible, local, publishes nothing ([`../CO-SIGN-POLICY.md`](../CO-SIGN-POLICY.md)). |
 | **IMPORT** | Pull the counterparty's operation export into the DMZ. Best-effort: falls back to the native-resolvable path where import is gated; **fails closed** if a required DID doesn't resolve. | No |
 | **VERIFY** | `resolveDID(verify:true)` replays the chain and re-checks **every** operation's signature, including **across key epochs** (the rotation-safety property); `verifyProof` verifies a payload against the epoch that signed it. | No |
 | **DECIDE** | Compute the **keep closure** (below); the Sovereign decides what to keep. | Keep-into-a-peered-sphere is publication → co-sign; keep-local → Warden ([`../CO-SIGN-POLICY.md`](../CO-SIGN-POLICY.md)). |
@@ -82,23 +125,54 @@ ready, note what you needed.* Here is the honest state:
   via Drawbridge `:4222`, and no admin key is available here.
 - **Consequence:** the live cross-gatekeeper demonstration — "import into the DMZ, then confirm the node's
   **own** gatekeeper never received it" — cannot run from the host, because it needs two *distinct,
-  reachable* gatekeepers. `e2e:dmz` therefore points the DMZ at a **stand-in** (flaxlap `:4224`, a distinct
-  client/URL over the same DB) to exercise the OPEN→IMPORT→VERIFY(across epochs)→TEARDOWN **logic**, and the
-  "nothing reaches the node's own gatekeeper" invariant is carried by the **structural type guarantee**
-  (which is strictly stronger than a one-off live observation).
-- **What I'd need from Aegis to run it end-to-end:** a **host-reachable** endpoint for a **peerless,
-  import-open** Gatekeeper (either publish node B's `:4224` to the host, or run `e2e:dmz` *inside* the Aegis
-  network — e.g. add it to `harness-hearthold-delivery.sh`), plus (if node B gates admin) its import API key
-  to pass as `DmzOpenOptions.apiKey`. With that, the DMZ points at node B, imports for real, and a resolve
-  against node A confirms A never saw the ops.
+  reachable* gatekeepers. `e2e:dmz` therefore runs the lifecycle against a **stand-in** (flaxlap `:4224`)
+  under the **explicit `assumePeerless` escape hatch**, exercising the OPEN→IMPORT→VERIFY(across
+  epochs)→TEARDOWN **logic**. The invariant itself is now carried by TWO in-process guarantees, not by the
+  live run: the **type** (only a DMZ can import) and the **peerlessness assertion at open** (the DMZ can only
+  import into a target that cannot propagate).
+- **What changed the ask.** With the peerlessness assertion in place, **no new field is needed from Aegis** —
+  `listRegistries()` already answers the question, and their peerless node already returns `["local"]`. The
+  live cross-gatekeeper run's **remaining value is confirmation, not enforcement**: it confirms *the target
+  is the node we think it is and behaves as expected end-to-end* — that node B really is peerless in
+  practice, that a real import+verify+teardown round-trips, and that a resolve against node A finds nothing.
+  It no longer *establishes* the invariant (the type + the open-time check do); it *witnesses* it once
+  against real infrastructure.
+- **What I'd need to run that confirmation:** a **host-reachable** endpoint for node B's **peerless,
+  import-open** Gatekeeper (publish `:4224`, or run `e2e:dmz` *inside* the Aegis network — e.g. from
+  `harness-hearthold-delivery.sh`), plus (if node B gates admin) its import key as `HEARTHOLD_DMZ_API_KEY`.
+  Then run with `HEARTHOLD_DMZ_URL=http://<nodeB>:4224` — `e2e:dmz` interrogates it for real (no escape
+  hatch) and the lifecycle runs against genuine peerless infrastructure.
 
 ## Test coverage
 
-- `e2e:dmz` — fail-closed open; import; verify a VC chain and a payload proof; **verify across a key
-  rotation** (pre-rotation VC still verifies); teardown leaves no residue and refuses further use; the
-  structural B6 guard.
+- `e2e:dmz` — the peerlessness decision logic (peerless accepted, peered/undetermined refused, escape hatch
+  bypasses loudly); **PEERED-TARGET** (flaxlap) and **UNDETERMINED-TARGET** (unreachable) both refused with
+  no session created; import; verify a VC chain and a payload proof; **verify across a key rotation**
+  (pre-rotation VC still verifies); teardown leaves no residue and refuses further use; the structural B6 guard.
 - `e2e:keep-closure` — goal-dependent, version-pinned minimal subgraphs; the weaker closure still proves its
   weaker claim; the issuer pinned to its signing version with later rotations excluded.
 - `e2e:pvm-boundaries` — B6 now GREEN, structural + confined to `dmz.ts`.
 - `e2e:credential-delivery` — the refactor: native accept on shared-registry; cross-node routes to the DMZ;
   no `importDIDs` into the node's own gatekeeper anywhere.
+
+## Live confirmation — Path A, DONE (Aegis)
+
+Aegis ran `e2e:dmz` against a **genuinely peerless, mediator-less DMZ** they built (published on `:4260`,
+own node at `:4324`; import was open — no admin key needed on a dev instance). All core invariants came back
+**GREEN**: peerlessness interrogated with **no escape hatch**, import → verify-chain → verify-proof →
+teardown (no residue) → fail-closed → B6 structural. So the invariant is now witnessed against real
+separated infrastructure, not just the type + open-time check.
+
+**One positive finding — the separation the shared-DB stand-in had been masking.** The rotation check
+originally exported the issuer chain, then rotated on the **own** node, then expected the DMZ to report v2.
+That only ever passed because flaxlap's shared-DB stand-in leaked the own-node rotation into the "DMZ."
+Against a genuinely separate DMZ the rotation never reaches it — the DMZ correctly stays at v1, because **a
+DMZ verifies exactly what is imported into it, never what the own node does afterwards.** That is precisely
+the isolation B6 exists to prove; the stand-in was hiding it. Fixed: rotate **first**, then re-export and
+import the two-epoch chain into the DMZ before `verifyChain` (the corrected test asserts the issuer chain
+resolves to v2 *in the DMZ* and the VC signed by the retired key-1 still verifies against it). The corrected
+test passes on the stand-in and against a real peerless DMZ alike, and no longer depends on any DB leak.
+
+**Operational note (Aegis):** point `HEARTHOLD_DMZ_URL` at `127.0.0.1`, not `localhost` — the DMZ publishes
+on IPv4 and `localhost` may resolve to `::1`. Aegis's transcript + `docs/CONTAINER-TOPOLOGY.md` + topology
+profiles are committed on their side (`c6769acb`).

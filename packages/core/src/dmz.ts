@@ -37,6 +37,13 @@ export interface DmzOpenOptions {
   dmzNodeUrl: string;
   /** Admin API key, if the DMZ gatekeeper gates `/dids/import` (dev/isolated instances leave this unset). */
   apiKey?: string;
+  /**
+   * ESCAPE HATCH — skip the peerlessness interrogation and open anyway. Explicit per session only: it is
+   * never a default and is never read from config. Set it ONLY for a stand-in whose peerlessness you have
+   * verified out of band; opening logs loudly. Omit it and an un-peerless (or unverifiable) target is
+   * refused. See docs/dmz/RESULTS.md.
+   */
+  assumePeerless?: boolean;
   /** Whose wallet backs the DMZ keymaster — needed to decrypt/verify credentials sealed to that identity. */
   role: AgentRole;
   config: HearthholdConfig;
@@ -48,6 +55,73 @@ export class DmzSessionClosedError extends Error {
     super(`DMZ session is torn down; '${op}' is not allowed after teardown (fail closed)`);
     this.name = 'DmzSessionClosedError';
   }
+}
+
+/**
+ * Registries a DMZ target may support and still be PEERLESS — i.e. unable to gossip or anchor a DID anywhere
+ * other peers/chains can see. `local` is DB-only, no propagation. ANY other registry — `hyperswarm` (the
+ * gossip mediator) or any blockchain registry (`BTC:*`, `ETH:*`, `SOL:*`, `ZEC:*`, …) — makes the node a
+ * propagator, so a DMZ pointed at it would re-broadcast what it imports. Deliberately a strict allowlist:
+ * anything not listed here counts as peered. Grounded live — a mediator-less Aegis node returns `["local"]`;
+ * flaxlap returns `["hyperswarm", "BTC:mainnet", …, "local"]`.
+ */
+export const PEERLESS_REGISTRIES: ReadonlySet<string> = new Set(['local']);
+
+/** The target supports a propagating registry — a DMZ there could re-broadcast imports. Refused. */
+export class PeeredTargetError extends Error {
+  constructor(readonly registries: string[]) {
+    super(
+      `refusing to open a DMZ against a PEERED gatekeeper: it supports propagating registries ` +
+        `[${registries.join(', ')}] — only [${[...PEERLESS_REGISTRIES].join(', ')}] is peerless. ` +
+        `A DMZ must be unable to re-broadcast what it imports.`,
+    );
+    this.name = 'PeeredTargetError';
+  }
+}
+
+/** The target could not answer whether it is peerless (unreachable/errored). Refused — never assumed good. */
+export class UndeterminedTargetError extends Error {
+  constructor(readonly dmzNodeUrl: string, cause: string) {
+    super(
+      `refusing to open a DMZ against '${dmzNodeUrl}': cannot determine whether it is peerless (${cause}). ` +
+        `An unverifiable target is refused, not assumed good (fail closed).`,
+    );
+    this.name = 'UndeterminedTargetError';
+  }
+}
+
+/**
+ * Interrogate a DMZ target and confirm it is PEERLESS — BEFORE any session (hence any import) exists. The
+ * direct signal is the gatekeeper's own `listRegistries()`: a target that lists ONLY peerless registries
+ * cannot gossip, so nothing imported can propagate. Fails closed: a peered target throws `PeeredTargetError`;
+ * an unreachable/erroring one throws `UndeterminedTargetError`. `assumePeerless` is the ONLY escape hatch —
+ * explicit per call, never a default, never read from config — and it LOGS LOUDLY. Use it only for a
+ * stand-in whose peerlessness you have verified out of band.
+ */
+export async function assertPeerlessTarget(
+  target: { listRegistries(): Promise<string[]> },
+  dmzNodeUrl: string,
+  opts: { assumePeerless?: boolean } = {},
+): Promise<{ registries: string[]; assumed: boolean }> {
+  if (opts.assumePeerless === true) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `⚠️  DMZ PEERLESSNESS UNVERIFIED: opening against '${dmzNodeUrl}' under an explicit ` +
+        `assumePeerless escape hatch. The target was NOT interrogated — you are asserting out of band that ` +
+        `it has no gossip mediator and no peers. NEVER use this against a node that can propagate.`,
+    );
+    return { registries: [], assumed: true };
+  }
+  let registries: string[];
+  try {
+    registries = await target.listRegistries();
+  } catch (e) {
+    throw new UndeterminedTargetError(dmzNodeUrl, e instanceof Error ? e.message : String(e));
+  }
+  if (!Array.isArray(registries)) throw new UndeterminedTargetError(dmzNodeUrl, 'listRegistries did not return an array');
+  const peered = registries.filter((r) => !PEERLESS_REGISTRIES.has(r));
+  if (peered.length > 0) throw new PeeredTargetError(registries);
+  return { registries, assumed: false };
 }
 
 const stripSlash = (u: string): string => u.replace(/\/+$/, '');
@@ -72,7 +146,19 @@ export class DmzSession {
   /** OPEN — Warden-only, reversible, publishes nothing (no co-sign per docs/CO-SIGN-POLICY.md). */
   static async open(opts: DmzOpenOptions): Promise<DmzSession> {
     if (!opts.dmzNodeUrl) throw new Error('DMZ open: dmzNodeUrl is required (fail closed — no ambient target)');
-    const gatekeeper = await GatekeeperClient.create({ url: opts.dmzNodeUrl, ...(opts.apiKey ? { apiKey: opts.apiKey } : {}) });
+    let gatekeeper: GatekeeperClient;
+    try {
+      // Fail-fast client so an unreachable target surfaces at the peerless check, not as a hang.
+      gatekeeper = await GatekeeperClient.create({ url: opts.dmzNodeUrl, waitUntilReady: false, maxRetries: 0, ...(opts.apiKey ? { apiKey: opts.apiKey } : {}) });
+    } catch (e) {
+      throw new UndeterminedTargetError(opts.dmzNodeUrl, e instanceof Error ? e.message : String(e));
+    }
+
+    // TARGET ISOLATION — confirm the target is peerless BEFORE a session (hence any import) can exist. The
+    // type guarantee (PrivateGatekeeper omits import) confines the CAPABILITY; this confirms the TARGET.
+    // Both are required. Fails closed on peered/undetermined; the only bypass is an explicit assumePeerless.
+    await assertPeerlessTarget(gatekeeper, opts.dmzNodeUrl, { assumePeerless: opts.assumePeerless });
+
     const wallet = new WalletJson('wallet.json', agentDataFolder(opts.config, opts.role));
     const cipher = new CipherNode();
     const keymaster = new Keymaster({ passphrase: opts.passphrase, gatekeeper, wallet, cipher, defaultRegistry: opts.config.registry });
