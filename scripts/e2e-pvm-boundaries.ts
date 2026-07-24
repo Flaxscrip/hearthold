@@ -175,7 +175,17 @@ async function main(): Promise<void> {
   check('B5 NO REPUTATION', 'OBSERVATIONAL', 'confidence is decomposable (factConfidence ∧ recognitionConfidence present)', typeof ans?.factConfidence === 'number' && typeof ans?.recognitionConfidence === 'number');
 
   // ── B6 — GATEKEEPER PURITY ──────────────────────────────────────────────────────────────────────────
-  step('B6 GATEKEEPER PURITY — no code path imports a foreign DID into the node’s OWN Gatekeeper');
+  step('B6 GATEKEEPER PURITY — importing a foreign DID into the node’s OWN Gatekeeper is IMPOSSIBLE BY TYPE');
+  // STRUCTURAL: the node's own handle is a PrivateGatekeeper with the import methods removed (keymaster.ts),
+  // so this call does not type-check. If someone re-adds importDIDs to PrivateGatekeeper, the @ts-expect-error
+  // goes unused and the BUILD fails — the invariant can no longer silently regress.
+  void (async () => {
+    // @ts-expect-error B6 STRUCTURAL: PrivateGatekeeper omits importDIDs — importing foreign ops into the node's own gatekeeper is a type error
+    await bWarden.gatekeeper.importDIDs([]);
+  });
+  check('B6 GATEKEEPER PURITY', 'STRUCTURAL', "the node's own gatekeeper cannot import foreign ops (PrivateGatekeeper omits importDIDs — @ts-expect-error, build-enforced)", true);
+  // OBSERVATIONAL: any surviving importDIDs/importBatch call must live ONLY in the sanctioned DMZ module,
+  // which imports into an ephemeral, peerless instance — never a node-own handle.
   const allSrc: string[] = [];
   for (const pkg of readdirSync(join(repo, 'packages'), { withFileTypes: true })) {
     if (!pkg.isDirectory()) continue;
@@ -187,8 +197,8 @@ async function main(): Promise<void> {
     }
   }
   const imports = callSites(allSrc, /\.(importDIDs|importBatch)\s*\(/);
-  const pure = imports.length === 0;
-  check('B6 GATEKEEPER PURITY', 'OBSERVATIONAL', `no importDIDs/importBatch into the node's own Gatekeeper${pure ? '' : ` — VIOLATED at: ${imports.join(', ')}`}`, pure);
+  const strays = imports.filter((loc) => !loc.startsWith('packages/core/src/dmz.ts:'));
+  check('B6 GATEKEEPER PURITY', 'OBSERVATIONAL', `imports are confined to the DMZ module${strays.length ? ` — STRAY import outside dmz.ts: ${strays.join(', ')}` : ' (dmz.ts only)'}`, strays.length === 0);
 
   // ── Summary ─────────────────────────────────────────────────────────────────────────────────────────
   process.stdout.write('\n' + '─'.repeat(78) + '\n');

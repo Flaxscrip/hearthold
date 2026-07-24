@@ -5,13 +5,26 @@ import CipherNode from '@didcid/cipher/node';
 import type { AgentRole, HearthholdConfig } from './config.js';
 import { agentDataFolder } from './config.js';
 
+/**
+ * The node's OWN gatekeeper client, structurally stripped of the foreign-import methods.
+ *
+ * Importing a counterparty's operations into the node's own (peer-connected) Gatekeeper re-broadcasts their
+ * identifiers — "holding is republishing" (docs/DEPLOYMENT.md) — which is the B6 GATEKEEPER PURITY boundary
+ * (docs/pvm-boundaries/RESULTS.md). By removing `importDIDs`/`importBatch`/`importBatchByCids` from the type,
+ * importing foreign ops into the private gatekeeper is a **compile error**, not a scan we hope stays clean —
+ * B6 becomes impossible-by-type. Export, resolve, and processEvents remain (they don't ingest foreign DIDs).
+ * The ONLY importer in the codebase is a DMZ session (`dmz.ts`), which owns a full client pointed at an
+ * ephemeral, peerless instance — never the node's own.
+ */
+export type PrivateGatekeeper = Omit<GatekeeperClient, 'importDIDs' | 'importBatch' | 'importBatchByCids'>;
+
 export interface KeymasterHandle {
   role: AgentRole;
   keymaster: Keymaster;
   /** The cipher instance, retained for in-band (non-anchoring) encrypt/decrypt. */
   cipher: CipherNode;
-  /** The gatekeeper client — for admin export/import of DID ops (cross-node credential delivery). */
-  gatekeeper: GatekeeperClient;
+  /** The node's own gatekeeper client — export/resolve/processEvents, but NOT foreign import (see PrivateGatekeeper). */
+  gatekeeper: PrivateGatekeeper;
   dataFolder: string;
 }
 

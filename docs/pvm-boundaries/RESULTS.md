@@ -24,31 +24,33 @@ Each check is tagged, because the two are not equally strong:
 | **B3 PROVE-THE-FACT** | OBSERVATIONAL (scan the decrypted answer for sibling-rung facts) | GREEN |
 | **B4 PAIRWISE DISCLOSURE** | OBSERVATIONAL (only the intended recipient decrypts) | GREEN |
 | **B5 NO REPUTATION** | OBSERVATIONAL (scan the return struct for an aggregate score) | GREEN |
-| **B6 GATEKEEPER PURITY** | OBSERVATIONAL (source scan for `importDIDs`/`importBatch`) | **RED** |
+| **B6 GATEKEEPER PURITY** | **STRUCTURAL** (`PrivateGatekeeper` omits import; `@ts-expect-error`) + OBSERVATIONAL (imports confined to `dmz.ts`) | **GREEN** |
 
-Only **B1** has a STRUCTURAL leg. The rest are observational and should be hardened toward structural where
-possible (e.g. a nominal `SealedForRecipient<DID>` type for B4, a branded `LocalOnlyGatekeeper` for B6)
-rather than left as scans.
+**B1 and B6 have a STRUCTURAL leg.** The rest are observational and should be hardened toward structural
+where possible (e.g. a nominal `SealedForRecipient<DID>` type for B4) rather than left as scans.
 
-## B6 is RED — and that is the most valuable output
+## B6 — was RED, now closed STRUCTURALLY (impossible by type)
 
-**`packages/core/src/credential-delivery.ts:177` calls `handle.gatekeeper.importDIDs(m.ops)`** — importing a
-counterparty's VC + schema (and, opt-in, its issuer) operations into the **node's own Gatekeeper** (the
-handle's client points at `config.nodeUrl`). On a local-first node **with a Hyperswarm mediator**, that
-import makes this node a **re-broadcaster** of the counterparty's identifiers (the *holding is republishing*
-property, [`../DEPLOYMENT.md`](../DEPLOYMENT.md)). So the credential-delivery path, as built, violates
-GATEKEEPER PURITY.
+B6 was RED: `credential-delivery.ts:177` called `handle.gatekeeper.importDIDs(...)`, importing a
+counterparty's operations into the **node's own** Gatekeeper — which on a peer-connected node re-broadcasts
+their identifiers (*holding is republishing*, [`../DEPLOYMENT.md`](../DEPLOYMENT.md)).
 
-This is **not weakened to go green** (per the batch constraint). The resolution is already designed, not
-hacked: the **DMZ** — an ephemeral, **mediator-less** Gatekeeper that verification imports target instead of
-the node's own peer-connected one (see [`../DRAWBRIDGE-GROUNDING.md`](../DRAWBRIDGE-GROUNDING.md)). A
-Gatekeeper with no gossip mediator has nothing to propagate through, so importing to verify no longer
-republishes. Until credential-delivery routes its `importDIDs` into a DMZ, **B6 stays RED** — which is
-exactly the regression signal we want: the debt is now a failing invariant, not a paragraph.
+It is now closed the way the batch asked — **impossible by type, not merely unobserved by a scan**:
 
-Note the import is *best-effort* and short-circuits to the native path on a shared-registry node (it only
-runs when the VC isn't already resolvable), so the violation bites specifically on the true cross-node,
-peer-connected deployment — the one the DMZ is for.
+- `KeymasterHandle.gatekeeper` is a **`PrivateGatekeeper`** = `Omit<GatekeeperClient, 'importDIDs' |
+  'importBatch' | 'importBatchByCids'>` (`keymaster.ts`). Importing foreign ops into the node's own
+  gatekeeper is now a **compile error**. The B6 check carries a `@ts-expect-error` on exactly that call, so
+  if the type ever regains an import method, the **build fails** (the invariant can no longer regress
+  silently).
+- The **only** importer in the codebase is the **DMZ session** (`dmz.ts`), which owns a full client pointed
+  at an ephemeral, **peerless** instance — never the node's own. The observational leg asserts every
+  surviving `importDIDs`/`importBatch` call site lives in `dmz.ts`.
+- `credential-delivery` was refactored accordingly: the shared-registry path accepts natively (no import);
+  the cross-node path verifies in a DMZ (`openDmz`) and keeps only the minimal closure
+  ([`../dmz/RESULTS.md`](../dmz/RESULTS.md)); with no DMZ wired, an unresolvable VC **fails closed** rather
+  than polluting the private gatekeeper.
+
+So the "regression signal" B6 used to be is now a **type-level wall**: the bad program does not compile.
 
 ## Notes from grounding the checks
 

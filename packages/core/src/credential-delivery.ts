@@ -25,6 +25,7 @@
 import type { KeymasterHandle } from './keymaster.js';
 import type { Transport, RequestHandler } from './transport.js';
 import type { GatekeeperEvent } from '@didcid/gatekeeper/types';
+import type { DmzSession } from './dmz.js';
 import {
   PROTOCOL_VERSION,
   type CredentialDeliveryMessage,
@@ -143,19 +144,30 @@ export interface CredentialDeliveryHandlerOptions {
    * omit it in in-process tests to keep using the static handle. Mirrors the Sovereign handler pattern.
    */
   reopen?: () => Promise<KeymasterHandle>;
-  /** Optional VC→KB bridge run after accept (see OnCredentialAccepted). */
+  /** Optional VC→KB bridge run after a native accept (see OnCredentialAccepted). */
   onAccepted?: OnCredentialAccepted;
+  /**
+   * Open an ephemeral, peerless DMZ session for the CROSS-NODE case (the VC is not resolvable on the
+   * subject's own gatekeeper). The handler imports + verifies there and NEVER imports foreign ops into the
+   * node's own gatekeeper (B6 GATEKEEPER PURITY — now impossible by type). Omit it and an unresolvable VC
+   * fails closed rather than polluting the private gatekeeper. See `dmz.ts`.
+   */
+  openDmz?: () => Promise<DmzSession>;
+  /** Optional keep-closure hook run after a successful DMZ verification (returns a kept-closure id). */
+  onVerified?: (session: DmzSession, credentialDid: string, message: CredentialDeliveryMessage) => Promise<string | undefined>;
 }
 
 /**
- * Subject side: a `RequestHandler` that accepts `hearthold/credential-delivery` messages. It imports the
- * shipped immutable ops (making the VC locally resolvable), accepts the credential as `subjectName`, and
- * optionally runs the injected VC→KB bridge. Returns a `hearthold/credential-delivery-ack`. Returns null
- * for any other message type so it composes with other handlers.
+ * Subject side: a `RequestHandler` for `hearthold/credential-delivery`. Two paths, and NEITHER imports
+ * foreign ops into the node's own gatekeeper (B6):
+ *   - the VC already resolves here (shared-registry / native): accept it natively as `subjectName`;
+ *   - it does not (cross-node): verify it in an ephemeral, peerless DMZ (`openDmz`) and keep only the
+ *     minimal closure — the node's own gatekeeper is never touched. Without a DMZ, this fails closed.
+ * Returns a `hearthold/credential-delivery-ack`; returns null for other message types so it composes.
  *
- * The issuer is NEVER cached here: even when `includesIssuerThrowaway` ships the issuer ops (to satisfy
- * the import-time controller resolve), any later verification/authcrypt resolves the issuer fresh over the
- * peer — the imported copy is a stopgap for one `importDIDs` call, not a trusted identity.
+ * The issuer is NEVER cached: even when `includesIssuerThrowaway` ships the issuer ops (to satisfy the
+ * DMZ's import-time controller resolve), later verification resolves the issuer fresh — the imported copy
+ * lives and dies inside the DMZ, never in the node's own gatekeeper.
  */
 export function makeCredentialDeliveryHandler(
   subject: KeymasterHandle,
@@ -168,20 +180,52 @@ export function makeCredentialDeliveryHandler(
 
     const handle = opts.reopen ? await opts.reopen() : subject;
     try {
-      // Make the VC (+ schema, + throwaway issuer if shipped) locally resolvable, then confirm them.
-      // Import is BEST-EFFORT so this stays deployment-agnostic: on a shared-registry node the VC is
-      // already resolvable (the native short-circuit the DoD calls for), and `/dids/import` is often
-      // admin-gated or not proxied there — so an import failure is fatal ONLY when the VC genuinely
-      // does not resolve locally (the true cross-node case where the shipped ops were required).
-      try {
-        await handle.gatekeeper.importDIDs(m.ops);
-        await handle.gatekeeper.processEvents();
-      } catch (importErr) {
-        const doc = await handle.keymaster.resolveDID(m.credentialDid).catch(() => null);
-        if (!doc?.didDocument?.id) throw importErr;
+      // Is the VC already resolvable on our OWN gatekeeper? (shared-registry / native short-circuit)
+      const resolvable = await handle.keymaster
+        .resolveDID(m.credentialDid)
+        .then((d) => Boolean(d.didDocument?.id))
+        .catch(() => false);
+
+      if (!resolvable) {
+        // CROSS-NODE: the ops are foreign. We must NOT import them into our own gatekeeper (B6 — now a
+        // type error anyway). Verify in an ephemeral, peerless DMZ and keep only the closure; fail closed
+        // if no DMZ is wired (refusing to pollute the private gatekeeper is the correct, safe outcome).
+        if (!opts.openDmz) {
+          return {
+            type: 'hearthold/credential-delivery-ack',
+            version: PROTOCOL_VERSION,
+            credentialDid: m.credentialDid,
+            accepted: false,
+            reason: 'VC not resolvable on this node and no DMZ configured — refusing to import foreign ops into the private gatekeeper (fail closed)',
+          };
+        }
+        const session = await opts.openDmz();
+        try {
+          await session.import(m.ops, [m.schemaDid, m.credentialDid]);
+          const chain = await session.verifyChain(m.credentialDid);
+          if (!chain.ok) {
+            return {
+              type: 'hearthold/credential-delivery-ack',
+              version: PROTOCOL_VERSION,
+              credentialDid: m.credentialDid,
+              accepted: false,
+              reason: `DMZ verification failed: ${chain.reason ?? 'chain did not verify'}`,
+            };
+          }
+          const keptId = opts.onVerified ? await opts.onVerified(session, m.credentialDid, m) : undefined;
+          return {
+            type: 'hearthold/credential-delivery-ack',
+            version: PROTOCOL_VERSION,
+            credentialDid: m.credentialDid,
+            accepted: true,
+            ingestedArtefactId: keptId,
+          };
+        } finally {
+          session.teardown(); // ephemeral: the DMZ instance is torn down; nothing survives on our node
+        }
       }
 
-      // use-id guard on the subject too — never accept as the wrong (current) identity.
+      // NATIVE path — the VC is already resolvable here; accept it into the wallet, no import needed.
       const ids = await handle.keymaster.listIds();
       if (!ids.includes(subjectName)) {
         throw new Error(
