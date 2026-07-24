@@ -40,9 +40,10 @@ async function main(): Promise<void> {
   const base = loadConfig();
   const pass = 'hearthold-dmz-e2e';
   const cfg = (s: string) => ({ ...base, dataRoot: join(base.dataRoot, s) });
-  // The DMZ stand-in: a distinct URL from the node's own (config.nodeUrl). In production this is a peerless
-  // instance (Aegis's two-node); here it is flaxlap's raw gatekeeper, a distinct client over the same DB.
-  const dmzNodeUrl = base.nodeUrl.replace(':4222', ':4224');
+  // The DMZ target. Set HEARTHOLD_DMZ_URL to a genuinely PEERLESS, import-open Gatekeeper (Aegis's node B)
+  // for a real run; otherwise fall back to flaxlap's raw gatekeeper — a distinct client over the same DB, a
+  // stand-in that exercises the lifecycle logic only (see docs/dmz/AEGIS-DMZ-LIVE-RUN.md).
+  const dmzNodeUrl = process.env.HEARTHOLD_DMZ_URL ?? base.nodeUrl.replace(':4222', ':4224');
 
   step('FAIL CLOSED — a DMZ session with no target refuses to open');
   {
@@ -75,7 +76,13 @@ async function main(): Promise<void> {
   const [vcOps] = await issuer.gatekeeper.exportDIDs([vcDid]);
 
   step('OPEN a DMZ session (peerless stand-in) — Warden-only, reversible, publishes nothing');
-  const session = await DmzSession.open({ dmzNodeUrl, role: 'sovereign', config: cfg('sub'), passphrase: pass });
+  const session = await DmzSession.open({
+    dmzNodeUrl,
+    ...(process.env.HEARTHOLD_DMZ_API_KEY ? { apiKey: process.env.HEARTHOLD_DMZ_API_KEY } : {}),
+    role: 'sovereign',
+    config: cfg('sub'),
+    passphrase: pass,
+  });
   check('session is open', session.isOpen === true);
   check('the DMZ is a DISTINCT client from the node’s own gatekeeper (different URL)', session.dmzNodeUrl !== base.nodeUrl.replace(/\/+$/, ''));
 
