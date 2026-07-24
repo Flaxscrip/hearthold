@@ -96,7 +96,7 @@ during that member's session) are worthwhile defense-in-depth, not a guarantee.
 
 ## Invariant, restated
 
-The old "guild brain ≠ personal vault" bends here, so state it precisely: **partitions never leak across
+The old "sphere brain ≠ personal vault" bends here, so state it precisely: **partitions never leak across
 the visibility boundary without an explicit, consented promotion.** The shared partition is nobody's 7th
 Capital; a private partition is a *scoped* personal space within the space (not the member's whole Warden
 vault); private→shared is always a deliberate act.

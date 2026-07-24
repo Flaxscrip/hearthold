@@ -1,12 +1,12 @@
 /**
  * End-to-end test of the prove flow **over DIDComm**.
  *
- *   Guild issues "Raid-Lead" (with schema) ──► Sovereign accepts
+ *   Sphere issues "Raid-Lead" (with schema) ──► Sovereign accepts
  *   Sovereign serves over DIDComm (presents proofs on request)
  *   Verifier: requestProof → send proof-request over DIDComm → Sovereign presents →
  *             proof-presentation reply → verifyProof
  *
- * Stand-in roles: guild = warden identity, holder = sovereign, verifier = witness.
+ * Stand-in roles: sphere = warden identity, holder = sovereign, verifier = witness.
  *
  * Run:  npm run e2e:prove-didcomm
  */
@@ -41,10 +41,10 @@ const check = (label: string, ok: boolean): void => {
 };
 const step = (m: string): void => process.stdout.write(`\n▸ ${m}\n`);
 
-const GUILD_SCHEMA = {
+const SPHERE_SCHEMA = {
   $schema: 'http://json-schema.org/draft-07/schema#',
   type: 'object',
-  properties: { type: { type: 'string' }, guild: { type: 'string' }, role: { type: 'string' } },
+  properties: { type: { type: 'string' }, sphere: { type: 'string' }, role: { type: 'string' } },
   required: ['type'],
   additionalProperties: true,
 } as const;
@@ -53,22 +53,22 @@ async function main(): Promise<void> {
   const config = { ...loadConfig(), dataRoot: DATA_ROOT };
   process.stdout.write(`Hearthold prove-over-DIDComm e2e\n  node: ${config.nodeUrl}\n  data: ${DATA_ROOT}\n`);
 
-  step('Provision guild (issuer), sovereign (holder), verifier');
-  const guild: KeymasterHandle = await openKeymaster('warden', config, PASSPHRASE);
+  step('Provision sphere (issuer), sovereign (holder), verifier');
+  const sphere: KeymasterHandle = await openKeymaster('warden', config, PASSPHRASE);
   const sovereign: KeymasterHandle = await openKeymaster('sovereign', config, PASSPHRASE);
   const verifier: KeymasterHandle = await openKeymaster('emissary', config, PASSPHRASE);
-  const guildId = await ensureIdentity(guild, config);
+  const sphereId = await ensureIdentity(sphere, config);
   const sovereignId = await ensureIdentity(sovereign, config);
   await ensureIdentity(verifier, config);
-  check('identities ready', guildId.did.startsWith('did:') && sovereignId.did.startsWith('did:'));
+  check('identities ready', sphereId.did.startsWith('did:') && sovereignId.did.startsWith('did:'));
 
-  step('Guild issues a membership credential to the Sovereign');
-  const schemaDid = await guild.keymaster.createSchema(GUILD_SCHEMA);
-  const bound = await guild.keymaster.bindCredential(sovereignId.did, {
+  step('Sphere issues a membership credential to the Sovereign');
+  const schemaDid = await sphere.keymaster.createSchema(SPHERE_SCHEMA);
+  const bound = await sphere.keymaster.bindCredential(sovereignId.did, {
     schema: schemaDid,
-    claims: { type: 'GuildMembership', guild: 'Example Guild', role: 'Raid-Lead' },
+    claims: { type: 'SphereMembership', sphere: 'Example Sphere', role: 'Raid-Lead' },
   });
-  const credDid = await guild.keymaster.issueCredential(bound, { schema: schemaDid });
+  const credDid = await sphere.keymaster.issueCredential(bound, { schema: schemaDid });
   await acceptCredential(sovereign, credDid);
   check('sovereign holds the credential', credDid.startsWith('did:'));
 
@@ -78,7 +78,7 @@ async function main(): Promise<void> {
   await new DidCommTransport(sovereign, IDENTITY_NAME.sovereign, config.nodeUrl).ready();
 
   const askProof = async (): Promise<import('@hearthold/core').HearthholdMessage> => {
-    const challengeDid = await requestProof(verifier, { schema: schemaDid, trustedIssuers: [guildId.did] });
+    const challengeDid = await requestProof(verifier, { schema: schemaDid, trustedIssuers: [sphereId.did] });
     return verifierTransport.request(
       sovereignId.did,
       { type: 'hearthold/proof-request', version: PROTOCOL_VERSION, challengeDid },
@@ -96,7 +96,7 @@ async function main(): Promise<void> {
       const pres = reply.type === 'hearthold/proof-presentation' ? (reply as ProofPresentationMessage) : null;
       check('carries a proof-of-human (pin, level 1)', pres?.humanProof?.method === 'pin' && pres?.humanProof?.level === 1);
       const result = await verifyProof(verifier, pres?.responseDid ?? '', {
-        trustedIssuers: [guildId.did],
+        trustedIssuers: [sphereId.did],
         requiredClaims: { role: 'Raid-Lead' },
       });
       check('proof verifies', result.ok === true);

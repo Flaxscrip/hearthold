@@ -26,7 +26,7 @@ compatibility check surfaces — worth naming before building.
    what happened to you; Archon Vault = how you arranged it* collapses the instant a cached face is
    written to the Table vault. Guardrail: **Table state = placements + refs (ids/commitments) only,
    never payloads**; faces exist only through a Warden release.
-4. **Shared guild Tables leak card *identifiers* to co-members.** `add_vault_member` shares
+4. **Shared sphere Tables leak card *identifiers* to co-members.** `add_vault_member` shares
    `placements[].ref` (= artefactId | credentialDid | deck name). Even with obsidian faces, the refs
    disclose which cards exist. Use opaque commitments (not resolvable ids) for shared-Table refs, and
    enforce the Table vault's MEDIUM ceiling at the **Warden**, not merely deck policy.

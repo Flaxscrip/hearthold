@@ -63,7 +63,7 @@ endorsement-borne, not baked into the membership credential.
 | **Sovereign** (First Person) | a person with a **P-DID**; personhood = a **PHC** (a governance-qualified VMC) |
 | **Emissary** (per device) | a **W-DID** that issues **VWCs**; "fair witness… may be an agent or bot authorized by the organization" |
 | **Warden** (custodian) | holds the vault of received edges; could itself be a community agent |
-| **Guild** | a community **C-DID** issuing **VMC** membership; the role ("Raid-Lead") is a **VEC** endorsement |
+| **Sphere** | a community **C-DID** issuing **VMC** membership; the role ("Raid-Lead") is a **VEC** endorsement |
 | our `issued` leaf | an inbound **VMC/VEC** accepted into the vault |
 | our `witnessed` trust class | a **VWC** the Emissary produced |
 | our delegation VC (Warden→Emissary) | a **VRC** edge, with the *authority* expressed in the registry (see §6) |

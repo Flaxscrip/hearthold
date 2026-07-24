@@ -30,7 +30,7 @@ Usage:
   sovereign accept <credDid> Accept a third-party credential and record it in the vault
   sovereign issued           List the issued (third-party) credentials in the vault
   sovereign issue <subjectDid> <type> [key=value ...]
-                             Issue a credential to a subject (act as an issuer, e.g. a guild manager)
+                             Issue a credential to a subject (act as an issuer, e.g. a sphere manager)
   sovereign serve            Serve over DIDComm: present proofs on request (terminal PIN)
   sovereign control [port]   Serve DIDComm + a control API for the Signet Approver app (default 4311)
   sovereign kb-query <mageDid> <kbId> <query>          Ask a Knowledge Base (via its public Mage portal)

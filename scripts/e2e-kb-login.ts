@@ -29,7 +29,7 @@ const assert = (cond: boolean, msg: string): void => {
 async function main(): Promise<void> {
   const config = loadConfig();
   const pass = 'hearthold-e2e-kb-login';
-  const kbId = 'guild-kb-login';
+  const kbId = 'sphere-kb-login';
 
   const warden = await openKeymaster('warden', config, pass);
   const alice = await openKeymaster('sovereign', config, pass); // a member (acts as the Signet)
@@ -77,7 +77,7 @@ async function main(): Promise<void> {
 
   process.stdout.write('\n▸ Session-authenticated contribute + ask\n');
   const upd = await kb.serveWithSession(
-    sreq(aliceToken, { action: 'update', kind: 'event', text: 'The guild AGM is Thursday July 23 at 6pm.' }),
+    sreq(aliceToken, { action: 'update', kind: 'event', text: 'The sphere AGM is Thursday July 23 at 6pm.' }),
   );
   assert(upd.type === 'hearthold/kb-result' && upd.action === 'update', 'Alice contributes over her session');
   const q = await kb.serveWithSession(sreq(aliceToken, { action: 'query', query: 'When is the AGM?' }));

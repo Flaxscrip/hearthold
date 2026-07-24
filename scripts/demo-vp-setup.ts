@@ -4,9 +4,9 @@
  *
  * Uses throwaway wallets under a dedicated data root (default ~/.hearthold-vpdemo), so none of your
  * real Hearthold wallets or passphrases are touched. It creates:
- *   - a guild "issuer"  (a trusted third-party issuer)
+ *   - a sphere "issuer"  (a trusted third-party issuer)
  *   - the Sovereign     (the holder / Signet)
- *   - a GuildMembership credential issued to the Sovereign, which the Sovereign accepts
+ *   - a SphereMembership credential issued to the Sovereign, which the Sovereign accepts
  *
  * Then it prints the two commands to run: the Signet daemon, and the verifier request.
  *
@@ -33,7 +33,7 @@ const PIN = '1234';
 async function main(): Promise<void> {
   const config = loadConfig();
 
-  // Guild issuer (a trusted third party) — parked in the 'warden' wallet slot of the demo root.
+  // Sphere issuer (a trusted third party) — parked in the 'warden' wallet slot of the demo root.
   const issuer = await openKeymaster('warden', config, ISSUER_PASS);
   const issuerId = await ensureIdentity(issuer, config);
 
@@ -41,14 +41,14 @@ async function main(): Promise<void> {
   const sovereign = await openKeymaster('sovereign', config, SOV_PASS);
   const sovId = await ensureIdentity(sovereign, config);
 
-  const type = 'GuildMembership';
+  const type = 'SphereMembership';
   const schemaDid = await ensureSchema(issuer, type, openSchema(type));
   const validUntil = new Date(Date.now() + 1000 * 60 * 60 * 24 * 365).toISOString();
   const credDid = await issueClaim(
     issuer,
     sovId.did,
     schemaDid,
-    { type, guild: 'Drake Gamers Guild', role: 'Raid-Lead' },
+    { type, sphere: 'Drake Gamers Guild', role: 'Raid-Lead' },
     validUntil,
   );
   const accepted = await acceptCredential(sovereign, credDid);
@@ -61,10 +61,10 @@ async function main(): Promise<void> {
 
   const line = '─'.repeat(64);
   process.stdout.write(
-    `\n${line}\n  VP demo ready — the Sovereign holds a GuildMembership from the guild\n${line}\n` +
+    `\n${line}\n  VP demo ready — the Sovereign holds a SphereMembership from the sphere\n${line}\n` +
       `  Sovereign (holder) : ${sovId.did}\n` +
       `  Emissary (projector): ${witnessId.did}\n` +
-      `  Issuer (guild)     : ${issuerId.did}\n` +
+      `  Issuer (sphere)     : ${issuerId.did}\n` +
       `  Schema             : ${schemaDid}\n` +
       `  Credential         : ${credDid}\n${line}\n\n` +
       `Common — start these two first (SAME data root):\n\n` +

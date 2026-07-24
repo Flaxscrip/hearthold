@@ -42,7 +42,7 @@ export async function issueDelegation(
 /**
  * Issue a credential of arbitrary claims to a subject, bound to `schemaDid`. The issuer must be the
  * current identity on `issuer`. Returns the credential DID. (This is how a Sovereign acts as an
- * issuer — e.g. a guild manager issuing membership or raid tickets to gamers.)
+ * issuer — e.g. a sphere manager issuing membership or raid tickets to gamers.)
  */
 export async function issueClaim(
   issuer: KeymasterHandle,

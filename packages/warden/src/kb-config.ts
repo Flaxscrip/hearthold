@@ -176,7 +176,7 @@ export async function readKbAssurance(handle: KeymasterHandle, chainAsset?: stri
 
 /**
  * File-backed store of the Warden's Knowledge Bases, keyed by `kbId`. One Warden identity custodies
- * many KBs (a password DB, a guild KB, a docs KB, …), each a resource with its own groups + governed
+ * many KBs (a password DB, a sphere KB, a docs KB, …), each a resource with its own groups + governed
  * policy. Migrates transparently from the old single-config shape.
  */
 export class KbConfigStore {

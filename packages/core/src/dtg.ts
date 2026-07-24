@@ -79,7 +79,7 @@ export const RCARD_TYPE = 'RelationshipCard';
 
 /** Context of a witnessing event (DTG VWC `witnessContext`). */
 export interface WitnessContext {
-  /** Human-readable event name, e.g. "Example Guild raid form-up". */
+  /** Human-readable event name, e.g. "Example Sphere raid form-up". */
   event?: string;
   /** Session or nonce identifier — the Emissary-as-session-recorder anchor. */
   sessionId?: string;

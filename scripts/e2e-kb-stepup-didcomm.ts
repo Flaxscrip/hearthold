@@ -30,7 +30,7 @@ async function main(): Promise<void> {
   const wardenTransport = new DidCommTransport(warden, IDENTITY_NAME.warden, config.nodeUrl);
   await wardenTransport.ready();
   const approver = makeDidcommActionApprover(wardenTransport, 30_000);
-  const req = { member: aliceId.did, action: 'write', resource: 'guild-kb', summary: 'contribute to guild-kb: “Elections close Friday.”' };
+  const req = { member: aliceId.did, action: 'write', resource: 'sphere-kb', summary: 'contribute to sphere-kb: “Elections close Friday.”' };
 
   process.stdout.write('\n▸ Member approves the step-up (fresh proof-of-human)\n');
   {

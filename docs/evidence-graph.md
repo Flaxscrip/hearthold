@@ -226,7 +226,7 @@ and the verifier checks each. This is strictly more flexible — every attestati
 verifiable** *and* **selectively disclosable** (reveal a subset). The graph *is* the composition.
 
 Archon already supports the verification side: a challenge's `credentials` is an **array**, so a
-verifier can require *several* credentials from *several* issuers at once — *"a guild VC **and** a
+verifier can require *several* credentials from *several* issuers at once — *"a sphere VC **and** a
 witnessed observation **and** a Sovereign-signed asset"* — satisfied by presenting several VPs. No
 native multi-sig needed.
 

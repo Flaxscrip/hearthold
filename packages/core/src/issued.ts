@@ -16,11 +16,11 @@ export interface IssuedLeaf {
   trustClass: 'issued';
   /** DID of the third-party credential. */
   credentialDid: string;
-  /** DID of the external issuer (e.g. a guild manager). */
+  /** DID of the external issuer (e.g. a sphere manager). */
   issuer: string;
   /** DID of the subject — the Sovereign the credential is about. */
   subject: string;
-  /** Best-effort credential type (e.g. 'GuildMembership'). */
+  /** Best-effort credential type (e.g. 'SphereMembership'). */
   credentialType: string;
   /** The credential's schema DID — a verifier requires the leaf by this in a composite challenge. */
   schema?: string;

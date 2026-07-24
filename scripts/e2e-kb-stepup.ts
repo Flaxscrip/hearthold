@@ -33,7 +33,7 @@ const assert = (cond: boolean, msg: string): void => {
 async function main(): Promise<void> {
   const config = loadConfig();
   const pass = 'hearthold-e2e-kb-stepup';
-  const kbId = 'guild-kb-stepup';
+  const kbId = 'sphere-kb-stepup';
 
   const warden = await openKeymaster('warden', config, pass);
   const alice = await openKeymaster('sovereign', config, pass);
@@ -98,13 +98,13 @@ async function main(): Promise<void> {
   process.stdout.write('\n▸ Write requires factor2 → steps up → member approves\n');
   verdict = true;
   calls.length = 0;
-  const upd = await kb.serveWithSession(sreq({ action: 'update', kind: 'event', text: 'Guild elections close Friday August 8.' }));
+  const upd = await kb.serveWithSession(sreq({ action: 'update', kind: 'event', text: 'Sphere elections close Friday August 8.' }));
   assert(upd.type === 'hearthold/kb-result' && upd.action === 'update', 'the write succeeds after approval');
   assert(calls.length === 1 && calls[0]?.action === 'write', 'the Sovereign was asked to authorize the write (step-up fired once)');
 
   process.stdout.write('\n▸ Read is factor1 → no step-up\n');
   calls.length = 0;
-  const q = await kb.serveWithSession(sreq({ action: 'query', query: 'When do guild elections close?' }));
+  const q = await kb.serveWithSession(sreq({ action: 'query', query: 'When do sphere elections close?' }));
   assert(q.type === 'hearthold/kb-result' && q.action === 'query', 'the read succeeds');
   assert(calls.length === 0, 'reads do NOT trigger a step-up (factor1 suffices)');
 

@@ -69,10 +69,10 @@ The Member opens `http://localhost:5176` (or the reachable host).
 
 - [ ] **E1** Member re-runs **Ask** *"What is the 7th Capital?"* → a grounded answer from the seeded set, **with citations**. *(Machine-derived; query not logged.)*
 - [ ] **E2** Ask *"What is a Warden?"* and *"When did the Knowledge Portal first run?"* → sensible seeded answers.
-- [ ] **E3** Member goes to **Contribute**, adds a fact (e.g. kind `event`: *"Our guild meets Thursdays at 8pm."*).
+- [ ] **E3** Member goes to **Contribute**, adds a fact (e.g. kind `event`: *"Our sphere meets Thursdays at 8pm."*).
   - If **write = factor1**: it saves immediately ("✓ contributed").
   - If **write = factor2** (A3): the Member's **Signet pops** an "authorize: write on hearthold-kb" prompt — see Part G.
-- [ ] **E4** Member asks *"When does the guild meet?"* → answers from their own contribution.
+- [ ] **E4** Member asks *"When does the sphere meet?"* → answers from their own contribution.
 
 **Expected:** the Member only ever proved DID control; no keys, no passwords in the browser.
 

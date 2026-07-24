@@ -10,7 +10,7 @@
  * The Warden never faces the public and holds the deciding logic; the Mage only carries.
  *
  * Two PVM invariants govern the KB (see docs/knowledge-portal.md):
- *   I.  guild brain ≠ personal vault — the KB holds *shared* knowledge, never a member's 7th Capital;
+ *   I.  sphere brain ≠ personal vault — the KB holds *shared* knowledge, never a member's 7th Capital;
  *       a personal Warden holds the 7th Capital. These must never merge.
  *   II. no query attribution retained — the query + requester are read in memory only; who-asked-what-
  *       when is never persisted (query logging off by default), preserving the Reconstruction Ceiling.

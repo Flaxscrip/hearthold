@@ -243,7 +243,7 @@ worth knowing before you operate one:
   member's own Warden, closes this gap — check `docs/kb-spaces.md` for status before promising it.)
 - **Two structural invariants apply to every KB you operate, shared or private** (from
   `docs/knowledge-portal.md`): the KB never becomes a store of a member's whole personal history (a
-  member may *contribute* a consented, derived fact — the KB itself must stay a guild brain, not a
+  member may *contribute* a consented, derived fact — the KB itself must stay a sphere brain, not a
   surveillance surface), and **query logging is off by default** — the Warden answers a query in
   memory and does not persist who asked what. Don't add per-DID query logging as an "ops metric"
   without treating that as a deliberate, reviewed policy change, not a convenience.

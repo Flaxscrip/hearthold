@@ -2,11 +2,11 @@
  * End-to-end test of the `issued` foundation: a third-party issuer issues a credential to the
  * Sovereign, the Sovereign accepts it, and it is recorded as an `issued` evidence leaf in the vault.
  *
- *   Guild (external issuer) ──issues "Raid-Lead, Example Guild"──► Sovereign (subject)
+ *   Sphere (external issuer) ──issues "Raid-Lead, Example Sphere"──► Sovereign (subject)
  *   Sovereign accepts ──► recordIssuedCredential ──► `issued` leaf in the Warden's vault
  *
- * (The "guild" issuer reuses the Emissary identity as a stand-in external party — in production this
- * is a real guild-manager DID. The accept mechanics are identical regardless of issuer.)
+ * (The "sphere" issuer reuses the Emissary identity as a stand-in external party — in production this
+ * is a real sphere-manager DID. The accept mechanics are identical regardless of issuer.)
  *
  * Run:  npm run e2e:issued
  */
@@ -40,18 +40,18 @@ async function main(): Promise<void> {
   const vaultFolder = agentDataFolder(config, 'warden');
   process.stdout.write(`Hearthold issued-credential e2e\n  node: ${config.nodeUrl}\n  data: ${DATA_ROOT}\n`);
 
-  step('Provision the issuer (guild) + the Sovereign');
-  const guild = await openKeymaster('emissary', config, PASSPHRASE); // stand-in external issuer
+  step('Provision the issuer (sphere) + the Sovereign');
+  const sphere = await openKeymaster('emissary', config, PASSPHRASE); // stand-in external issuer
   const sovereign = await openKeymaster('sovereign', config, PASSPHRASE);
-  const guildId = await ensureIdentity(guild, config);
+  const sphereId = await ensureIdentity(sphere, config);
   const sovereignId = await ensureIdentity(sovereign, config);
-  check('guild + sovereign ready', guildId.did.startsWith('did:') && sovereignId.did.startsWith('did:'));
+  check('sphere + sovereign ready', sphereId.did.startsWith('did:') && sovereignId.did.startsWith('did:'));
 
-  step('Guild issues a membership credential to the Sovereign');
-  const bound = await guild.keymaster.bindCredential(sovereignId.did, {
-    claims: { type: 'GuildMembership', guild: 'Example Guild', role: 'Raid-Lead' },
+  step('Sphere issues a membership credential to the Sovereign');
+  const bound = await sphere.keymaster.bindCredential(sovereignId.did, {
+    claims: { type: 'SphereMembership', sphere: 'Example Sphere', role: 'Raid-Lead' },
   });
-  const credDid = await guild.keymaster.issueCredential(bound);
+  const credDid = await sphere.keymaster.issueCredential(bound);
   check(`credential issued ${credDid.slice(0, 28)}…`, credDid.startsWith('did:'));
 
   step('Sovereign accepts + records the issued leaf');
@@ -59,9 +59,9 @@ async function main(): Promise<void> {
   check('sovereign accepted the credential', accepted === true);
   const leaf = await recordIssuedCredential(sovereign, credDid, vaultFolder);
   check('trust class is issued', leaf.trustClass === 'issued');
-  check('issuer = the guild', leaf.issuer === guildId.did);
+  check('issuer = the sphere', leaf.issuer === sphereId.did);
   check('subject = the Sovereign', leaf.subject === sovereignId.did);
-  check('credentialType = GuildMembership', leaf.credentialType === 'GuildMembership');
+  check('credentialType = SphereMembership', leaf.credentialType === 'SphereMembership');
   check('claim role = Raid-Lead', leaf.claims.role === 'Raid-Lead');
   check('descriptionSource = issuer-asserted', leaf.descriptionSource === 'issuer-asserted');
 

@@ -114,8 +114,8 @@ approving each with a PIN. In this isolated environment it runs as an **interact
 (terminal PromptGate); the browser Signet Approver (`sovereign control` on `:4311`) can't be used because
 `internal: true` blocks published host ports.
 
-`deploy/sandbox/run-prove.sh` wires a demonstrable end-to-end prove flow — a guild manager (a distinct
-issuer identity under `/data/guild-manager`) issues a `GuildMembership` to the Sovereign, and a verifier
+`deploy/sandbox/run-prove.sh` wires a demonstrable end-to-end prove flow — a sphere manager (a distinct
+issuer identity under `/data/sphere-manager`) issues a `SphereMembership` to the Sovereign, and a verifier
 challenges the Sovereign to prove it holds one:
 
 ```bash
@@ -123,7 +123,7 @@ challenges the Sovereign to prove it holds one:
 # then, in TWO terminals:
 ./deploy/sandbox/run-prove.sh signet 1379  # A — the Signet: waits, prompts for the PIN on each disclosure
 ./deploy/sandbox/run-prove.sh verify       # B — verifier requests → the Signet prompts in A
-#   type the PIN in A to approve → B prints ✓ VERIFIED (role=Raid-Lead, issued by the guild manager);
+#   type the PIN in A to approve → B prints ✓ VERIFIED (role=Raid-Lead, issued by the sphere manager);
 #   blank denies. Trust rests on the ISSUER's signature, not the Warden's.
 ```
 

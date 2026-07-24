@@ -146,7 +146,7 @@ recall R1, the trust registry + DTG set, and the three GUIs — each end-to-end 
 - **Knowledge Portal** — a shared, authorized Knowledge Base a community can query and update through a
   **public Emissary portal** in front of a **private Warden** (the projector pattern, inverted); authenticate
   via Archon challenge/response, authorize via a trust-registry group. A hosted, multi-party demo — see
-  [knowledge-portal.md](knowledge-portal.md). *(The natural driver for a guild-manager GUI.)*
+  [knowledge-portal.md](knowledge-portal.md). *(The natural driver for a sphere-manager GUI.)*
 - **Proof-of-human** beyond PIN (level 1) — biometric / face-liveness / FIDO2 behind the same gate.
 - **Per-device Emissaries** with kind-scope enforcement (one Sovereign, many Emissaries).
 - **Sovereign-signed Warden policy** (lift access-control config into a signed document the Warden

@@ -1,12 +1,12 @@
 /**
  * End-to-end test of the prove flow for an `issued` claim.
  *
- *   Guild issues "Raid-Lead, Example Guild" (with a schema) ──► Sovereign accepts
- *   Verifier requests proof (schema + trusted issuer = the Guild)
- *   Sovereign presents ──► Verifier verifies: reads role=Raid-Lead, confirms issuer = the Guild
+ *   Sphere issues "Raid-Lead, Example Sphere" (with a schema) ──► Sovereign accepts
+ *   Verifier requests proof (schema + trusted issuer = the Sphere)
+ *   Sovereign presents ──► Verifier verifies: reads role=Raid-Lead, confirms issuer = the Sphere
  *
- * Trust rests on the Guild's signature — the verifier trusts the Guild, not the Warden.
- * Stand-in roles: guild = warden identity, holder = sovereign, verifier = witness.
+ * Trust rests on the Sphere's signature — the verifier trusts the Sphere, not the Warden.
+ * Stand-in roles: sphere = warden identity, holder = sovereign, verifier = witness.
  *
  * Run:  npm run e2e:prove
  */
@@ -36,10 +36,10 @@ const check = (label: string, ok: boolean): void => {
 };
 const step = (m: string): void => process.stdout.write(`\n▸ ${m}\n`);
 
-const GUILD_SCHEMA = {
+const SPHERE_SCHEMA = {
   $schema: 'http://json-schema.org/draft-07/schema#',
   type: 'object',
-  properties: { type: { type: 'string' }, guild: { type: 'string' }, role: { type: 'string' } },
+  properties: { type: { type: 'string' }, sphere: { type: 'string' }, role: { type: 'string' } },
   required: ['type'],
   additionalProperties: true,
 } as const;
@@ -48,38 +48,38 @@ async function main(): Promise<void> {
   const config = { ...loadConfig(), dataRoot: DATA_ROOT };
   process.stdout.write(`Hearthold prove e2e\n  node: ${config.nodeUrl}\n  data: ${DATA_ROOT}\n`);
 
-  step('Provision guild (issuer), sovereign (holder), verifier');
-  const guild: KeymasterHandle = await openKeymaster('warden', config, PASSPHRASE);
+  step('Provision sphere (issuer), sovereign (holder), verifier');
+  const sphere: KeymasterHandle = await openKeymaster('warden', config, PASSPHRASE);
   const sovereign: KeymasterHandle = await openKeymaster('sovereign', config, PASSPHRASE);
   const verifier: KeymasterHandle = await openKeymaster('emissary', config, PASSPHRASE);
-  const guildId = await ensureIdentity(guild, config);
+  const sphereId = await ensureIdentity(sphere, config);
   const sovereignId = await ensureIdentity(sovereign, config);
   await ensureIdentity(verifier, config);
-  check('all three identities ready', guildId.did.startsWith('did:') && sovereignId.did.startsWith('did:'));
+  check('all three identities ready', sphereId.did.startsWith('did:') && sovereignId.did.startsWith('did:'));
 
-  step('Guild issues a membership credential (with schema) to the Sovereign');
-  const schemaDid = await guild.keymaster.createSchema(GUILD_SCHEMA);
-  const bound = await guild.keymaster.bindCredential(sovereignId.did, {
+  step('Sphere issues a membership credential (with schema) to the Sovereign');
+  const schemaDid = await sphere.keymaster.createSchema(SPHERE_SCHEMA);
+  const bound = await sphere.keymaster.bindCredential(sovereignId.did, {
     schema: schemaDid,
-    claims: { type: 'GuildMembership', guild: 'Example Guild', role: 'Raid-Lead' },
+    claims: { type: 'SphereMembership', sphere: 'Example Sphere', role: 'Raid-Lead' },
   });
-  const credDid = await guild.keymaster.issueCredential(bound, { schema: schemaDid });
+  const credDid = await sphere.keymaster.issueCredential(bound, { schema: schemaDid });
   await acceptCredential(sovereign, credDid);
-  check('sovereign holds the guild credential', credDid.startsWith('did:'));
+  check('sovereign holds the sphere credential', credDid.startsWith('did:'));
 
-  step('Verifier trusts the Guild → requests, Sovereign presents, verifier verifies');
-  const challenge = await requestProof(verifier, { schema: schemaDid, trustedIssuers: [guildId.did] });
+  step('Verifier trusts the Sphere → requests, Sovereign presents, verifier verifies');
+  const challenge = await requestProof(verifier, { schema: schemaDid, trustedIssuers: [sphereId.did] });
   const response = await presentProof(sovereign, challenge);
   const result = await verifyProof(verifier, response, {
-    trustedIssuers: [guildId.did],
+    trustedIssuers: [sphereId.did],
     requiredClaims: { role: 'Raid-Lead' },
   });
   check('proof verifies', result.ok === true);
   check('responder is the Sovereign', result.responder === sovereignId.did);
-  check('disclosed issuer = the Guild', result.disclosed[0]?.issuer === guildId.did);
+  check('disclosed issuer = the Sphere', result.disclosed[0]?.issuer === sphereId.did);
   check('disclosed role = Raid-Lead', result.disclosed[0]?.claims.role === 'Raid-Lead');
 
-  step('Negative: a verifier that does NOT trust the Guild gets nothing');
+  step('Negative: a verifier that does NOT trust the Sphere gets nothing');
   const untrusted = await requestProof(verifier, {
     schema: schemaDid,
     trustedIssuers: [sovereignId.did], // trusts the wrong party — Sovereign issued nothing

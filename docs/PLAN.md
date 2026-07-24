@@ -195,7 +195,7 @@ only — **never** private 7th Capital (that stays in a personal Warden).
   `kb-revoke` / `kb-status`; `warden serve` (and `control`) load the `KbService` and serve the KB over
   DIDComm; `emissary kb-portal` runs the public Emissary; `sovereign kb-query` / `kb-update` are the member
   client (challenge → sign → request). Verified live over DIDComm end-to-end: a member contributes and
-  queries the guild KB through the Emissary portal, three real processes.
+  queries the sphere KB through the Emissary portal, three real processes.
 - **Web portal** ✅ (`emissary/kb-portal-server.ts` + `emissary kb-web`; `apps/kb-portal`): the public
   Emissary's browser face. `emissary kb-web [port]` is an HTTP→DIDComm bridge (`POST /api/kb/challenge` +
   `/api/kb/request`) relaying to the Warden. `apps/kb-portal` is a Vite/React app using **browser
@@ -222,14 +222,14 @@ only — **never** private 7th Capital (that stays in a personal Warden).
 - **DEPLOY** (next, per plan): to **archon.social** — build the static portal, serve behind its web
   server, provision a fresh KB Warden + Emissary + KB group (the new KB database + identities); on
   archon.social the member wallet is already in `localStorage['archon-keymaster']` (effectively SSO).
-- **Grows to:** multi-Sovereign (add members to the group), a guild/public GUI, and a **prove→contribute
+- **Grows to:** multi-Sovereign (add members to the group), a sphere/public GUI, and a **prove→contribute
   bridge** (publish a consented, derived fact from a personal vault into the shared KB).
-- **Demo vehicle:** the Drake Gamers Guild Knowledge Base — members query/update via the guild's public
-  Emissary, authorization = guild membership (VMC / group), facts provable. Drives the guild-manager GUI.
+- **Demo vehicle:** the Drake Gamers Guild Knowledge Base — members query/update via the sphere's public
+  Emissary, authorization = sphere membership (VMC / group), facts provable. Drives the sphere-manager GUI.
 
 PVM-preserving by design: the public-facing role (Mage) holds no secret; the secret-holder (Warden)
 never faces the public. Two **named invariants** guard it (endorsed in Soulbae/PrivacyMage's PVM
-review): **I — guild brain ≠ personal vault** (the KB holds shared knowledge, never a member's 7th
+review): **I — sphere brain ≠ personal vault** (the KB holds shared knowledge, never a member's 7th
 Capital; these must never merge) and **II — no query attribution retained** (the Warden reads a query in
 memory only; who-asked-what-when is never persisted; query logging off by default → preserves the
 Reconstruction Ceiling R<1). Honest boundary: the host still sees a query in memory to answer it — a

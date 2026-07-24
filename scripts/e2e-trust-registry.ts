@@ -2,14 +2,14 @@
  * End-to-end test of the **trust registry** — TRQP authorization over Archon groups, both directions.
  *
  *   OUTWARD: a verifier trusts a *registry* instead of a hardcoded issuer. The registry owner puts the
- *   guild in the "issuers of GuildMembership" group; `verifyProof` consults the registry (no
+ *   sphere in the "issuers of SphereMembership" group; `verifyProof` consults the registry (no
  *   trustedIssuers list) → before the grant the proof is rejected, after it verifies.
  *
  *   INWARD: the same primitive grades a Emissary's autonomy. "Is this Emissary cleared to present at
  *   HIGH?" = membership in the `present+HIGH` group. Granting lets it act alone; revoking (condition
  *   dropped) downgrades it back to relay-to-Signet.
  *
- * Stand-in roles: guild = warden id, holder = sovereign, verifier = verifier id, registry owner +
+ * Stand-in roles: sphere = warden id, holder = sovereign, verifier = verifier id, registry owner +
  * the Emissary being assured = witness id.
  *
  * Run:  npm run e2e:trust-registry
@@ -44,10 +44,10 @@ const check = (label: string, ok: boolean): void => {
 };
 const step = (m: string): void => process.stdout.write(`\n▸ ${m}\n`);
 
-const GUILD_SCHEMA = {
+const SPHERE_SCHEMA = {
   $schema: 'http://json-schema.org/draft-07/schema#',
   type: 'object',
-  properties: { type: { type: 'string' }, guild: { type: 'string' }, role: { type: 'string' } },
+  properties: { type: { type: 'string' }, sphere: { type: 'string' }, role: { type: 'string' } },
   required: ['type'],
   additionalProperties: true,
 } as const;
@@ -56,30 +56,30 @@ async function main(): Promise<void> {
   const config = { ...loadConfig(), dataRoot: DATA_ROOT };
   process.stdout.write(`Hearthold trust-registry e2e\n  node: ${config.nodeUrl}\n  data: ${DATA_ROOT}\n`);
 
-  step('Provision guild (issuer), holder, verifier, registry owner / Emissary');
-  const guild: KeymasterHandle = await openKeymaster('warden', config, PASSPHRASE);
+  step('Provision sphere (issuer), holder, verifier, registry owner / Emissary');
+  const sphere: KeymasterHandle = await openKeymaster('warden', config, PASSPHRASE);
   const holder: KeymasterHandle = await openKeymaster('sovereign', config, PASSPHRASE);
   const verifier: KeymasterHandle = await openKeymaster('verifier', config, PASSPHRASE);
   const registry: KeymasterHandle = await openKeymaster('emissary', config, PASSPHRASE);
-  const guildId = await ensureIdentity(guild, config);
+  const sphereId = await ensureIdentity(sphere, config);
   const holderId = await ensureIdentity(holder, config);
   await ensureIdentity(verifier, config);
   const registryId = await ensureIdentity(registry, config);
-  check('identities ready', guildId.did.startsWith('did:') && registryId.did.startsWith('did:'));
+  check('identities ready', sphereId.did.startsWith('did:') && registryId.did.startsWith('did:'));
 
-  step('Guild issues a GuildMembership credential to the holder');
-  const schemaDid = await guild.keymaster.createSchema(GUILD_SCHEMA);
-  const bound = await guild.keymaster.bindCredential(holderId.did, {
+  step('Sphere issues a SphereMembership credential to the holder');
+  const schemaDid = await sphere.keymaster.createSchema(SPHERE_SCHEMA);
+  const bound = await sphere.keymaster.bindCredential(holderId.did, {
     schema: schemaDid,
-    claims: { type: 'GuildMembership', guild: 'Example Guild', role: 'Raid-Lead' },
+    claims: { type: 'SphereMembership', sphere: 'Example Sphere', role: 'Raid-Lead' },
   });
-  const credDid = await guild.keymaster.issueCredential(bound, { schema: schemaDid });
+  const credDid = await sphere.keymaster.issueCredential(bound, { schema: schemaDid });
   await acceptCredential(holder, credDid);
   check('holder holds the credential', credDid.startsWith('did:'));
 
   // ── OUTWARD: the verifier trusts the registry, not a hardcoded issuer ──────────
-  step('Registry owner creates the "issuers of GuildMembership" group');
-  const issuersGroup = await createRegistryGroup(registry, 'hearthold-issuers-GuildMembership', config.registry);
+  step('Registry owner creates the "issuers of SphereMembership" group');
+  const issuersGroup = await createRegistryGroup(registry, 'hearthold-issuers-SphereMembership', config.registry);
   // The registry runs as its owner: it answers authorization by group membership.
   const trustRegistry = new GroupTrustRegistry(
     registry,
@@ -95,16 +95,16 @@ async function main(): Promise<void> {
     return verifyProof(verifier, responseDid, { trustRegistry, schema: schemaDid, requiredClaims: { role: 'Raid-Lead' } });
   };
 
-  step('Before grant: registry does not authorize the guild → proof rejected');
+  step('Before grant: registry does not authorize the sphere → proof rejected');
   {
     const result = await proveViaRegistry();
     check('rejected (issuer not in registry)', result.ok === false);
   }
 
-  step('Registry owner authorizes the guild to issue GuildMembership');
-  await grantAuthorization(registry, issuersGroup, guildId.did);
+  step('Registry owner authorizes the sphere to issue SphereMembership');
+  await grantAuthorization(registry, issuersGroup, sphereId.did);
 
-  step('After grant: registry authorizes the guild → proof verifies');
+  step('After grant: registry authorizes the sphere → proof verifies');
   {
     const result = await proveViaRegistry();
     check('verified via registry (no hardcoded trustedIssuers)', result.ok === true);

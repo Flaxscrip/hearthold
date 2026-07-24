@@ -46,7 +46,7 @@ async function main(): Promise<void> {
   const config = loadConfig();
   const pass = 'hearthold-sovereign-refresh';
 
-  step('Provision: issuer (guild), verifier, and the Sovereign');
+  step('Provision: issuer (sphere), verifier, and the Sovereign');
   const issuer: KeymasterHandle = await openKeymaster('warden', config, pass);
   const verifier: KeymasterHandle = await openKeymaster('emissary', config, pass);
   const issuerId = await ensureIdentity(issuer, config);

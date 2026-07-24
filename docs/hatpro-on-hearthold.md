@@ -47,7 +47,7 @@ Our `verifyProof` makes the verifier pass `trustedIssuers: [did]` — it must al
 trust. hatpro-archon does it better: the verifier checks a **TRQP / ToIP Trust Registry**
 (`issuerAuthorized(issuer, schema)`) — *"does the registry authorize this issuer for this schema?"*
 So the verifier trusts a **registry**, and the registry vouches for issuers. That's the
-**ecosystem-scale** answer to the issuer-trust problem (the scalable cousin of the guild bootstrap,
+**ecosystem-scale** answer to the issuer-trust problem (the scalable cousin of the sphere bootstrap,
 F6). A restaurant trusts the travel registry, not every airline's DID.
 
 ## Work items (when we build the travel scenario)

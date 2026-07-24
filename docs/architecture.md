@@ -150,7 +150,7 @@ Beyond the v1 witness→store→prove loop, three subsystems carry the trust-gra
   *inward* it grades an Emissary's autonomy (the standing-delegation ceiling), so the projector relays to
   the Signet only above the cleared level. `verifyProof` consults it directly.
 - **Game-of-42 bridge** (`core/game42.ts`). A byte-exact implementation of the agentprivacy Game-of-42
-  canon (`VRC → κ → seal`) plus a City-Key projection: a sealed governance board (e.g. a guild) becomes
+  canon (`VRC → κ → seal`) plus a City-Key projection: a sealed governance board (e.g. a sphere) becomes
   a constellation node / soulbis City Key — the constellation *is* the trust registry, rendered
   visually (see [for the City of Mages](../demos/game-of-42/for-the-city-of-mages.md)).
 

@@ -19,6 +19,22 @@ layer — you cannot put one DID on a topic "just for" one peer. The **only** is
 shared topic means accepting the full mutual epidemic. Choose topics accordingly; treat "who shares a topic"
 as "who will hold and re-broadcast each other's DIDs."
 
+## Gossip carries identifiers; documents are served on request
+
+What gossip actually spreads is **identifiers and their operation log** — the existence of a DID and the
+`did:cid` operations that let a Gatekeeper reconstruct it. It does **not** push the reconstructed **document**
+at you. Resolving a DID to its document (and dereferencing its data resource) is a **request served by a
+node**: `GET /api/v1/did/:did` (version-pinnable — `versionTime`, `versionSequence`, `confirm`, `verify`)
+and `/1.0/identifiers/{did}[/data]` (grounded in [`DRAWBRIDGE-GROUNDING.md`](DRAWBRIDGE-GROUNDING.md)).
+
+The consequence is the load-bearing one: **serve-time authorization is the real access-control point.**
+Because a document is handed over only when someone asks the holding node for it, the decision of *whether to
+answer* — the release ladder, the recognition check, the pairwise-encryption of what's returned — is where
+access is actually gated, not at some imagined "publish" boundary (there isn't one). "The gate code is in a
+close-friend rung" is enforced when B is **asked**, by B's Warden, at serve time. Design accordingly: never
+rely on a document being unreachable because it "wasn't published"; rely on the serve-time gate that decides
+each request.
+
 ## Holding is republishing
 
 Importing a foreign DID into the local Gatekeeper does **not** make a private copy — it makes this node a

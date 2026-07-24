@@ -89,13 +89,13 @@ async function main(): Promise<void> {
   assert(upd.type === 'hearthold/kb-result' && upd.action === 'update', 'Alice (write-authorized) updates the KB');
 
   process.stdout.write('\n▸ Authorized member queries the KB (recall over the shared KB)\n');
-  const q = await kb.serve(await signed(alice, aliceId.did, { action: 'query', query: 'When is the guild raid?' }));
+  const q = await kb.serve(await signed(alice, aliceId.did, { action: 'query', query: 'When is the sphere raid?' }));
   if (q.type !== 'hearthold/kb-result' || q.action !== 'query') throw new Error(`expected query result, got ${JSON.stringify(q)}`);
   assert(/saturday|july 11|8pm/i.test(q.answer), `the KB answers from the contributed knowledge: "${q.answer}"`);
   assert((q.citations?.length ?? 0) >= 1, 'the answer carries at least one citation');
 
   process.stdout.write('\n▸ Non-member is refused (authorization)\n');
-  const bobTry = await kb.serve(await signed(bob, bobId.did, { action: 'query', query: 'When is the guild raid?' }));
+  const bobTry = await kb.serve(await signed(bob, bobId.did, { action: 'query', query: 'When is the sphere raid?' }));
   assert(bobTry.type === 'hearthold/kb-error', 'Bob (not a member) is refused a query');
 
   process.stdout.write('\n▸ Forged requester is rejected (authentication)\n');
