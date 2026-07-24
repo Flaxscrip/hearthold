@@ -6,6 +6,7 @@ export * from './protocol.js';
 export * from './keymaster.js';
 export * from './identity.js';
 export * from './credentials.js';
+export * from './credential-delivery.js';
 export * from './schema.js';
 export * from './auth.js';
 export * from './payload.js';

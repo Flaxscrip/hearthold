@@ -36,10 +36,17 @@ path where a high tier compensates for too-great a depth, or vice versa (AXIS-IN
 
 ## Design notes worth stating
 
-- **Arrival depth is threaded, not re-derived.** The query carries `arrivalDepth` (1 at the origin,
-  incremented on each forward by the relay). A presenter can only *inflate* its own depth, which merely
-  **restricts** its access — there is no incentive, and no attack, in the depth axis; depth accrues only
-  through trusted relays that increment it honestly (the same trust model as `depthRemaining`/`visited`).
+- **Arrival depth is threaded, not re-derived — and it constrains propagation, not redistribution.** The
+  query carries `arrivalDepth` (1 at the origin, incremented on each forward by the relay). Note the depth
+  on a forwarded query is set by the **relay**, so a relay can **deflate** it as easily as inflate it —
+  the axis is not tamper-proof, and its honesty does not rest on relays incrementing faithfully. It doesn't
+  need to: a **deflated** forwarded query is no more powerful than the relay **simply asking on its own
+  behalf**, which it can always do. So the load-bearing point is what the axis actually governs — **how far
+  a query propagates, not what a trusted relay may redistribute.** "A close-friend at depth 2 doesn't get
+  the gate code" holds, but nothing stops that relay from asking directly at depth 1 and passing the answer
+  along; whether it does is a **trust decision about the relay**, not a protocol boundary the depth axis
+  enforces. Depth gates the reach of the *query object*; it never claims to bound what a party who already
+  holds an answer chooses to relay.
 - **Composed path confidence — a THIRD independent axis (`minPathConfidence`), exercised.** Each hop
   multiplies the presenter's local edge confidence into `query.pathConfidence`, so the answering node gates
   on the **whole path's** confidence, not just its local edge — the same composition A recomputes on return.

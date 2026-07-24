@@ -10,6 +10,8 @@ export interface KeymasterHandle {
   keymaster: Keymaster;
   /** The cipher instance, retained for in-band (non-anchoring) encrypt/decrypt. */
   cipher: CipherNode;
+  /** The gatekeeper client — for admin export/import of DID ops (cross-node credential delivery). */
+  gatekeeper: GatekeeperClient;
   dataFolder: string;
 }
 
@@ -44,7 +46,7 @@ export async function openKeymaster(
   // assign past the type (an upstream `ephemeralRegistry` constructor option would remove the need to cast).
   (keymaster as unknown as { ephemeralRegistry: string }).ephemeralRegistry = config.ephemeralRegistry;
 
-  return { role, keymaster, cipher, dataFolder };
+  return { role, keymaster, cipher, gatekeeper, dataFolder };
 }
 
 /**

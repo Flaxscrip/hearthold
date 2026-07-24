@@ -52,6 +52,15 @@ advice; an `acquaintance` reads that plus the contractor rate; a `close-friend` 
 2) does **not** get the gate code: reaching B through trusted hops is not the same as being trusted with the
 gate code.
 
+> **What `world-public` means here.** In the local-first deployment model (per-node hyperswarm topics, nodes
+> connected point-to-point over DIDComm — see [`../DEPLOYMENT.md`](../DEPLOYMENT.md)), there is **no
+> publication step**. `world` is the *lowest recognition tier*, not "the public": the rung is reachable by
+> **anyone this node has established a connection with**, not by the internet at large. Read "my résumé is
+> world-public" as "I'll disclose it to any connected peer whose recognition I've admitted," not as a
+> published, world-readable document. The name is kept for its tier-ordering role; its reach is exactly the
+> set of peers you're connected to. (An unranked tier — one absent from `tierOrder` — reaches nothing at
+> all, not even this rung; see the `UNKNOWN-TIER` matrix case.)
+
 ## Test matrix — every case the expected verdict (live)
 
 A correct no-answer is a PASS; access is never widened to go green.
@@ -59,6 +68,7 @@ A correct no-answer is a PASS; access is never widened to go green.
 | Case | Result |
 |---|---|
 | WORLD-PUBLIC | a `world` presenter gets the world-public fact; is **denied** the acquaintance and close-friend facts |
+| UNKNOWN-TIER | a presenter whose tier is **absent** from `tierOrder` has no rank and reaches **nothing** — denied even the world-public rung |
 | TIER-GATING | an `acquaintance` reads its own rung but is **denied** the close-friend fact **even though the query matches it** |
 | DEPTH-GATING | a `close-friend` at depth 1 gets the gate code; the **same presenter at depth 2 is denied** (rung is depth-1-only) |
 | CONFIDENCE-GATING | the `verified-only` rung needs composed path confidence ≥ 0.8; a low-confidence recognition **and** a degraded relay path are both **denied** at the same tier + depth |

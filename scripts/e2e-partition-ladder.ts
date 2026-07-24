@@ -9,7 +9,7 @@
  *   HEARTHOLD_GATEKEEPER_URL=http://flaxlap.local:4222 HEARTHOLD_REGISTRY=local \
  *   node --experimental-strip-types scripts/e2e-partition-ladder.ts
  *
- * Matrix: WORLD-PUBLIC · TIER-GATING · DEPTH-GATING · CONFIDENCE-GATING · AXIS-INDEPENDENCE · SANDBOXING · INDISTINGUISHABILITY · LADDER-ORDER.
+ * Matrix: WORLD-PUBLIC · UNKNOWN-TIER · TIER-GATING · DEPTH-GATING · CONFIDENCE-GATING · AXIS-INDEPENDENCE · SANDBOXING · INDISTINGUISHABILITY · LADDER-ORDER.
  */
 import { join } from 'node:path';
 
@@ -59,6 +59,8 @@ async function main(): Promise<void> {
   // ── The demo: a realistic three-rung ladder ──
   const tierOrder = ['world', 'acquaintance', 'close-friend'];
   const ladder: PartitionLadder = [
+    // `world` is the LOWEST recognition tier, not "the public": in the local-first model (no publication
+    // step) this rung reaches anyone this node is connected to, not the internet. See docs/DEPLOYMENT.md.
     { name: 'world-public', domain: 'fences', access: { minTier: 'world', maxArrivalDepth: 2 }, facts: [{ ref: 'post-spacing', provenance: 'asserted', confidence: 1, keywords: ['post', 'spacing', 'apart'], narrative: 'General fence advice: set posts 8 feet on center.' }] },
     { name: 'acquaintance', domain: 'fences', access: { minTier: 'acquaintance', maxArrivalDepth: 2 }, facts: [{ ref: 'contractor-rate', provenance: 'asserted', confidence: 0.9, keywords: ['contractor', 'rate', 'charge', 'cost'], narrative: 'My fence contractor charges about $45 per linear foot.' }] },
     // A confidence-floor rung: acquaintance tier + depth ≤2 like the one above, but ALSO needs the composed
@@ -94,6 +96,12 @@ async function main(): Promise<void> {
   check('world presenter gets the world-public fact', (await reference(await ask(recWorld, Q.post))) === 'post-spacing');
   check('world presenter is DENIED the acquaintance fact (no-answer)', (await ask(recWorld, Q.rate)).status === 'no-answer');
   check('world presenter is DENIED the close-friend fact (no-answer)', (await ask(recWorld, Q.gate)).status === 'no-answer');
+
+  // ── UNKNOWN-TIER ──
+  step('UNKNOWN-TIER: a recognition whose tier is ABSENT from tierOrder has no rank and reaches NOTHING — not even world-public');
+  const recUnknown = await recAt('stranger'); // 'stranger' ∉ tierOrder → unranked (indexOf === -1)
+  check('an unranked tier permits no rungs at all (permittedPartitions is empty)', permittedPartitions(ladder, tierOrder, 'stranger', 1, 0.9).length === 0);
+  check('unknown-tier presenter is DENIED even the world-public fact (no-answer)', (await ask(recUnknown, Q.post)).status === 'no-answer');
 
   // ── TIER-GATING ──
   step('TIER-GATING: a low-tier presenter asking a question that MATCHES a higher-tier fact does not receive it');

@@ -34,6 +34,7 @@
     "e2e:issued": "npm run build && node --experimental-strip-types scripts/e2e-issued.ts",
     "e2e:prove": "npm run build && node --experimental-strip-types scripts/e2e-prove.ts",
     "e2e:prove-didcomm": "npm run build && node --experimental-strip-types scripts/e2e-prove-didcomm.ts",
+    "e2e:credential-delivery": "npm run build && node --experimental-strip-types scripts/e2e-credential-delivery.ts",
     "e2e:projector": "npm run build && node --experimental-strip-types scripts/e2e-projector.ts",
     "proto:vwc": "npm run build && node --experimental-strip-types scripts/proto-vwc.ts",
     "e2e:dtg-set": "npm run build && node --experimental-strip-types scripts/e2e-dtg-set.ts",

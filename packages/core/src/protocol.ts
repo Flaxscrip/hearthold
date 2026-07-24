@@ -7,6 +7,7 @@
 
 import type { Sensitivity, DisclosureMode } from './security.js';
 import type { CipherPublicJwk } from './payload.js';
+import type { GatekeeperEvent } from '@didcid/gatekeeper/types';
 
 export const PROTOCOL_VERSION = '0.4.0' as const;
 
@@ -455,6 +456,50 @@ export type CgprRelayResponseMessage =
   | { type: 'hearthold/cgpr-response'; version: typeof PROTOCOL_VERSION; status: 'denied'; reason: string };
 
 /** Warden → Emissary: a request was refused (e.g. not authorized). */
+/**
+ * Deliver a verifiable credential to a subject agent on a node that may NOT share a registry with the
+ * issuer. Cross-node DID resolution carries only the public W3C DID document, never the encrypted
+ * `didDocumentData` — so the VC's content cannot be pulled by reference and must travel in-band. This
+ * message ships the IMMUTABLE ops the subject needs to make the VC locally resolvable + verifiable: the
+ * VC asset ops and its schema ops (both content-addressed, safe to cache). The issuer Agent DID is
+ * deliberately NOT shipped by default — identities are mutable, so the receiver resolves the issuer
+ * FRESH over the peer at verify/authcrypt time rather than trusting a copy that goes stale offline.
+ * authcrypt at the transport layer already authenticates the issuer as the sender.
+ */
+export interface CredentialDeliveryMessage {
+  type: 'hearthold/credential-delivery';
+  version: typeof PROTOCOL_VERSION;
+  /** The VC asset DID the subject should accept. */
+  credentialDid: string;
+  /** The schema DID the VC conforms to (shipped so the subject can verify it locally). */
+  schemaDid: string;
+  /**
+   * `exportDIDs`-shaped ops, in dependency order (schema before VC; issuer first iff shipped), for the
+   * subject's gatekeeper to `importDIDs` + `processEvents`. Only ever the immutable VC + schema — unless
+   * `includesIssuerThrowaway` is set, in which case the leading entry is the issuer Agent DID as a
+   * documented REFRESHABLE THROWAWAY (never authoritative), a stopgap until Archon core's peer fallback
+   * carries `didDocumentData` and no import is needed at all.
+   */
+  ops: GatekeeperEvent[][];
+  /** True iff `ops` leads with the issuer Agent DID (opt-in throwaway; the default is false — no issuer). */
+  includesIssuerThrowaway?: boolean;
+}
+
+/**
+ * The subject's reply to a `CredentialDeliveryMessage`: whether it accepted the VC, and (if the caller
+ * wired the VC→KB bridge) the artefact id the accepted credential was ingested to.
+ */
+export interface CredentialDeliveryAckMessage {
+  type: 'hearthold/credential-delivery-ack';
+  version: typeof PROTOCOL_VERSION;
+  credentialDid: string;
+  accepted: boolean;
+  /** Present on failure — the reason the subject could not import/accept (never leaks wallet internals). */
+  reason?: string;
+  /** Present iff the caller wired KB ingest and it succeeded — the artefact id in the subject's partition. */
+  ingestedArtefactId?: string;
+}
+
 export interface ErrorMessage {
   type: 'hearthold/error';
   version: typeof PROTOCOL_VERSION;
@@ -489,4 +534,6 @@ export type HearthholdMessage =
   | KbResultMessage
   | CgprRelayRequestMessage
   | CgprRelayResponseMessage
+  | CredentialDeliveryMessage
+  | CredentialDeliveryAckMessage
   | ErrorMessage;
