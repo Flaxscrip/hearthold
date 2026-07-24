@@ -155,7 +155,9 @@ ready, note what you needed.* Here is the honest state:
 - `e2e:credential-delivery` — the refactor: native accept on shared-registry; cross-node routes to the DMZ;
   no `importDIDs` into the node's own gatekeeper anywhere.
 
-## Live confirmation — Path A, DONE (Aegis)
+## Live confirmation — Path A + Path B, DONE (Aegis)
+
+### Path A — the DMZ lifecycle against a real peerless node
 
 Aegis ran `e2e:dmz` against a **genuinely peerless, mediator-less DMZ** they built (published on `:4260`,
 own node at `:4324`; import was open — no admin key needed on a dev instance). All core invariants came back
@@ -176,3 +178,46 @@ test passes on the stand-in and against a real peerless DMZ alike, and no longer
 **Operational note (Aegis):** point `HEARTHOLD_DMZ_URL` at `127.0.0.1`, not `localhost` — the DMZ publishes
 on IPv4 and `localhost` may resolve to `::1`. Aegis's transcript + `docs/CONTAINER-TOPOLOGY.md` + topology
 profiles are committed on their side (`c6769acb`).
+
+### Path B — the full cross-node B6 assertion, on separate gatekeepers (7/7)
+
+The test the shared-DB stand-in structurally could not do: a **counterparty** (`warden@nodeA`) mints a
+credential on **its own** node; the **subject** verifies it **inside the peerless DMZ**; and the subject's
+own private node **never receives the ops** — verification without republication, on real separate
+gatekeepers, fully offline. Aegis ran it live, 7/7:
+
+```
+== PRE: DMZ passes assertPeerlessTarget (registries=[local])                 PASS
+== COUNTERPARTY (warden@nodeA) mints a credential on ITS node                PASS
+== op chains exported (issuer, schema, credential)                          PASS
+== SUBJECT verifies the counterparty credential INSIDE the DMZ
+     DmzSession open against http://127.0.0.1:4260 (peerless accepted)
+     verifyChain(vc)     in DMZ : true
+     verifyChain(issuer) in DMZ : true
+     session teardown: destroyed=true residue=0                             PASS
+== THE ASSERTION — subject's OWN node never held the ops
+     node B LOCAL db does NOT hold the VC (no republication)                PASS   ← closes B6
+     counterparty node A DOES hold it (sanity)                             PASS
+     ephemeral DMZ instance destroyed (down -v) → ops gone, fresh empty     PASS
+RESULT: 7 passed, 0 failed
+```
+
+Two reproduction details Aegis flagged, worth capturing so nobody gets a false pass:
+
+1. **Assert node B's LOCAL view, not a fallback resolve.** An ordinary `resolveDID(vc)` on node B would find
+   the credential **via the peer-link fallback** (node A holds it) and report a false PASS. "Held /
+   republished" means present in node B's **local op store** — so the assertion must query node B's
+   *local-only* view, not its resolver (which is allowed to reach across the peer link for reads). Anyone
+   reproducing this needs that distinction.
+2. **Ephemeral teardown is genuinely two-part, and the split is exactly as designed.** `session.teardown()`
+   destroys the *session* (Hearthold-side — `destroyed=true`, `residue=0`); destroying the *instance's data*
+   is Aegis-owned (`docker compose down -v` on the DMZ profile). Aegis asserted **both**: the session is
+   clean, and after `down -v` the imported ops are gone and a fresh instance comes up empty. The DMZ needed
+   **no admin key** (import open on a dev instance — consistent with Path A).
+
+Committed on the Aegis side (`499361…`: `two-node/dmz-path-b.sh` + the `DmzSession` glue).
+
+**B6 is now closed three independent ways**, and all three hold: the **type** (capability confinement — only
+a DMZ can import), the **open-time `listRegistries` check** (target isolation — the DMZ can only import into
+a node that cannot propagate), and this **live cross-node run** (behavioural proof, on separate DBs, that the
+subject's own node never held the counterparty's ops).

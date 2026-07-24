@@ -1,11 +1,13 @@
 # Handoff to Aegis — run the DMZ live against a peerless node
 
-> **STATUS: Path A DONE (Aegis, transcript `c6769acb`).** `e2e:dmz` ran against a genuinely peerless,
-> mediator-less DMZ (`:4260`, own node `:4324`), interrogated with **no escape hatch** — all core invariants
-> GREEN. It surfaced one positive finding (the shared-DB stand-in had been masking the own-vs-DMZ separation
-> in the rotation check); fixed by rotating → re-exporting → importing the two-epoch chain into the DMZ. See
-> [`RESULTS.md`](RESULTS.md) → "Live confirmation". Path B (the cross-node "node A never held it" observation)
-> remains optional. IPv4 note: use `127.0.0.1`, not `localhost` (the DMZ publishes on IPv4).
+> **STATUS: Path A + Path B DONE (Aegis).** Path A (`c6769acb`): `e2e:dmz` against a genuinely peerless
+> DMZ (`:4260`, own node `:4324`), interrogated with **no escape hatch** — all invariants GREEN; it surfaced
+> and fixed the shared-DB rotation masking. Path B (`499361…`, `two-node/dmz-path-b.sh`): the full cross-node
+> assertion, **7/7** — a counterparty mints a credential on node A, the subject verifies it inside the
+> peerless DMZ, and the subject's own node **never holds the ops** (asserted against node B's *local* view,
+> not a peer-link fallback resolve). **B6 is closed three ways** — type (confinement), open-time check (target
+> isolation), and this live cross-node run (behavioural proof on separate DBs). See [`RESULTS.md`](RESULTS.md)
+> → "Live confirmation". IPv4 note: use `127.0.0.1`, not `localhost` (the DMZ publishes on IPv4).
 
 Hearthold built the DMZ session that closes B6 (verification without republication), and the invariant is now
 enforced entirely in-process — so the live run against your isolated pair is no longer needed to *establish*
