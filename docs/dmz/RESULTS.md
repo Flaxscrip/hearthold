@@ -221,3 +221,35 @@ Committed on the Aegis side (`499361…`: `two-node/dmz-path-b.sh` + the `DmzSes
 a DMZ can import), the **open-time `listRegistries` check** (target isolation — the DMZ can only import into
 a node that cannot propagate), and this **live cross-node run** (behavioural proof, on separate DBs, that the
 subject's own node never held the counterparty's ops).
+
+### Two-machine validation + deployment-layer seal (Aegis)
+
+Aegis then ran it across **two physical machines** — `megaflax ↔ gamerflax` over Tailscale, two isolated
+nodes, no shared registry — issuing and verifying a VC between them. Confirmation, not an ask; four points
+worth recording:
+
+- **Genuine cross-machine proof.** A counterparty on a *separate physical machine* issued a credential; the
+  subject verified it inside the peerless DMZ and could hold it offline after the counterparty powered down —
+  and B6's confinement + the keep-closure are what keep that from meaning "I now silently rebroadcast their
+  identifiers." An operator, unprompted, re-derived the DMZ model verbatim ("inbound DIDs should land in the
+  DMZ for observation before the private DB; keep only the VC-related ops, discard the rest on teardown") —
+  the model is intuitive enough that a user reinvents it.
+- **`exportDIDs` returns a SUPERSET — and `closure.ts` filters it.** Aegis requested 3 DIDs (issuer, schema,
+  credential) and got back **4** chains: a referenced dependency (the issuer's node identity) rode in
+  unrequested. Confirmed and hardened: the keep-closure is computed from the **requested** set, never the
+  returned batch — `computeKeepClosure` keeps only the VC + schema + issuer-chain-to-the-signing-version
+  (+ authority for the stronger goal), and `keptOps` now selects the requested DID's chain by its per-event
+  `did` tag even if a single-DID export expands, failing closed otherwise. The extra dependency **stays in
+  the DMZ and evaporates on teardown**; it never reaches Private. (`e2e:keep-closure` asserts exactly this:
+  closure A excludes the charter and regulator, which *are* resolvable but unrequested.)
+- **The fallback resolver does NOT cache (resolve-fresh is clean).** Aegis rechecked: `resolveFromUniversalResolver`
+  (`gatekeeper-api.ts:777`) fetches a stripped triple and **stores nothing** — mere resolution is ephemeral
+  and vindicates the resolve-fresh posture. The only pollution vector is **import-side** (a raw `dids/import`,
+  or the export-expansion above), never resolution.
+- **The type layer is sealed below by a network guard.** `PrivateGatekeeper` binds *Hearthold code*, but the
+  raw `POST /api/v1/dids/import` HTTP endpoint sits beneath the type layer and a `curl` (or a malicious peer)
+  can reach it. Aegis closed that at the **deployment layer** (`deploy/topology/{gatekeeper-guard.mjs,
+  docker-compose.sealed.yml}`): a resolution-only guard fronts the gatekeeper and returns `403` for
+  import/admin/enumerate/bulk-export — even with a valid admin key — while still serving the GET reads a
+  peer's fallback needs. So both sides of the boundary are covered: **our type guarantee for Hearthold code,
+  Aegis's network seal for everything below it.**

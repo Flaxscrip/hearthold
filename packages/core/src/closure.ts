@@ -80,8 +80,17 @@ async function pinVersion(source: ClosureSource, did: string, versionTime?: stri
 
 /** Export a DID's full chain and truncate to its pinned version (genesis → cut). Verifies the cut's opid. */
 async function keptOps(source: ClosureSource, did: string, versionSequence: number, versionId: string): Promise<GatekeeperEvent[]> {
-  const [full] = await source.exportDIDs([did]);
-  if (!full?.length) throw new Error(`closure: no ops exported for '${did}' (fail closed)`);
+  // `exportDIDs` may return MORE chains than requested — a referenced dependency can ride in (observed live
+  // by Aegis: 3 DIDs requested → 4 chains returned, the issuer's node identity unrequested). The keep-set is
+  // the REQUESTED set, never the returned set: select only the chain belonging to `did`; any dependency that
+  // rode in is not kept (it stays in the DMZ and evaporates on teardown). Match by the per-event `did` tag,
+  // use the sole chain when the export did not expand, and fail closed if the requested DID isn't identifiable.
+  const batch = await source.exportDIDs([did]);
+  const full =
+    batch.length === 1
+      ? batch[0]
+      : batch.find((chain) => chain.some((ev) => (ev as { did?: string }).did === did));
+  if (!full?.length) throw new Error(`closure: export did not yield the requested DID '${did}' (fail closed)`);
   if (versionSequence > full.length) {
     throw new Error(`closure: pinned version ${versionSequence} exceeds ${full.length} exported ops for '${did}'`);
   }
