@@ -11,6 +11,13 @@
 
 export const CONTROL_API_VERSION = '0.1.0';
 
+/**
+ * The request header carrying the session bearer token minted by `POST /api/login/complete`. Clients send
+ * it on every scoped request; the server derives the session DID from it (never trust a client-asserted DID).
+ * Use the constant instead of string-literalling the header.
+ */
+export const HEARTHOLD_SESSION_HEADER = 'X-Hearthold-Session';
+
 /** Human-readable sensitivity names, indexed by the core `Sensitivity` enum (0..4). */
 export type SensitivityName = 'PUBLIC' | 'LOW' | 'MEDIUM' | 'HIGH' | 'SEALED';
 export const SENSITIVITY_NAMES: readonly SensitivityName[] = [
@@ -145,6 +152,57 @@ export interface RecallResponse {
 // FIRST-CLASS outcome (the Table renders it obsidian), NOT an error. The face is unsealed transiently
 // for the response only — never cached, never written to disk outside the vault (G2).
 
+// ── Login / session (member challenge-response → bearer token) ──────────────────
+// The session routes on `warden control`. A member proves a DID via challenge/response and receives a
+// bearer token sent thereafter as `HEARTHOLD_SESSION_HEADER`. The server derives the session DID from the
+// token server-side; no route trusts a client-asserted DID.
+
+/** `POST /api/login/start` — mint a challenge for the member to sign. */
+export interface LoginStartRequest {
+  /** Optional callback DID for the challenge. */
+  callback?: string;
+}
+export interface LoginStartResponse {
+  /** The challenge DID the member's wallet signs a response to. */
+  challenge: string;
+}
+
+/** `POST /api/login/complete` — submit the signed response; on verify, mint a session. */
+export interface LoginCompleteRequest {
+  /** The response DID (member-signed) proving control of their DID. */
+  response: string;
+}
+export interface LoginCompleteResponse {
+  /** The session bearer token — send as `HEARTHOLD_SESSION_HEADER` on subsequent requests. */
+  token: string;
+  /** ISO timestamp the session expires (absolute; not slid on use). */
+  expiresAt: string;
+  /** The proven member DID this session acts as. */
+  did: string;
+}
+
+/** `GET /api/whoami` — the session's identity (requires `HEARTHOLD_SESSION_HEADER`). */
+export interface WhoamiResponse {
+  did: string;
+  expiresAt: string | null;
+}
+
+/**
+ * `POST /api/session/unlock` — rewrap the member's private partitions for this session (read-guest). Prompts
+ * the member's OWN Signet for proof-of-human; the Warden holds the rewrapped keys only for the session TTL.
+ */
+export interface SessionUnlockResponse {
+  /** Partition ids unlocked, or a count — the read-guest rewrap result. */
+  unlocked: string[] | number;
+}
+
+/** `POST /api/logout` — revoke the session and zeroize any read-guest keys immediately. */
+export interface LogoutResponse {
+  ok: true;
+  /** Whether a live session was actually revoked (false if the token was already invalid/absent). */
+  revoked: boolean;
+}
+
 export interface CardFaceRequest {
   artefactId: string;
   /**
@@ -175,6 +233,34 @@ export type CardFace =
     };
 export interface CardFaceResponse {
   card: CardFace;
+}
+
+// ── Card pass (deliver a credential to another node) ────────────────────────────
+// `POST /api/card/pass` wraps core `deliverCredential`. Session-scoped: the deliverer is the authenticated
+// session member (never a client-asserted issuer); `toDid` is the recipient Sovereign. Passing a card
+// crosses a PUBLICATION boundary (it discloses a credential to another party), so it triggers a Sovereign
+// co-sign — the session member's own Signet step-up — per docs/CO-SIGN-POLICY.md. "Sent ≠ gone":
+// `encryptJSON` is encrypt-for-sender, so the ack confirms delivery; it removes nothing from the sender.
+export interface CardPassRequest {
+  /** The recipient Sovereign DID. */
+  toDid: string;
+  /** The credential (VC asset) to pass. */
+  credentialDid: string;
+  /** The schema DID the VC conforms to; derived if omitted. */
+  schemaDid?: string;
+}
+
+/** The recipient's accept/decline ack (mirrors core `CredentialDeliveryAckMessage`; control-types stays dep-free). */
+export interface CardPassAck {
+  credentialDid: string;
+  accepted: boolean;
+  /** Present on failure — why the recipient could not accept/verify. */
+  reason?: string;
+  /** Present iff the recipient wired KB ingest — the artefact id in the recipient's partition. */
+  ingestedArtefactId?: string;
+}
+export interface CardPassResponse {
+  ack: CardPassAck;
 }
 
 // ── Triage / born-obsidian confirmation queue (Sevenfold Table) ─────────────────
@@ -249,6 +335,29 @@ export interface ClassifyResponse {
 export interface SubmissionStoredEvent {
   item: VaultItem;
   from: string;
+}
+
+/**
+ * PROVISIONAL (contract published ahead of the server wiring). A card passed from ANOTHER node arrived and
+ * was verified in a DMZ (B6) — it is NOT the local `submission-stored` path (that means "my Emissary stored
+ * something"). It surfaces as a distinct **pending-inbound** item, born obsidian, imported into the vault
+ * only on the member's explicit accept — so the Table can render a receive surface separate from the local
+ * triage queue. Emitted as SSE `card:received`. Shape may change once the receiver path lands; see the
+ * Sevenfold reply in this batch and docs/dmz/RESULTS.md.
+ */
+export interface CardReceivedEvent {
+  /** The delivered credential (VC asset) DID. */
+  credentialDid: string;
+  /** The schema the VC conforms to. */
+  schemaDid: string;
+  /** The verified deliverer (authcrypt sender) — resolve fresh; never cached as authoritative. */
+  from: string;
+  /** DMZ verification outcome at arrival (provenance + validity, NOT safety). */
+  verified: boolean;
+  /** ISO timestamp of arrival. */
+  receivedAt: string;
+  /** The recipient member this inbound card is scoped to (the session DID it awaits accept from). */
+  owner: string;
 }
 
 // ─────────────────────────────── Signet ───────────────────────────────
