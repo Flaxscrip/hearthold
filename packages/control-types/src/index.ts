@@ -263,6 +263,11 @@ export interface CardPassResponse {
   ack: CardPassAck;
 }
 
+/** `GET /api/card/inbound` — the pending-inbound queue (cards passed from other nodes), scoped to the session member. */
+export interface InboundCardsResponse {
+  inbound: CardReceivedEvent[];
+}
+
 // ── Triage / born-obsidian confirmation queue (Sevenfold Table) ─────────────────
 
 /** A quarantined artefact awaiting the Sovereign's confirmation (rendered fully obsidian, G1). */
@@ -342,8 +347,9 @@ export interface SubmissionStoredEvent {
  * was verified in a DMZ (B6) — it is NOT the local `submission-stored` path (that means "my Emissary stored
  * something"). It surfaces as a distinct **pending-inbound** item, born obsidian, imported into the vault
  * only on the member's explicit accept — so the Table can render a receive surface separate from the local
- * triage queue. Emitted as SSE `card:received`. Shape may change once the receiver path lands; see the
- * Sevenfold reply in this batch and docs/dmz/RESULTS.md.
+ * triage queue. Emitted as SSE **`card-received`** (kebab, matching the Warden's `submission-stored` /
+ * `triage-confirmed` convention). Wired in `warden control`; cross-node DMZ verification of the shipped ops
+ * is a follow-up (v1 verifies via native resolvability).
  */
 export interface CardReceivedEvent {
   /** The delivered credential (VC asset) DID. */

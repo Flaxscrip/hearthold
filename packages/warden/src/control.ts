@@ -23,9 +23,12 @@ import {
   FileSpentTxnStore,
   PROTOCOL_VERSION,
   rulesetId,
+  deliverCredential,
   type HearthholdConfig,
   type KeymasterHandle,
   type RequestHandler,
+  type CredentialDeliveryMessage,
+  type CredentialDeliveryAckMessage,
   type SubmissionReceipt,
   type WitnessSubmission,
   type EvidenceRequest,
@@ -42,6 +45,8 @@ import {
   type ClassifyRequest,
   type RecallRequest,
   type CardFaceRequest,
+  type CardPassRequest,
+  type CardReceivedEvent,
   type TriageConfirmRequest,
   type MarkCandidate,
   type MarkClaimRequest,
@@ -62,6 +67,7 @@ import { OllamaEmbedder, RecallService } from './recall.js';
 import { makeDidcommActionApprover, makeDidcommRulesetSigner, makeDidcommMemberAcker } from './kb.js';
 import { hydrateCardFace } from './face.js';
 import { triageQueue, confirmTriage } from './triage.js';
+import { InboundCardStore } from './inbound-card-store.js';
 import { claimableMarks, claimMark } from './marks.js';
 import { buildKbServices, KbConfigStore, setKbAssurance, readKbAssurance, provisionMemberPartition } from './kb-config.js';
 import { makeWardenHandler } from './handler.js';
@@ -100,6 +106,8 @@ export async function runWardenControl(
   const sessions = new ControlSessionStore(config.sessionTtlMs);
   // The read-guest keys: transient partition keys held only for the session (in memory; zeroized at its end).
   const sessionKeys = new SessionKeyStore();
+  // Pending inbound cards passed from other nodes: verified but not yet accepted into the vault.
+  const inboundCards = new InboundCardStore(handle.dataFolder);
   const createChallenge = handle.keymaster.createChallenge.bind(handle.keymaster) as (
     c?: Record<string, unknown>,
     o?: Record<string, unknown>,
@@ -362,6 +370,40 @@ export async function runWardenControl(
         return { card };
       },
 
+      // Pass a card to another node — wraps core `deliverCredential`. Session-scoped: the deliverer is the
+      // authenticated session member (never a client-asserted issuer). Passing a card crosses a PUBLICATION
+      // boundary (it discloses a credential to another party), so it requires the member's Signet co-sign
+      // (docs/CO-SIGN-POLICY.md) — the same out-of-band approver a MEDIUM+ card-face uses. The Warden
+      // delivers as custodian on the member's behalf (the control transport authcrypts as the Warden); the
+      // credential keeps its original issuer signature (deliverCredential packages + ships, never re-signs).
+      'POST /api/card/pass': async (ctx) => {
+        const { toDid, credentialDid, schemaDid } = (ctx.body ?? {}) as CardPassRequest;
+        if (!toDid || !credentialDid) throw new Error('toDid and credentialDid are required');
+        const member = effectiveViewer(ctx);
+        if (!member) throw new Error('no session — log in');
+        const stepUp = makeDidcommActionApprover(transport, config.stepUpTimeoutMs.factor2);
+        const approved = await stepUp.requestActionApproval({
+          member,
+          action: 'pass',
+          resource: credentialDid,
+          summary: `Pass a card to ${toDid}`,
+        });
+        if (!approved) throw new Error('pass declined — a Sovereign co-sign is required to disclose a credential to another party');
+        const ack = await deliverCredential(handle, IDENTITY_NAME.warden, transport, toDid, credentialDid, schemaDid ? { schemaDid } : {});
+        return {
+          ack: {
+            credentialDid: ack.credentialDid,
+            accepted: ack.accepted,
+            ...(ack.reason ? { reason: ack.reason } : {}),
+            ...(ack.ingestedArtefactId ? { ingestedArtefactId: ack.ingestedArtefactId } : {}),
+          },
+        };
+      },
+
+      // The pending-inbound queue — cards passed from other nodes, verified but not yet accepted into the
+      // vault (born obsidian; import happens on the member's explicit accept). Scoped to the session member.
+      'GET /api/card/inbound': async (ctx) => ({ inbound: inboundCards.list(effectiveViewer(ctx)) }),
+
       // Triage — the born-obsidian confirmation queue, scoped to the session member's own quarantine.
       'GET /api/triage': async (ctx) => {
         const viewer = effectiveViewer(ctx);
@@ -595,6 +637,37 @@ export async function runWardenControl(
   // Wrap the real handler so a stored submission is pushed to connected consoles.
   const inner = makeWardenHandler(service, delegations, evidenceService, kbs, config.sovereignDid);
   const handler: RequestHandler = async (message, fromDid) => {
+    // Inbound card from another node — verify (native resolvability; cross-node DMZ verification via the
+    // shipped ops is a follow-up needing config.dmzNodeUrl), queue as PENDING-INBOUND (born obsidian; import
+    // only on the member's explicit accept — Sevenfold's model), emit `card-received`, and ack the sender.
+    // We never import the shipped foreign ops into our own gatekeeper (B6) — the card is verified + queued,
+    // not accepted, until the member chooses.
+    if (message.type === 'hearthold/credential-delivery') {
+      const m = message as CredentialDeliveryMessage;
+      const verified = await handle.keymaster
+        .resolveDID(m.credentialDid)
+        .then((d) => Boolean(d.didDocument?.id))
+        .catch(() => false);
+      const card: CardReceivedEvent = {
+        credentialDid: m.credentialDid,
+        schemaDid: m.schemaDid,
+        from: String(fromDid).split('#')[0] ?? '',
+        verified,
+        receivedAt: new Date().toISOString(),
+        owner: config.sovereignDid ?? id.did, // v1 home-plane recipient; per-member routing by VC subject is a follow-up
+      };
+      inboundCards.put(card);
+      server.emit('card-received', card, { owner: card.owner });
+      const ack: CredentialDeliveryAckMessage = {
+        type: 'hearthold/credential-delivery-ack',
+        version: PROTOCOL_VERSION,
+        credentialDid: m.credentialDid,
+        accepted: verified,
+        ...(verified ? {} : { reason: 'credential not resolvable on the recipient node (queued as unverified pending-inbound)' }),
+      };
+      return ack;
+    }
+
     const result = await inner(message, fromDid);
     if (
       result &&

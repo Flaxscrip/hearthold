@@ -36,6 +36,10 @@
       "types": "./dist/store.d.ts",
       "import": "./dist/store.js"
     },
+    "./inbound-card-store": {
+      "types": "./dist/inbound-card-store.d.ts",
+      "import": "./dist/inbound-card-store.js"
+    },
     "./evidence": {
       "types": "./dist/evidence.d.ts",
       "import": "./dist/evidence.js"
