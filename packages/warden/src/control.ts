@@ -204,6 +204,7 @@ export async function runWardenControl(
 
   const server = startControlServer({
     port,
+    host: config.controlHost,
     // SSE audience filtering (Phase 3): resolve each console's viewer DID so a member's events don't reach
     // another member's stream. Falls back to undefined (broadcast-eligible) when unauthenticated.
     resolveSession: (token) => sessions.resolve(token ?? null) ?? undefined,
@@ -625,7 +626,7 @@ export async function runWardenControl(
     },
     onListening: (p) =>
       process.stdout.write(
-        `Warden control on http://127.0.0.1:${p}\n  did:  ${id.did}\n  node: ${config.nodeUrl}\n` +
+        `Warden control on http://${config.controlHost}:${p}\n  did:  ${id.did}\n  node: ${config.nodeUrl}\n` +
           `  DIDComm mailbox serving; console API live. (Ctrl-C to stop)\n`,
       ),
   });

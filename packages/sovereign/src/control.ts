@@ -19,6 +19,7 @@ import type {
   SignetStatus,
   SignetSnapshot,
   ApprovalDecisionRequest,
+  LoginSignRequest,
 } from '@hearthold/control-types';
 
 import { makeSovereignHandler } from './handler.js';
@@ -54,6 +55,7 @@ export async function runSovereignControl(
 
   const server = startControlServer({
     port,
+    host: config.controlHost,
     routes: {
       'GET /api/status': () => ({ status: status() }),
       'GET /api/snapshot': () => snapshot(),
@@ -63,10 +65,35 @@ export async function runSovereignControl(
         const r = gate.decide(approvalId, Boolean(approve), pin);
         return { id: approvalId, decision: r.decision };
       },
+
+      // The Signet-brokered middle hop of control login. The browser relays the Warden's challenge here;
+      // the Signet signs it — human-gated, keys never leaving — and returns the response DID to relay to
+      // the Warden's `login/complete`. SECURITY HINGE: resolve the challenge and sign ONLY if its purpose
+      // is `hearthold-control`; refuse anything else, so a compromised browser can request a login (the
+      // human sees + PINs it) but cannot drive the Signet to `createResponse` an arbitrary challenge.
+      'POST /api/login/sign': async ({ body }) => {
+        const { challenge } = (body ?? {}) as LoginSignRequest;
+        if (!challenge) throw new Error('challenge is required');
+        const doc = await handle.keymaster.resolveDID(challenge).catch(() => null);
+        const purpose = (doc?.didDocumentData as { challenge?: { purpose?: string } } | undefined)?.challenge?.purpose;
+        if (purpose !== 'hearthold-control') {
+          throw new Error(`refusing to sign: challenge purpose is '${purpose ?? 'unresolved'}', not 'hearthold-control'`);
+        }
+        // Human-gate exactly like the forge step-up — the member's Signet prompts (PIN) before signing.
+        const assertion = await gate.approve({
+          requester: 'control-login',
+          action: { action: 'login-sign', resource: challenge, summary: 'Approve a control-plane login (sign the challenge)' },
+        });
+        if (!assertion) return { declined: true };
+        // Sign in the Signet; the browser only relays the response DID. PVM intact — keys never leave.
+        await handle.keymaster.setCurrentId(id.name);
+        const response = await handle.keymaster.createResponse(challenge);
+        return { response };
+      },
     },
     onListening: (p) =>
       process.stdout.write(
-        `Signet control on http://127.0.0.1:${p}\n  did:  ${id.did}\n  node: ${config.nodeUrl}\n` +
+        `Signet control on http://${config.controlHost}:${p}\n  did:  ${id.did}\n  node: ${config.nodeUrl}\n` +
           `  DIDComm mailbox serving; approvals gate through the app. (Ctrl-C to stop)\n`,
       ),
   });

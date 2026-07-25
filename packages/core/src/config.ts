@@ -56,6 +56,13 @@ export interface HearthholdConfig {
   stepUpTimeoutMs: { factor1: number; factor2: number };
   /** Control-plane session lifetime in ms (absolute; never slid on use). Default 30 min. */
   sessionTtlMs: number;
+  /**
+   * The interface the control-plane HTTP daemons (Warden `:4310`, Signet `:4311`) bind to. Defaults to
+   * `127.0.0.1` (loopback only — the safe default; the control API is unauthenticated-at-transport). An
+   * isolated-node deployment that fronts the daemon with its own bridge can set `HEARTHOLD_CONTROL_HOST=0.0.0.0`
+   * to bind the container interface directly. NEVER expose the Signet beyond loopback/your own bridge.
+   */
+  controlHost: string;
 }
 
 const DEFAULT_NODE_URL = 'http://flaxlap.local:4222';
@@ -108,6 +115,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): HearthholdConf
       const n = Number(env.HEARTHOLD_SESSION_TTL_MS);
       return Number.isFinite(n) && n > 0 ? n : DEFAULT_SESSION_TTL_MS;
     })(),
+    controlHost: env.HEARTHOLD_CONTROL_HOST ?? '127.0.0.1',
   };
 }
 

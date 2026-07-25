@@ -203,6 +203,21 @@ export interface LogoutResponse {
   revoked: boolean;
 }
 
+/**
+ * `POST /api/login/sign` — on the SIGNET daemon (`:4311`), not the Warden. The Signet-brokered middle hop
+ * of control login: the browser relays the Warden's challenge to the member's own Signet, which — after a
+ * human PIN gate and ONLY if the challenge's purpose is `hearthold-control` — signs it with keys that never
+ * leave the Signet, and returns the response DID for the browser to relay to `POST /api/login/complete`.
+ * The purpose scope is the security hinge: a compromised browser can request a login (the human sees + PINs
+ * it) but cannot drive the Signet to sign an arbitrary challenge for some other purpose.
+ */
+export interface LoginSignRequest {
+  /** The challenge DID minted by `POST /api/login/start` (Warden). */
+  challenge: string;
+}
+/** The member-signed response DID to relay to `login/complete`, or a decline (refused purpose / human denied). */
+export type LoginSignResponse = { response: string } | { declined: true };
+
 export interface CardFaceRequest {
   artefactId: string;
   /**
