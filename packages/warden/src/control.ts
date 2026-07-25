@@ -15,6 +15,7 @@ import {
   DidCommTransport,
   IDENTITY_NAME,
   startControlServer,
+  UnauthorizedError,
   grantAuthorization,
   revokeAuthorization,
   selfSigner,
@@ -123,11 +124,19 @@ export async function runWardenControl(
     return Array.isArray(h) ? h[0] ?? null : h ?? null;
   };
   // ── The G-grade boundary (Phase 3): every scoped route computes its visible set from the SESSION DID,
-  // server-side, never from anything the client sends. The viewer is the authenticated session member, or
-  // the configured Sovereign when unauthenticated (single-Sovereign back-compat). Pre-family artefacts
-  // (no owner) belong to the Sovereign. An artefact is visible iff the viewer owns it or it is shared.
-  const effectiveViewer = (ctx: { req: { headers: Record<string, string | string[] | undefined> } }): string | undefined =>
-    sessions.resolve(sessionToken(ctx)) ?? config.sovereignDid;
+  // server-side, never from anything the client sends. The viewer is the authenticated session member; when
+  // unauthenticated it falls back to the configured Sovereign (single-Sovereign back-compat) UNLESS
+  // require-session is on, in which case there is NO anonymous fallback — the scoped route throws 401 and
+  // the caller must log in. Set below, before serving (derived from multi-membership when the env is unset).
+  // Pre-family artefacts (no owner) belong to the Sovereign; an artefact is visible iff the viewer owns it
+  // or it is shared.
+  let requireSession = false;
+  const effectiveViewer = (ctx: { req: { headers: Record<string, string | string[] | undefined> } }): string | undefined => {
+    const sessionDid = sessions.resolve(sessionToken(ctx));
+    if (sessionDid) return sessionDid;
+    if (requireSession) throw new UnauthorizedError(); // identity proven, never asserted-by-absence
+    return config.sovereignDid; // single-Sovereign back-compat (no members admitted)
+  };
   const ownerOf = (a: Artefact): string | undefined => a.owner ?? config.sovereignDid;
   const visibleTo = (a: Artefact, viewer: string | undefined): boolean => ownerOf(a) === viewer || a.scope === 'shared';
 
@@ -203,6 +212,17 @@ export async function runWardenControl(
     delegations: await delegations.list(),
   });
 
+  // Retire the anonymous Sovereign fallback once the node is multi-member. Explicit env wins; otherwise
+  // DERIVE the safe posture — on if a household exists or any KB space has a member other than the
+  // Sovereign, off for a bare single-Sovereign node. Safe-by-construction: it turns on exactly when a
+  // second principal can reach the daemon, not when a human remembers a flag.
+  const isMultiMember = async (): Promise<boolean> => {
+    if (await householdStore.get().catch(() => null)) return true;
+    const kbs = await kbList().catch(() => [] as KbView[]);
+    return kbs.some((kb) => [...kb.readers, ...kb.writers].some((d) => d && d !== config.sovereignDid));
+  };
+  requireSession = config.requireSession ?? (await isMultiMember());
+
   const server = startControlServer({
     port,
     host: config.controlHost,
@@ -210,9 +230,17 @@ export async function runWardenControl(
     // another member's stream. Falls back to undefined (broadcast-eligible) when unauthenticated.
     resolveSession: (token) => sessions.resolve(token ?? null) ?? undefined,
     routes: {
-      'GET /api/status': async (ctx) => ({
-        status: { ...(await status()), sessionDid: sessions.resolve(sessionToken(ctx)) ?? undefined },
-      }),
+      // Stays reachable unauthenticated (a login screen needs liveness + identity). On a require-session
+      // node, a pre-login caller gets NO vault metadata — `artefactCount`/`delegationCount` are omitted.
+      'GET /api/status': async (ctx) => {
+        const sessionDid = sessions.resolve(sessionToken(ctx));
+        const full = await status();
+        if (requireSession && !sessionDid) {
+          const { artefactCount: _a, delegationCount: _d, ...liveness } = full;
+          return { status: { ...liveness, sessionDid: undefined } };
+        }
+        return { status: { ...full, sessionDid: sessionDid ?? undefined } };
+      },
       'GET /api/snapshot': async (ctx) => await snapshot(effectiveViewer(ctx)),
 
       // ── Control-plane session (Phase 2) — proven identity only (no client-asserted DID). The member's

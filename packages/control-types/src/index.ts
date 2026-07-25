@@ -73,8 +73,9 @@ export interface WardenStatus {
   nodeUrl: string;
   dataFolder: string;
   classifier: string;
-  artefactCount: number;
-  delegationCount: number;
+  /** Vault metadata — omitted pre-login on a require-session node (liveness + identity are enough to log in). */
+  artefactCount?: number;
+  delegationCount?: number;
   serving: boolean;
   /** Whose view this is — the authenticated session member DID. Undefined when unauthenticated / single-Sovereign. */
   sessionDid?: string;

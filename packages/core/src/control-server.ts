@@ -20,6 +20,25 @@ export interface ControlContext {
   req: IncomingMessage;
 }
 
+/** A route error carrying an HTTP status (read by the server's catch; plain Errors default to 400). */
+export class ControlHttpError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = 'ControlHttpError';
+  }
+}
+
+/** No proven session where one is required — the server sends 401. */
+export class UnauthorizedError extends ControlHttpError {
+  constructor(message = 'log in — this node requires a session') {
+    super(message, 401);
+    this.name = 'UnauthorizedError';
+  }
+}
+
 /** A route handler returns a JSON-serialisable value (sent as `{ ok: true, ...value }`). */
 export type ControlHandler = (ctx: ControlContext) => Promise<unknown> | unknown;
 
@@ -131,7 +150,9 @@ export function startControlServer(options: ControlServerOptions): ControlServer
       const result = await route({ body, query: url.searchParams, req });
       sendJson(res, 200, { ok: true, ...(result as object) });
     } catch (err) {
-      sendJson(res, 400, { ok: false, error: err instanceof Error ? err.message : String(err) });
+      // A route may carry an HTTP status on the thrown error (e.g. UnauthorizedError → 401); default 400.
+      const status = typeof (err as { status?: unknown })?.status === 'number' ? (err as { status: number }).status : 400;
+      sendJson(res, status, { ok: false, error: err instanceof Error ? err.message : String(err) });
     }
   }
 

@@ -63,6 +63,13 @@ export interface HearthholdConfig {
    * to bind the container interface directly. NEVER expose the Signet beyond loopback/your own bridge.
    */
   controlHost: string;
+  /**
+   * Require a proven session for every scoped control read — retire the anonymous Sovereign fallback.
+   * `true`/`false` force it; `undefined` (env unset) means DERIVE it: on once the node is multi-member
+   * (a household exists, or a KB space has a member other than the Sovereign), off for a bare
+   * single-Sovereign node. Env: `HEARTHOLD_REQUIRE_SESSION=true|false`.
+   */
+  requireSession?: boolean;
 }
 
 const DEFAULT_NODE_URL = 'http://flaxlap.local:4222';
@@ -116,6 +123,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): HearthholdConf
       return Number.isFinite(n) && n > 0 ? n : DEFAULT_SESSION_TTL_MS;
     })(),
     controlHost: env.HEARTHOLD_CONTROL_HOST ?? '127.0.0.1',
+    requireSession:
+      env.HEARTHOLD_REQUIRE_SESSION === 'true'
+        ? true
+        : env.HEARTHOLD_REQUIRE_SESSION === 'false'
+          ? false
+          : undefined,
   };
 }
 
