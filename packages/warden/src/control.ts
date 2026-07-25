@@ -19,6 +19,7 @@ import {
   revokeAuthorization,
   selfSigner,
   AuthzTier,
+  requiredTier,
   Sensitivity,
   FileSpentTxnStore,
   PROTOCOL_VERSION,
@@ -355,17 +356,25 @@ export async function runWardenControl(
         const { artefactId } = (ctx.body ?? {}) as CardFaceRequest;
         if (!artefactId) throw new Error('artefactId is required');
         const viewer = effectiveViewer(ctx);
-        const stepUp = makeDidcommActionApprover(transport, config.stepUpTimeoutMs.factor1);
         const achievedTier = async (sensitivity: Sensitivity): Promise<AuthzTier> => {
           if (sensitivity < Sensitivity.MEDIUM) return AuthzTier.STANDING; // authenticated session clears ≤LOW
           if (!viewer) return AuthzTier.STANDING; // no member to step up → MEDIUM+ will refuse
+          // Escalate the step-up to the tier the card actually needs (was capped at CHALLENGE, so HIGH/SEALED
+          // refused even after a successful approval). A session-authenticated member who performs a Signet
+          // approval has genuinely cleared up to MULTIFACTOR: the session is factor-1, and the Signet adds
+          // device-possession + a PIN (proof-of-human) as factor-2 — so a successful approval satisfies the
+          // required tier, it does not over-grant. HIGH/SEALED get the longer factor-2 window; the summary
+          // names the sensitivity so the human's consent is informed.
+          const need = requiredTier(sensitivity); // CHALLENGE (MEDIUM) | HUMAN (HIGH) | MULTIFACTOR (SEALED)
+          const timeout = need >= AuthzTier.HUMAN ? config.stepUpTimeoutMs.factor2 : config.stepUpTimeoutMs.factor1;
+          const stepUp = makeDidcommActionApprover(transport, timeout);
           const ok = await stepUp.requestActionApproval({
             member: viewer,
             action: 'render',
             resource: artefactId,
             summary: `Reveal a ${sensitivityName(sensitivity)} card face`,
           });
-          return ok ? AuthzTier.CHALLENGE : AuthzTier.STANDING; // insufficient → the ladder refuses
+          return ok ? need : AuthzTier.STANDING; // grant exactly the tier the assurance satisfied; else the ladder refuses
         };
         const card = await hydrateCardFace(handle, { artefactId, visible: (a) => visibleTo(a, viewer), achievedTier });
         return { card };

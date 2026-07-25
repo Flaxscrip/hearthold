@@ -10,7 +10,7 @@
  */
 import { createHash } from 'node:crypto';
 
-import { loadConfig, openKeymaster, ensureIdentity, sealForWarden, contentId, Sensitivity, AuthzTier } from '@hearthold/core';
+import { loadConfig, openKeymaster, ensureIdentity, sealForWarden, contentId, Sensitivity, AuthzTier, requiredTier } from '@hearthold/core';
 import { VaultStore, type Artefact } from '@hearthold/warden/store';
 import { hydrateCardFace } from '@hearthold/warden/face';
 
@@ -44,7 +44,10 @@ async function main(): Promise<void> {
     ids[s] = id;
   }
 
-  const hydrate = (s: number, tier: AuthzTier) => hydrateCardFace(warden, { artefactId: ids[s] as string, tier });
+  // Model a granted-visibility artefact whose member satisfied exactly `tier` (visible → true; achievedTier
+  // → the given tier), to exercise the ladder. The route computes `visible`/`achievedTier` for real.
+  const hydrate = (s: number, tier: AuthzTier) =>
+    hydrateCardFace(warden, { artefactId: ids[s] as string, visible: () => true, achievedTier: async () => tier });
   const decode = (b64: string): string => Buffer.from(b64, 'base64').toString('utf8');
 
   process.stdout.write('▸ PUBLIC / LOW hydrate at STANDING\n');
@@ -67,15 +70,24 @@ async function main(): Promise<void> {
   const sealed = await hydrate(Sensitivity.SEALED, AuthzTier.MULTIFACTOR);
   assert(sealed.granted && decode(sealed.face) === 'face@4', 'SEALED hydrates only at MULTIFACTOR');
 
-  process.stdout.write('\n▸ Refusal is not an error; a real failure is\n');
+  process.stdout.write('\n▸ Refusal and "not available" are both obsidian — never an existence leak (G-grade)\n');
   assert(!(await hydrate(Sensitivity.SEALED, AuthzTier.STANDING)).granted, 'SEALED@STANDING refuses without throwing');
-  let threw = false;
-  try {
-    await hydrateCardFace(warden, { artefactId: 'did:cid:' + createHash('sha256').update('nope').digest('hex'), tier: AuthzTier.MULTIFACTOR });
-  } catch {
-    threw = true;
+  const unknown = await hydrateCardFace(warden, {
+    artefactId: 'did:cid:' + createHash('sha256').update('nope').digest('hex'),
+    visible: () => true,
+    achievedTier: async () => AuthzTier.MULTIFACTOR,
+  });
+  assert(!unknown.granted && unknown.reason === 'not available', 'an unknown artefact is obsidian (not available), uniform shape — no existence leak');
+
+  // The card-face route escalates its step-up to `requiredTier(sensitivity)` (was capped at CHALLENGE, so
+  // HIGH/SEALED refused even after approval). Prove that tier IS exactly what reveals each MEDIUM+ card, and
+  // one tier below refuses — so the route's escalated step-up reaches every sensitivity.
+  process.stdout.write('\n▸ requiredTier(sensitivity) is exactly the tier that reveals the card (the route escalation)\n');
+  for (const s of [Sensitivity.MEDIUM, Sensitivity.HIGH, Sensitivity.SEALED]) {
+    const need = requiredTier(s);
+    assert((await hydrate(s, need)).granted, `${['PUBLIC', 'LOW', 'MEDIUM', 'HIGH', 'SEALED'][s]} hydrates at its requiredTier`);
+    assert(!(await hydrate(s, (need - 1) as AuthzTier)).granted, `${['PUBLIC', 'LOW', 'MEDIUM', 'HIGH', 'SEALED'][s]} refuses one tier below requiredTier`);
   }
-  assert(threw, 'an unknown artefact THROWS (a real error, distinct from a refusal)');
 
   process.stdout.write('\n✓ Face hydration: the ladder governs every render; refusals are obsidian, not errors\n');
   process.exit(0);
