@@ -64,6 +64,12 @@ export interface HearthholdConfig {
    */
   controlHost: string;
   /**
+   * Extra browser origins allowed to call the control plane, beyond loopback (which is always allowed on any
+   * port). Add a deployed Table's origin here (e.g. `https://table.example`). Env: comma-separated
+   * `HEARTHOLD_CONTROL_ALLOW_ORIGIN`. Never a wildcard — the default (loopback-only) is the safe posture.
+   */
+  controlAllowOrigins: string[];
+  /**
    * Require a proven session for every scoped control read — retire the anonymous Sovereign fallback.
    * `true`/`false` force it; `undefined` (env unset) means DERIVE it: on once the node is multi-member
    * (a household exists, or a KB space has a member other than the Sovereign), off for a bare
@@ -130,6 +136,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): HearthholdConf
       return Number.isFinite(n) && n > 0 ? n : DEFAULT_SESSION_TTL_MS;
     })(),
     controlHost: env.HEARTHOLD_CONTROL_HOST ?? '127.0.0.1',
+    controlAllowOrigins: (env.HEARTHOLD_CONTROL_ALLOW_ORIGIN ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
     requireSession:
       env.HEARTHOLD_REQUIRE_SESSION === 'true'
         ? true

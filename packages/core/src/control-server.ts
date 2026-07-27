@@ -66,17 +66,58 @@ export interface ControlServerOptions {
   onListening?: (port: number) => void;
   /** Resolve an SSE connection's viewer DID from its `X-Hearthold-Session` token (for audience filtering). */
   resolveSession?: (token: string | undefined) => string | undefined;
+  /**
+   * Extra browser origins allowed to call this control plane, beyond loopback. The default already allows any
+   * `http(s)://localhost|127.0.0.1|[::1]:<port>` (a local Table on any port); add full origin strings here for
+   * a deployed Table (e.g. `https://table.example`). NEVER `*` — the control API is unauthenticated at the
+   * transport and loopback-bound, so a wildcard is a DNS-rebinding / localhost-CSRF surface.
+   */
+  allowOrigins?: string[];
 }
 
-function cors(res: ServerResponse): void {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+const LOOPBACK = new Set(['localhost', '127.0.0.1', '::1']);
+const bareHost = (h: string | undefined): string => (h ?? '').split(':')[0]?.toLowerCase().replace(/^\[|\]$/g, '') ?? '';
+
+/** Anti-DNS-rebinding: only answer to loopback, the bound host, or an allowed origin's host. A missing/rebound Host is refused. */
+function isAllowedHost(hostHeader: string | undefined, bindHost: string, allowOrigins: string[]): boolean {
+  const name = bareHost(hostHeader);
+  if (!name) return false;
+  if (LOOPBACK.has(name)) return true;
+  const bind = bindHost.toLowerCase();
+  if (bind !== '0.0.0.0' && bind !== '::' && name === bind) return true;
+  return allowOrigins.some((o) => {
+    try {
+      return bareHost(new URL(o).host) === name;
+    } catch {
+      return false;
+    }
+  });
+}
+
+/** A browser `Origin` is allowed iff it is loopback (any port) or explicitly configured. Absent Origin = non-browser/same-origin → allowed. */
+function isAllowedOrigin(origin: string | undefined, allowOrigins: string[]): boolean {
+  if (origin === undefined) return true; // curl / same-origin — no Origin header
+  if (origin === 'null') return false; // opaque origin (sandboxed iframe, file://)
+  if (allowOrigins.includes(origin)) return true;
+  try {
+    return LOOPBACK.has(new URL(origin).hostname.replace(/^\[|\]$/g, '').toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+/** Reflect the validated origin (NEVER `*`), so only allow-listed browser origins can read responses. */
+function applyCors(res: ServerResponse, origin: string | undefined, allowOrigins: string[]): void {
+  if (origin && isAllowedOrigin(origin, allowOrigins)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Hearthold-Session');
 }
 
 function sendJson(res: ServerResponse, status: number, payload: unknown): void {
   const body = JSON.stringify(payload);
-  cors(res);
   res.writeHead(status, { 'Content-Type': 'application/json' });
   res.end(body);
 }
@@ -109,10 +150,28 @@ export function startControlServer(options: ControlServerOptions): ControlServer
     void handle(req, res);
   });
 
+  const allowOrigins = options.allowOrigins ?? [];
+
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const method = req.method ?? 'GET';
+    const origin = typeof req.headers.origin === 'string' ? req.headers.origin : undefined;
+
+    // Anti-DNS-rebinding: refuse a request whose Host isn't loopback / the bound host / an allowed origin.
+    if (!isAllowedHost(req.headers.host, host, allowOrigins)) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: 'forbidden: host not allowed' }));
+      return;
+    }
+    // Anti-CSRF: refuse a browser request from a disallowed origin outright (not just unreadable via CORS).
+    if (!isAllowedOrigin(origin, allowOrigins)) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: 'forbidden: origin not allowed' }));
+      return;
+    }
+    // CORS reflects the validated origin (never `*`) for every subsequent response on this request.
+    applyCors(res, origin, allowOrigins);
+
     if (method === 'OPTIONS') {
-      cors(res);
       res.writeHead(204);
       res.end();
       return;
@@ -123,7 +182,6 @@ export function startControlServer(options: ControlServerOptions): ControlServer
 
     // SSE stream — clients subscribe here for live events.
     if (method === 'GET' && path === '/api/events') {
-      cors(res);
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',

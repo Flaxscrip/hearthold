@@ -56,6 +56,7 @@ export async function runSovereignControl(
   const server = startControlServer({
     port,
     host: config.controlHost,
+    allowOrigins: config.controlAllowOrigins,
     routes: {
       'GET /api/status': () => ({ status: status() }),
       'GET /api/snapshot': () => snapshot(),

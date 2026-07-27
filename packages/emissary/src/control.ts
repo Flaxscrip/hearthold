@@ -79,6 +79,8 @@ export async function runEmissaryControl(
 
   const server = startControlServer({
     port,
+    host: config.controlHost,
+    allowOrigins: config.controlAllowOrigins,
     routes: {
       'GET /api/status': () => ({ status: status() }),
       'GET /api/snapshot': () => snapshot(),

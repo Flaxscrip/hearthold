@@ -238,6 +238,7 @@ export async function runWardenControl(
   const server = startControlServer({
     port,
     host: config.controlHost,
+    allowOrigins: config.controlAllowOrigins,
     // SSE audience filtering (Phase 3): resolve each console's viewer DID so a member's events don't reach
     // another member's stream. Falls back to undefined (broadcast-eligible) when unauthenticated.
     resolveSession: (token) => sessions.resolve(token ?? null) ?? undefined,
