@@ -73,7 +73,14 @@ export interface HearthholdConfig {
 }
 
 const DEFAULT_NODE_URL = 'http://flaxlap.local:4222';
-const DEFAULT_REGISTRY = 'hyperswarm';
+// Secure by default: `local` is the DB-only registry — it anchors DIDs on the node and NEVER queues them to
+// a gossip/chain mediator, so private data cannot propagate regardless of the node's hyperswarm topic. The
+// keymaster's `defaultRegistry` is set to this, so it flows through every op (issuance included) — the
+// sandbox runs the full credential/prove flow offline on `local`. Publishing/sharing cross-node or on a
+// public network is a DELIBERATE opt-in: set `HEARTHOLD_REGISTRY` to `hyperswarm` (gossips on the node's
+// topic — private only if that topic is private) or a chain registry. Archon's reference node still defaults
+// to public `hyperswarm`; Hearthold does not inherit that — born local, promoted never (unless you ask).
+const DEFAULT_REGISTRY = 'local';
 const DEFAULT_DATA_ROOT = join(homedir(), '.hearthold');
 const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
 // Fast by default: a NON-THINKING instruct model, so a fresh install runs well on modest hardware
