@@ -10,11 +10,11 @@ its own B1–B6 ladder under `e2e:pvm-boundaries`.
 |---|---|---|---|
 | L2-1/2 | **Recall (personal + KB) skipped the sensitivity ladder** — `rankByQuery`'s ceiling defaulted to `Infinity` and no production caller set `maxSensitivity`; a bare STANDING session (and the public KB portal) could retrieve + summarize SEALED content with no step-up. | **HIGH** | **FIXED** (`e2e:recall-ceiling`) |
 | L2-6 | `POST /api/delegate`, `/api/kb/grant`, `/api/kb/revoke`, `/api/kb/policy` call neither `effectiveViewer` nor a step-up — so they're reachable unauthenticated *even on a require-session node* (that gate only fires through `effectiveViewer`). `/api/delegate` mints an Emissary delegation for any body-supplied DID. | **HIGH** | **FIXED** (`e2e:route-gating`) |
-| L2-3 | `snapshot.delegations` is not owner-scoped (`control.ts` ~211) — `vault` is filtered by `visibleTo`, `delegations` returns every member's Emissary relationships. Cross-member metadata leak. | **HIGH** | OPEN |
-| L2-4 | `POST /api/triage/confirm` downgrades sensitivity (incl. SEALED→PUBLIC) from a **client-supplied** value with only an ownership check — no Signet step-up, unlike every comparable write. | MED-HIGH | OPEN (needs a tier design call) |
-| L2-5 | Guardian-read scope/ceiling refusal echoes the artefact's real `kind`/`sensitivity` in the reason (`ruleset.ts` ~348, surfaced at `/api/guardian/read`) — a governor can enumerate attributes beyond their ceiling (G-grade existence leak). | MED | OPEN |
-| L2-7 | `ingestCredentialToPartition` defaults unclassified → `MEDIUM`, contradicting `DEFAULT_SENSITIVITY=SEALED`. Dormant (unwired) but a landmine. | MED | OPEN |
-| L2-8 | `marks` counting pools the whole vault (no `visibleTo`) — a household-wide count-by-kind leaks to any member. | LOW | OPEN |
+| L2-3 | `snapshot.delegations` is not owner-scoped (`control.ts` ~211) — `vault` is filtered by `visibleTo`, `delegations` returns every member's Emissary relationships. Cross-member metadata leak. | **HIGH** | **FIXED** (`e2e:l2-hardening`) |
+| L2-4 | `POST /api/triage/confirm` downgrades sensitivity (incl. SEALED→PUBLIC) from a **client-supplied** value with only an ownership check — no Signet step-up, unlike every comparable write. | MED-HIGH | **FIXED** (`e2e:l2-hardening`) |
+| L2-5 | Guardian-read scope/ceiling refusal echoes the artefact's real `kind`/`sensitivity` in the reason (`ruleset.ts` ~348, surfaced at `/api/guardian/read`) — a governor can enumerate attributes beyond their ceiling (G-grade existence leak). | MED | **FIXED** (`e2e:l2-hardening`) |
+| L2-7 | `ingestCredentialToPartition` defaults unclassified → `MEDIUM`, contradicting `DEFAULT_SENSITIVITY=SEALED`. Dormant (unwired) but a landmine. | MED | **FIXED** (`e2e:l2-hardening`) |
+| L2-8 | `marks` counting pools the whole vault (no `visibleTo`) — a household-wide count-by-kind leaks to any member. | LOW | **FIXED** (`e2e:l2-hardening`) |
 
 ## L1 — identity & key custody
 
@@ -40,6 +40,28 @@ its own B1–B6 ladder under `e2e:pvm-boundaries`.
   note, even maximally similar, is dropped until the tier clears it. **Behaviour change for clients:** recall
   now defaults to ≤LOW — the Table must request `maxSensitivity` and handle the step-up for MEDIUM+ (same as
   it already does for card-face reveals).
+
+- **L2 disclosure cleanup (L2-3/4/5/7/8) — FIXED** (one batch, `e2e:l2-hardening` 13/13 source-scan +
+  `e2e:mark` live):
+  - **L2-3** (owner-scope delegations): a `DelegationRecord` already carried `memberDid`; `list()` now
+    surfaces it, the delegate route attributes the delegation to the delegator (`actor`), and `snapshot`
+    filters via `delegationsFor(viewer)` — same `owner ?? sovereign` rule as `ownerOf` for artefacts. A
+    member no longer sees another member's Emissary relationships.
+  - **L2-4** (co-sign a declassification): `triage/confirm` now requires the owner's Signet co-sign when the
+    confirmed sensitivity is **lower** than the artefact's current one (relaxing SEALED costs what SEALED
+    costs). Design call: a downgrade is a disclosure-authorizing act, so it routes through the same
+    `coSign()` as every comparable write — and this is what makes `confirmedBySovereign` a real
+    proof-of-human, not just a control-plane call. Raising/keeping is fail-safe → no step-up.
+  - **L2-5** (uniform guardian refusal): `authorizeGuardianRead` tags a scope/ceiling denial `code:'scope'`
+    and no longer echoes the artefact's real kind/sensitivity; `guardianRead` collapses a `scope` denial to
+    the same `'not available'` as a non-existent/not-the-subject's artefact (G-grade obsidian). `no-edge`/
+    `expired` (about the governor's OWN edge, no artefact leak) still surface as-is.
+  - **L2-7** (fail-safe ingest): `ingestCredentialToPartition` defaults unclassified content to
+    `DEFAULT_SENSITIVITY` (SEALED), not `MEDIUM` — consistent with the classifier's fail-safe.
+  - **L2-8** (owner-scope marks): `countFor` filters to the claimant's visible set (`owner ?? sovereign`, or
+    `shared`), `claimMark` re-counts over the claimant only, and `POST /api/marks/claimable` is now
+    session-gated (was reachable unauthenticated). A Mark can't be earned off — or leak the count of —
+    another member's data. **Behaviour change for clients:** `marks/claimable` now requires a session.
 
 - **L2-6 — FIXED.** `delegate`, `kb/grant`, `kb/revoke`, `kb/policy` now go through `effectiveViewer(ctx)` —
   so `require-session` gates them (401 unauthenticated) and the acting principal is known. The

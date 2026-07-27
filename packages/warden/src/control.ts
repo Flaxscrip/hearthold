@@ -207,10 +207,18 @@ export async function runWardenControl(
     serving: true,
   });
 
+  // A delegation belongs to the member it serves (`memberDid`), defaulting to the configured Sovereign for
+  // legacy single-Sovereign delegations — same ownership rule as `ownerOf` for artefacts. Owner-scope it so
+  // one member never sees another's Emissary relationships, then strip `memberDid` (not part of the wire view).
+  const delegationsFor = async (viewer: string | undefined): Promise<{ subjectDid: string; credentialDid: string }[]> =>
+    (await delegations.list())
+      .filter((d) => (d.memberDid ?? config.sovereignDid) === viewer)
+      .map(({ subjectDid, credentialDid }) => ({ subjectDid, credentialDid }));
+
   const snapshot = async (viewer: string | undefined): Promise<WardenSnapshot> => ({
     status: await status(),
     vault: (await store.list()).filter((a) => visibleTo(a, viewer)).map(toVaultItem),
-    delegations: await delegations.list(),
+    delegations: await delegationsFor(viewer),
   });
 
   // The sensitivity ceiling a recall/RAG answer may draw on: a bare session clears only ≤LOW; requesting
@@ -339,7 +347,7 @@ export async function runWardenControl(
           kinds: ['event', 'location', 'activity', 'browsing', 'document'],
           validUntil,
         });
-        await delegations.record(emissaryDid, credentialDid);
+        await delegations.record(emissaryDid, credentialDid, actor);
         server.emit('delegation-issued', { subjectDid: emissaryDid, credentialDid });
         return { subjectDid: emissaryDid, credentialDid };
       },
@@ -510,18 +518,31 @@ export async function runWardenControl(
       'POST /api/triage/confirm': async (ctx) => {
         const { artefactId, sensitivity } = (ctx.body ?? {}) as TriageConfirmRequest;
         if (!artefactId || sensitivity === undefined) throw new Error('artefactId and sensitivity are required');
+        const viewer = effectiveViewer(ctx);
         // A member confirms only their OWN quarantine — refuse a cross-member confirm.
         const target = await store.get(artefactId);
-        if (!target || !visibleTo(target, effectiveViewer(ctx))) throw new Error('not available');
-        const item = await confirmTriage(handle, { artefactId, sensitivity: sensitivity as Sensitivity });
-        server.emit('triage-confirmed', { item }, { owner: effectiveViewer(ctx) });
+        if (!target || !visibleTo(target, viewer)) throw new Error('not available');
+        const requested = sensitivity as Sensitivity;
+        // Lowering an artefact's classification is a declassification — a disclosure-authorizing act, like
+        // every comparable write. Require the owner's Signet co-sign (this is what makes `confirmedBySovereign`
+        // a real proof-of-human, not just a control-plane call); relaxing SEALED costs what SEALED costs.
+        // Raising or keeping sensitivity is fail-safe → no step-up.
+        if (viewer && requested < target.sensitivity) {
+          await coSign(viewer, 'triage-relax', artefactId, `Reclassify ${sensitivityName(target.sensitivity)} → ${sensitivityName(requested)}`);
+        }
+        const item = await confirmTriage(handle, { artefactId, sensitivity: requested });
+        server.emit('triage-confirmed', { item }, { owner: viewer });
         return { item };
       },
 
       // SevenfoldMark — explicit claim; the Warden re-counts and issues (axes-free).
-      'POST /api/marks/claimable': async ({ body }) => {
-        const { candidates } = (body ?? {}) as { candidates?: MarkCandidate[] };
-        return { marks: await claimableMarks(handle, candidates ?? []) };
+      'POST /api/marks/claimable': async (ctx) => {
+        const { candidates } = (ctx.body ?? {}) as { candidates?: MarkCandidate[] };
+        // Session-gated + owner-scoped: the count is over the member's OWN visible set, never the whole
+        // household (a household-wide count-by-kind is a cross-member metadata leak).
+        const viewer = effectiveViewer(ctx);
+        if (!viewer) throw new Error('no session — log in');
+        return { marks: await claimableMarks(handle, candidates ?? [], viewer, config.sovereignDid) };
       },
       'POST /api/marks/claim': async (ctx) => {
         const { candidate } = (ctx.body ?? {}) as MarkClaimRequest;
@@ -530,7 +551,7 @@ export async function runWardenControl(
         const subjectDid = effectiveViewer(ctx);
         if (!candidate) throw new Error('candidate is required');
         if (!subjectDid) throw new Error('no session and no Sovereign configured on this Warden');
-        const result = await claimMark(handle, { candidate, subjectDid });
+        const result = await claimMark(handle, { candidate, subjectDid }, config.sovereignDid);
         if (result.issued) server.emit('mark-issued', { result }, { owner: subjectDid });
         return { result };
       },

@@ -36,11 +36,16 @@ export class DelegationStore {
     }
   }
 
-  /** List the delegations the Warden has issued (subject + credential). */
-  async list(): Promise<{ subjectDid: string; credentialDid: string }[]> {
+  /**
+   * List the delegations the Warden has issued (subject + credential + the member each serves). Callers
+   * that surface this to a session MUST owner-scope by `memberDid` — an Emissary relationship is a
+   * cross-member metadata leak otherwise (`memberDid` absent = a single-Sovereign delegation).
+   */
+  async list(): Promise<{ subjectDid: string; credentialDid: string; memberDid?: string }[]> {
     return (await this.readAll()).map((r) => ({
       subjectDid: r.subjectDid,
       credentialDid: r.credentialDid,
+      memberDid: r.memberDid,
     }));
   }
 

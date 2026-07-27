@@ -335,21 +335,24 @@ export async function authorizeGuardianRead(
   warden: KeymasterHandle,
   chain: SignedRuleset[],
   req: GuardianReadRequest,
-): Promise<{ allowed: boolean; reason: string }> {
+): Promise<{ allowed: boolean; reason: string; code?: 'no-edge' | 'expired' | 'scope' }> {
   const operative = await operativeRuleset(warden, chain, { expectedSigner: req.governor });
-  if (!operative) return { allowed: false, reason: 'no active guardianship (unacknowledged, revoked, tampered, or not governor-signed)' };
+  if (!operative) return { allowed: false, code: 'no-edge', reason: 'no active guardianship (unacknowledged, revoked, tampered, or not governor-signed)' };
   if (operative.actor !== req.governor || operative.subject !== req.subject) {
-    return { allowed: false, reason: 'the active Ruleset is not a guardianship edge for this governor → member' };
+    return { allowed: false, code: 'no-edge', reason: 'the active Ruleset is not a guardianship edge for this governor → member' };
   }
   if (operative.validUntil && req.at > operative.validUntil) {
-    return { allowed: false, reason: 'guardianship has expired' };
+    return { allowed: false, code: 'expired', reason: 'guardianship has expired' };
   }
+  // Scope/ceiling denials carry a `scope` code but MUST NOT echo the artefact's real kind/sensitivity —
+  // the caller collapses them to a uniform refusal so a governor can't enumerate out-of-scope artefacts
+  // or their attributes (G-grade existence leak). The reason here is for logs, not the wire.
   const caps = operative.capabilities;
   if (req.kind && caps.kinds && !caps.kinds.includes(req.kind)) {
-    return { allowed: false, reason: `kind '${req.kind}' is outside the guardianship scope` };
+    return { allowed: false, code: 'scope', reason: 'artefact kind is outside the guardianship scope' };
   }
   if (req.sensitivity !== undefined && req.sensitivity > operative.ceiling) {
-    return { allowed: false, reason: `sensitivity ${req.sensitivity} exceeds the guardianship ceiling ${operative.ceiling}` };
+    return { allowed: false, code: 'scope', reason: 'artefact sensitivity exceeds the guardianship ceiling' };
   }
   return { allowed: true, reason: 'authorized by the guardianship Ruleset (the ladder is satisfied by law)' };
 }

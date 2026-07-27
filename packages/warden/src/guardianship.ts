@@ -157,7 +157,11 @@ export async function guardianRead(
     sensitivity: artefact.sensitivity,
     at,
   });
-  if (!authz.allowed) return { granted: false, reason: authz.reason };
+  // A scope/ceiling denial means the artefact EXISTS but sits outside this governor's guardianship — echoing
+  // that (or its kind/sensitivity) lets a governor enumerate a member's out-of-scope artefacts and attributes.
+  // Collapse it to the same uniform refusal as a non-existent/not-the-subject's artefact (G-grade obsidian).
+  // 'no-edge'/'expired' describe the governor's OWN edge (no artefact leak) → surfaced as-is.
+  if (!authz.allowed) return { granted: false, reason: authz.code === 'scope' ? 'not available' : authz.reason };
   // Authorized — receipt the read to the member BEFORE returning the plaintext.
   await new GuardianReceiptStore(handle.dataFolder).record({ guardian: governor, subject, artefactId, kind: artefact.kind, at });
   return { granted: true, face: await unsealAsWarden(handle, artefact.ciphertext) };

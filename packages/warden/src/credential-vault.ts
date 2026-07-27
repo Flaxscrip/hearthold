@@ -2,6 +2,7 @@ import {
   sealToKey,
   contentId,
   Sensitivity,
+  DEFAULT_SENSITIVITY,
   type KeymasterHandle,
   type HearthholdConfig,
   type IssuedLeaf,
@@ -54,7 +55,7 @@ export async function ingestCredentialToPartition(
     kind: 'document',
     observedAt: args.leaf.acceptedAt ?? now,
     storedAt: now,
-    sensitivity: args.sensitivity ?? Sensitivity.MEDIUM,
+    sensitivity: args.sensitivity ?? DEFAULT_SENSITIVITY, // fail-safe SEALED when unclassified, not MEDIUM
     ciphertext,
     sealedTo: { partition: partition.id }, // member-key: Warden write-hosts, cannot read at rest
     owner: args.ownerDid,
