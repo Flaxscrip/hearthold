@@ -24,6 +24,7 @@ import {
   sealToKey,
   contentId,
   PROTOCOL_VERSION,
+  Sensitivity,
   type KeymasterHandle,
   type HearthholdConfig,
   type TrustEvaluator,
@@ -346,7 +347,8 @@ export class KbService {
     if (req.action === 'query') {
       // Visible set = the shared partition (if a member) ∪ the caller's own private partition. Computed
       // from the authenticated DID, NEVER from the request — a member can't ask to read another's data.
-      const sharedRead = (await this.opts.registry.authorize({ entity_id: did, action: 'read', resource: this.opts.kbId })).authorized;
+      const readAuthz = await this.opts.registry.authorize({ entity_id: did, action: 'read', resource: this.opts.kbId });
+      const sharedRead = readAuthz.authorized;
       const visible: string[] = [];
       if (sharedRead) visible.push(this.opts.kbId);
       if (own) visible.push(own.id);
@@ -361,7 +363,12 @@ export class KbService {
       // session token, so a query can only reach the partitions this member unlocked (never another's).
       const keyFor: PartitionKeyLookup | undefined =
         sessionToken && this.opts.sessionKeys ? (pid) => this.opts.sessionKeys?.get(sessionToken, pid) : undefined;
-      const result = await RecallService.forWarden(this.warden, this.config, keyFor).recall(req.query, { k: req.k, kb: visible });
+      // Sensitivity CEILING: this KB is reachable through a deliberately-public Mage portal, so cap the
+      // answer's per-artefact sensitivity to what the space's read assurance clears — a factor2
+      // (proof-of-human) read may reach SEALED; a factor1 read gets ≤MEDIUM. SEALED KB content therefore
+      // never surfaces to a factor1 / public-portal reader who only cleared the coarse read action.
+      const kbCeiling = (readAuthz.requiredAssurance ?? 'factor1') === 'factor2' ? Sensitivity.SEALED : Sensitivity.MEDIUM;
+      const result = await RecallService.forWarden(this.warden, this.config, keyFor).recall(req.query, { k: req.k, kb: visible, maxSensitivity: kbCeiling });
       // Label each citation by partition so the portal can show where an answer came from.
       const citations = result.citations.map((c) => ({
         artefactId: c.artefactId,

@@ -21,6 +21,7 @@ import {
   selfSigner,
   AuthzTier,
   requiredTier,
+  clearanceCeiling,
   Sensitivity,
   FileSpentTxnStore,
   PROTOCOL_VERSION,
@@ -212,6 +213,22 @@ export async function runWardenControl(
     delegations: await delegations.list(),
   });
 
+  // The sensitivity ceiling a recall/RAG answer may draw on: a bare session clears only ≤LOW; requesting
+  // MEDIUM+ runs a real step-up to the member's OWN Signet (the same out-of-band approver a MEDIUM+ card-face
+  // uses), and the ceiling granted is exactly what the achieved tier clears. No member / no approval → ≤LOW.
+  const recallCeiling = async (requested: Sensitivity, member: string | undefined): Promise<Sensitivity> => {
+    if (requested <= Sensitivity.LOW || !member) return clearanceCeiling(AuthzTier.STANDING);
+    const need = requiredTier(requested);
+    const stepUp = makeDidcommActionApprover(transport, need >= AuthzTier.HUMAN ? config.stepUpTimeoutMs.factor2 : config.stepUpTimeoutMs.factor1);
+    const ok = await stepUp.requestActionApproval({
+      member,
+      action: 'recall',
+      resource: `<=${sensitivityName(requested)}`,
+      summary: `Recall over your ${sensitivityName(requested)} vault`,
+    });
+    return clearanceCeiling(ok ? need : AuthzTier.STANDING);
+  };
+
   // Retire the anonymous Sovereign fallback once the node is multi-member. Explicit env wins; otherwise
   // DERIVE the safe posture — on if a household exists or any KB space has a member other than the
   // Sovereign, off for a bare single-Sovereign node. Safe-by-construction: it turns on exactly when a
@@ -319,12 +336,22 @@ export async function runWardenControl(
         };
       },
       'POST /api/recall': async (ctx) => {
-        const { query, k } = (ctx.body ?? {}) as RecallRequest;
+        const { query, k, maxSensitivity } = (ctx.body ?? {}) as RecallRequest;
         if (!query) throw new Error('query is required');
         // Private RAG over the SESSION member's vault — their own artefacts ∪ shared-to-household, and only
         // the personal vault (kb:null), not the KBs. Query, retrieval, and answer stay on this device.
+        // Sensitivity CEILING: recall is a LOCAL_RENDER disclosure like a card face, so it crosses the same
+        // ladder. A bare session draws on ≤LOW only; MEDIUM+ (incl. SEALED) requires a real step-up to the
+        // member's own Signet — never summarize sealed content for a caller who hasn't cleared it.
         const viewer = effectiveViewer(ctx);
-        const result = await RecallService.forWarden(handle, config).recall(query, { ...(k ? { k } : {}), kb: null, owner: viewer });
+        const requested = typeof maxSensitivity === 'number' ? (maxSensitivity as Sensitivity) : Sensitivity.LOW;
+        const ceiling = await recallCeiling(requested, viewer);
+        const result = await RecallService.forWarden(handle, config).recall(query, {
+          ...(k ? { k } : {}),
+          kb: null,
+          owner: viewer,
+          maxSensitivity: ceiling,
+        });
         return { result };
       },
       // Forge (Sevenfold) — mint an Attestation scroll from a divination. Reuses the evidence flow: a

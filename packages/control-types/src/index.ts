@@ -100,6 +100,12 @@ export interface DelegateResponse {
 export interface RecallRequest {
   query: string;
   k?: number;
+  /**
+   * The sensitivity band the answer may draw on (0=PUBLIC … 4=SEALED). Default LOW. Requesting MEDIUM+ runs a
+   * real step-up to the member's own Signet server-side (recall is a disclosure like a card face); the ceiling
+   * granted is exactly what the achieved tier clears — a bare session never summarizes SEALED content for free.
+   */
+  maxSensitivity?: number;
 }
 
 /** One Knowledge Base's membership + assurance policy, for the Warden Console KB panel. */
