@@ -223,6 +223,18 @@ export async function runWardenControl(
   };
   requireSession = config.requireSession ?? (await isMultiMember());
 
+  // Lockout guard: warn loudly when require-session is on so an operator can't be silently 401'd out of
+  // their own daemon — especially when it turned on by DERIVATION (multi-membership), which is automatic.
+  if (requireSession) {
+    const how = config.requireSession === true ? 'HEARTHOLD_REQUIRE_SESSION=true' : 'derived — this node is multi-member';
+    process.stderr.write(
+      `\n⚠️  require-session is ON (${how}).\n` +
+        `   Every scoped control read needs a proven session (${'X-Hearthold-Session'} header); an unauthenticated caller gets 401.\n` +
+        `   To get in you MUST be able to log in: the Signet daemon (POST /api/login/sign, :4311) reachable and your member wallet present.\n` +
+        `   No login path = locked out. Restore the single-Sovereign fallback with HEARTHOLD_REQUIRE_SESSION=false.\n\n`,
+    );
+  }
+
   const server = startControlServer({
     port,
     host: config.controlHost,
