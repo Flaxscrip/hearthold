@@ -229,6 +229,20 @@ export async function runWardenControl(
     return clearanceCeiling(ok ? need : AuthzTier.STANDING);
   };
 
+  // Governance co-sign: an authority-granting or membership-changing action requires a real Signet approval
+  // from the relevant principal — the KB/household governor, or the acting member for a self-governed
+  // resource. Fail closed (a declined / unreachable Signet blocks the action). Same approver the card-pass +
+  // household routes use.
+  const coSign = async (member: string, action: string, resource: string, summary: string): Promise<void> => {
+    const ok = await makeDidcommActionApprover(transport, config.stepUpTimeoutMs.factor2).requestActionApproval({
+      member,
+      action,
+      resource,
+      summary,
+    });
+    if (!ok) throw new Error(`${action} declined — a Signet co-sign is required (${summary})`);
+  };
+
   // Retire the anonymous Sovereign fallback once the node is multi-member. Explicit env wins; otherwise
   // DERIVE the safe posture — on if a household exists or any KB space has a member other than the
   // Sovereign, off for a bare single-Sovereign node. Safe-by-construction: it turns on exactly when a
@@ -310,9 +324,15 @@ export async function runWardenControl(
         if (revoked) sessionKeys.zeroize(revoked);
         return { ok: true, revoked: !!revoked };
       },
-      'POST /api/delegate': async ({ body }) => {
-        const { emissaryDid } = (body ?? {}) as DelegateRequest;
+      'POST /api/delegate': async (ctx) => {
+        const { emissaryDid } = (ctx.body ?? {}) as DelegateRequest;
         if (!emissaryDid) throw new Error('emissaryDid is required');
+        // Session-gated (was reachable UNAUTHENTICATED — it bypassed require-session by never calling
+        // effectiveViewer, and minted a delegation for any body-supplied DID). Delegating submission
+        // authority to an Emissary is a (c) delegates-authority act → the delegator's own Signet co-signs.
+        const actor = effectiveViewer(ctx);
+        if (!actor) throw new Error('no session — log in');
+        await coSign(actor, 'delegate', emissaryDid, `Delegate submission authority to ${emissaryDid}`);
         const schemaDid = await ensureDelegationSchema(handle);
         const validUntil = new Date(Date.now() + 1000 * 60 * 60 * 24 * 365).toISOString();
         const credentialDid = await issueDelegation(handle, emissaryDid, schemaDid, {
@@ -660,11 +680,16 @@ export async function runWardenControl(
       // NB: KB access is granted to the *member* DID (the one that signs in), never to the relaying
       // Mage/Emissary — the Warden authorizes the member, the Mage only carries.
       'GET /api/kb': async () => ({ kbs: await kbList() }),
-      'POST /api/kb/grant': async ({ body }) => {
-        const { kbId, did, scope } = (body ?? {}) as KbGrantRequest;
+      'POST /api/kb/grant': async (ctx) => {
+        const { kbId, did, scope } = (ctx.body ?? {}) as KbGrantRequest;
         const kb = await kbStore.get(kbId);
         if (!kb) throw new Error(`unknown KB "${kbId}"`);
         if (!did) throw new Error('did is required');
+        // Session-gated (was unauthenticated). Granting KB access is (c) delegates-authority → the KB's
+        // governor (or the owner of a self-governed KB) co-signs at their Signet.
+        const actor = effectiveViewer(ctx);
+        if (!actor) throw new Error('no session — log in');
+        await coSign(kb.governorDid ?? actor, 'kb-grant', `${kbId}/${did}`, `Grant ${scope ?? 'read'} on ${kbId} to ${did}`);
         if (scope === 'read' || scope === 'both') await grantAuthorization(handle, kb.readGroup, did);
         if (scope === 'write' || scope === 'both') await grantAuthorization(handle, kb.writeGroup, did);
         // KB Spaces: granting a member also provisions their private partition (their private DB).
@@ -673,24 +698,33 @@ export async function runWardenControl(
         server.emit('kb-changed', { kbs });
         return { kbs };
       },
-      'POST /api/kb/revoke': async ({ body }) => {
-        const { kbId, did, scope } = (body ?? {}) as KbGrantRequest;
+      'POST /api/kb/revoke': async (ctx) => {
+        const { kbId, did, scope } = (ctx.body ?? {}) as KbGrantRequest;
         const kb = await kbStore.get(kbId);
         if (!kb) throw new Error(`unknown KB "${kbId}"`);
         if (!did) throw new Error('did is required');
+        // Session-gated (was unauthenticated). Revoking membership is a governance change → governor co-sign.
+        const actor = effectiveViewer(ctx);
+        if (!actor) throw new Error('no session — log in');
+        await coSign(kb.governorDid ?? actor, 'kb-revoke', `${kbId}/${did}`, `Revoke ${scope ?? 'read'} on ${kbId} from ${did}`);
         if (scope === 'read' || scope === 'both') await revokeAuthorization(handle, kb.readGroup, did);
         if (scope === 'write' || scope === 'both') await revokeAuthorization(handle, kb.writeGroup, did);
         const kbs = await kbList();
         server.emit('kb-changed', { kbs });
         return { kbs };
       },
-      'POST /api/kb/policy': async ({ body }) => {
-        const { kbId, action, tier } = (body ?? {}) as KbPolicyRequest;
+      'POST /api/kb/policy': async (ctx) => {
+        const { kbId, action, tier } = (ctx.body ?? {}) as KbPolicyRequest;
         const kb = await kbStore.get(kbId);
         if (!kb) throw new Error(`unknown KB "${kbId}"`);
         if ((action !== 'read' && action !== 'write') || (tier !== 'factor1' && tier !== 'factor2')) {
           throw new Error('action must be read|write and tier factor1|factor2');
         }
+        // Session-gated (was unauthenticated). The policy CHANGE itself is co-signed below by the governor's
+        // Signet (a governed KB) — the ruleset signer is the human gate; a self-governed KB self-signs and
+        // relies on the session gate (only the Sovereign holds a session).
+        const actor = effectiveViewer(ctx);
+        if (!actor) throw new Error('no session — log in');
         // Governance: a governed KB routes the signature to the Sovereign's Signet; else the Warden
         // self-signs. The transport is already live in this daemon.
         const signer = kb.governorDid ? makeDidcommRulesetSigner(transport, kb.governorDid) : selfSigner(handle, id.did);

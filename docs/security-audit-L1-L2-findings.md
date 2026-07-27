@@ -9,7 +9,7 @@ its own B1–B6 ladder under `e2e:pvm-boundaries`.
 | # | Finding | Sev | Status |
 |---|---|---|---|
 | L2-1/2 | **Recall (personal + KB) skipped the sensitivity ladder** — `rankByQuery`'s ceiling defaulted to `Infinity` and no production caller set `maxSensitivity`; a bare STANDING session (and the public KB portal) could retrieve + summarize SEALED content with no step-up. | **HIGH** | **FIXED** (`e2e:recall-ceiling`) |
-| L2-6 | `POST /api/delegate`, `/api/kb/grant`, `/api/kb/revoke`, `/api/kb/policy` call neither `effectiveViewer` nor a step-up — so they're reachable unauthenticated *even on a require-session node* (that gate only fires through `effectiveViewer`). `/api/delegate` mints an Emissary delegation for any body-supplied DID. | **HIGH** | OPEN |
+| L2-6 | `POST /api/delegate`, `/api/kb/grant`, `/api/kb/revoke`, `/api/kb/policy` call neither `effectiveViewer` nor a step-up — so they're reachable unauthenticated *even on a require-session node* (that gate only fires through `effectiveViewer`). `/api/delegate` mints an Emissary delegation for any body-supplied DID. | **HIGH** | **FIXED** (`e2e:route-gating`) |
 | L2-3 | `snapshot.delegations` is not owner-scoped (`control.ts` ~211) — `vault` is filtered by `visibleTo`, `delegations` returns every member's Emissary relationships. Cross-member metadata leak. | **HIGH** | OPEN |
 | L2-4 | `POST /api/triage/confirm` downgrades sensitivity (incl. SEALED→PUBLIC) from a **client-supplied** value with only an ownership check — no Signet step-up, unlike every comparable write. | MED-HIGH | OPEN (needs a tier design call) |
 | L2-5 | Guardian-read scope/ceiling refusal echoes the artefact's real `kind`/`sensitivity` in the reason (`ruleset.ts` ~348, surfaced at `/api/guardian/read`) — a governor can enumerate attributes beyond their ceiling (G-grade existence leak). | MED | OPEN |
@@ -40,3 +40,12 @@ its own B1–B6 ladder under `e2e:pvm-boundaries`.
   note, even maximally similar, is dropped until the tier clears it. **Behaviour change for clients:** recall
   now defaults to ≤LOW — the Table must request `maxSensitivity` and handle the step-up for MEDIUM+ (same as
   it already does for card-face reveals).
+
+- **L2-6 — FIXED.** `delegate`, `kb/grant`, `kb/revoke`, `kb/policy` now go through `effectiveViewer(ctx)` —
+  so `require-session` gates them (401 unauthenticated) and the acting principal is known. The
+  authority-granting / membership-changing ones (`delegate`, `kb/grant`, `kb/revoke`) require a Signet
+  co-sign via `coSign()` (the delegator for a delegation, the KB governor — or the owner of a self-governed
+  KB — for a grant/revoke), matching the `household/admit` + `card/pass` pattern; `kb/policy` keeps its
+  governor ruleset-signer as the human gate. `e2e:route-gating` (10/10) asserts each route is wired to the
+  gate so it can't silently regress. **Behaviour change for clients:** these four now require a session, and
+  delegate/grant/revoke now prompt a Signet co-sign — the Table must handle the step-up (same as card/pass).
