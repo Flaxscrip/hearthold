@@ -2,7 +2,7 @@
   "name": "hearthold",
   "version": "0.1.0",
   "private": true,
-  "description": "Hearthold \u2014 a Sovereign First Person's 7th Capital, made safely liquid. Two separated Archon agents: Warden (home Keeper) and Emissary (Companion).",
+  "description": "Hearthold — a Sovereign First Person's 7th Capital, made safely liquid. Two separated Archon agents: Warden (home Keeper) and Emissary (Companion).",
   "type": "module",
   "license": "MIT",
   "workspaces": [
@@ -111,7 +111,8 @@
     "e2e:guardianship": "npm run build && node --experimental-strip-types scripts/e2e-guardianship.ts",
     "e2e:cgpr-hatpro": "npm run build && node --experimental-strip-types scripts/e2e-cgpr-hatpro.ts",
     "e2e:kb-reindex": "npm run build && node --experimental-strip-types scripts/e2e-kb-reindex.ts",
-    "e2e:evidence-deterministic": "npm run build && node --experimental-strip-types scripts/e2e-evidence-deterministic.ts"
+    "e2e:evidence-deterministic": "npm run build && node --experimental-strip-types scripts/e2e-evidence-deterministic.ts",
+    "e2e:l1-custody": "npm run build && node --experimental-strip-types scripts/e2e-l1-custody.ts"
   },
   "engines": {
     "node": ">=22"

@@ -12,6 +12,7 @@ import {
   ensureIdentity,
   ensureDelegationSchema,
   issueDelegation,
+  reloadWallet,
   DidCommTransport,
   IDENTITY_NAME,
   startControlServer,
@@ -111,6 +112,22 @@ export async function runWardenControl(
   const sessionKeys = new SessionKeyStore();
   // Pending inbound cards passed from other nodes: verified but not yet accepted into the vault.
   const inboundCards = new InboundCardStore(handle.dataFolder);
+  // ── Reload-before-write guard (L1-2). This daemon caches the Warden wallet in memory for its lifetime,
+  // so a wallet MUTATION (issuing a delegation/mark/evidence VC, a KB grant/revoke) would write a stale
+  // cache back over a concurrent `warden` CLI write via Keymaster's non-atomic saveWallet → clobber. Route
+  // every wallet mutation through `withWalletWrite`: it (1) SERIALIZES mutations so two requests can't race
+  // each other, and (2) reloads the wallet from disk (torn-read retry, fail-closed) immediately before the
+  // write so an external change is never overwritten. Reads (recall/snapshot/status) don't need it. This is
+  // the Warden's analogue of the Sovereign's per-request `openKeymasterFresh`, adapted to the shared handle.
+  let walletWrites: Promise<unknown> = Promise.resolve();
+  const withWalletWrite = <T>(fn: () => Promise<T>): Promise<T> => {
+    const run = walletWrites.then(async () => {
+      await reloadWallet(handle);
+      return fn();
+    });
+    walletWrites = run.then(() => undefined, () => undefined); // keep the chain alive across a failed write
+    return run;
+  };
   const createChallenge = handle.keymaster.createChallenge.bind(handle.keymaster) as (
     c?: Record<string, unknown>,
     o?: Record<string, unknown>,
@@ -343,10 +360,12 @@ export async function runWardenControl(
         await coSign(actor, 'delegate', emissaryDid, `Delegate submission authority to ${emissaryDid}`);
         const schemaDid = await ensureDelegationSchema(handle);
         const validUntil = new Date(Date.now() + 1000 * 60 * 60 * 24 * 365).toISOString();
-        const credentialDid = await issueDelegation(handle, emissaryDid, schemaDid, {
-          kinds: ['event', 'location', 'activity', 'browsing', 'document'],
-          validUntil,
-        });
+        const credentialDid = await withWalletWrite(() =>
+          issueDelegation(handle, emissaryDid, schemaDid, {
+            kinds: ['event', 'location', 'activity', 'browsing', 'document'],
+            validUntil,
+          }),
+        );
         await delegations.record(emissaryDid, credentialDid, actor);
         server.emit('delegation-issued', { subjectDid: emissaryDid, credentialDid });
         return { subjectDid: emissaryDid, credentialDid };
@@ -402,7 +421,7 @@ export async function runWardenControl(
           ...(validForMinutes ? { validForMinutes } : {}),
         };
         // Home-plane forge: the member proves from their own vault (delegationValid = true).
-        const r = await evidenceService.handle(req, id.did, true);
+        const r = await withWalletWrite(() => evidenceService.handle(req, id.did, true));
         const proof: ProofRecord =
           r.status === 'granted'
             ? {
@@ -551,7 +570,7 @@ export async function runWardenControl(
         const subjectDid = effectiveViewer(ctx);
         if (!candidate) throw new Error('candidate is required');
         if (!subjectDid) throw new Error('no session and no Sovereign configured on this Warden');
-        const result = await claimMark(handle, { candidate, subjectDid }, config.sovereignDid);
+        const result = await withWalletWrite(() => claimMark(handle, { candidate, subjectDid }, config.sovereignDid));
         if (result.issued) server.emit('mark-issued', { result }, { owner: subjectDid });
         return { result };
       },
@@ -711,10 +730,12 @@ export async function runWardenControl(
         const actor = effectiveViewer(ctx);
         if (!actor) throw new Error('no session — log in');
         await coSign(kb.governorDid ?? actor, 'kb-grant', `${kbId}/${did}`, `Grant ${scope ?? 'read'} on ${kbId} to ${did}`);
-        if (scope === 'read' || scope === 'both') await grantAuthorization(handle, kb.readGroup, did);
-        if (scope === 'write' || scope === 'both') await grantAuthorization(handle, kb.writeGroup, did);
-        // KB Spaces: granting a member also provisions their private partition (their private DB).
-        if (kb.memberPartitions) await provisionMemberPartition(handle, config, kb.kbId, did);
+        await withWalletWrite(async () => {
+          if (scope === 'read' || scope === 'both') await grantAuthorization(handle, kb.readGroup, did);
+          if (scope === 'write' || scope === 'both') await grantAuthorization(handle, kb.writeGroup, did);
+          // KB Spaces: granting a member also provisions their private partition (their private DB).
+          if (kb.memberPartitions) await provisionMemberPartition(handle, config, kb.kbId, did);
+        });
         const kbs = await kbList();
         server.emit('kb-changed', { kbs });
         return { kbs };
@@ -728,8 +749,10 @@ export async function runWardenControl(
         const actor = effectiveViewer(ctx);
         if (!actor) throw new Error('no session — log in');
         await coSign(kb.governorDid ?? actor, 'kb-revoke', `${kbId}/${did}`, `Revoke ${scope ?? 'read'} on ${kbId} from ${did}`);
-        if (scope === 'read' || scope === 'both') await revokeAuthorization(handle, kb.readGroup, did);
-        if (scope === 'write' || scope === 'both') await revokeAuthorization(handle, kb.writeGroup, did);
+        await withWalletWrite(async () => {
+          if (scope === 'read' || scope === 'both') await revokeAuthorization(handle, kb.readGroup, did);
+          if (scope === 'write' || scope === 'both') await revokeAuthorization(handle, kb.writeGroup, did);
+        });
         const kbs = await kbList();
         server.emit('kb-changed', { kbs });
         return { kbs };

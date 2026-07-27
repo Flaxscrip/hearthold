@@ -2,6 +2,8 @@
 import {
   loadConfig,
   openKeymaster,
+  passphraseFor,
+  runKeyMaintenance,
   ensureIdentity,
   acceptDelegation,
   sealForWarden,
@@ -27,12 +29,15 @@ Usage:
   emissary kb-portal            Emissary: relay Knowledge Base traffic to the Warden (carries only)
   emissary kb-web [port]        Emissary web portal: HTTP→DIDComm bridge for the browser (default 4313)
   emissary control [port]       Submit + project over DIDComm, with a control API for the Emissary app (default 4312)
+  emissary rotate               Rotate signing keys (incident response)
+  emissary passphrase <new>     Re-encrypt the wallet under a new passphrase
+  emissary check                Health-check the wallet
   emissary help                 Show this message
 
   <kind> ∈ event | location | activity | browsing | document
 
 Env:
-  HEARTHOLD_PASSPHRASE     wallet passphrase (required)
+  HEARTHOLD_PASSPHRASE     wallet passphrase — shared or per-role _EMISSARY (required)
   HEARTHOLD_WARDEN_DID     the Warden's did:cid — required for submit
   HEARTHOLD_SOVEREIGN_DID  the Sovereign's did:cid — required for serve (relay target)
   HEARTHOLD_NODE_URL       Archon node (Drawbridge) URL; default http://flaxlap.local:4222
@@ -47,8 +52,7 @@ async function main(): Promise<void> {
   }
 
   const config = loadConfig();
-  const passphrase = process.env.HEARTHOLD_PASSPHRASE;
-  if (!passphrase) throw new Error('HEARTHOLD_PASSPHRASE is required');
+  const passphrase = passphraseFor('emissary');
 
   const handle = await openKeymaster('emissary', config, passphrase);
   const id = await ensureIdentity(handle, config);
@@ -181,6 +185,15 @@ async function main(): Promise<void> {
       };
       process.on('SIGINT', shutdown);
       process.on('SIGTERM', shutdown);
+      break;
+    }
+    case 'rotate':
+    case 'passphrase':
+    case 'check': {
+      // Incident response (L1): rotate signing keys, re-encrypt the wallet, or health-check it.
+      if (cmd === 'rotate') await ensureIdentity(handle, config);
+      const result = await runKeyMaintenance(handle, cmd, process.argv[3]);
+      process.stdout.write(`${result}\n`);
       break;
     }
     default:

@@ -20,9 +20,9 @@ its own B1–B6 ladder under `e2e:pvm-boundaries`.
 
 | # | Finding | Sev | Status |
 |---|---|---|---|
-| L1-1 | One `HEARTHOLD_PASSPHRASE` decrypts all four agents' wallets — a single leak collapses PVM separation. (Mitigated in a real deployment by device separation; a co-located-dev hardening.) Fix: per-role `HEARTHOLD_PASSPHRASE_<ROLE>` with fallback. | MED | OPEN |
-| L1-2 | Warden control daemon opens its wallet once (no reload-before-write) while mutating routes sign/save — a concurrent `warden` CLI write can be silently clobbered (non-atomic `saveWallet`). Sovereign uses `openKeymasterFresh`; Warden doesn't. | MED | OPEN |
-| L1-4 | No agent CLI exposes `rotateKeys`/`changePassphrase` — no built-in incident-response path for a compromised key/passphrase. | MED | OPEN |
+| L1-1 | One `HEARTHOLD_PASSPHRASE` decrypts all four agents' wallets — a single leak collapses PVM separation. (Mitigated in a real deployment by device separation; a co-located-dev hardening.) Fix: per-role `HEARTHOLD_PASSPHRASE_<ROLE>` with fallback. | MED | **FIXED** (`e2e:l1-custody`) |
+| L1-2 | Warden control daemon opens its wallet once (no reload-before-write) while mutating routes sign/save — a concurrent `warden` CLI write can be silently clobbered (non-atomic `saveWallet`). Sovereign uses `openKeymasterFresh`; Warden doesn't. | MED | **FIXED** (`e2e:l1-custody`) |
+| L1-4 | No agent CLI exposes `rotateKeys`/`changePassphrase` — no built-in incident-response path for a compromised key/passphrase. | MED | **FIXED** (`e2e:l1-custody`) |
 | L1-5 | `SessionKeyStore.zeroize` is best-effort (JS strings immutable) — hold key material in `Buffer`s for a real wipe. | LOW | OPEN |
 | L1-7 | Browser SSE uses bare `EventSource` (can't send `X-Hearthold-Session`), so owner-scoped *private* frames never reach a Table — fails **closed** (broken feature, not a leak); the naive fix (token in query) would leak the token. Design deliberately. | LOW | NOTE (Sevenfold) |
 
@@ -31,6 +31,28 @@ its own B1–B6 ladder under `e2e:pvm-boundaries`.
 - `decideRelease`/`CLEARANCE` is a clean ordinal gate; where invoked (`face.ts`, `evidence.ts`, `cgpr.ts`) the tier is server-computed from a real step-up, never client-asserted. Attenuation + selective-disclosure are verifier-enforced. Mesh B1–B6 are adversarially tested.
 
 ## Fix log
+
+- **L1 custody (L1-1/2/4) — FIXED** (`e2e:l1-custody`: 34/34, pure precedence + source-scan wiring +
+  live rotate/passphrase/reload against the node):
+  - **L1-1** (per-role passphrase): core `passphraseFor(role)` reads `HEARTHOLD_PASSPHRASE_<ROLE>` first, else
+    the shared `HEARTHOLD_PASSPHRASE`, else throws (fail-closed). All five agents (warden/sovereign/emissary/
+    verifier/registry) now resolve through it — a leak of one role's passphrase no longer decrypts every
+    wallet, so device separation isn't the *only* thing holding PVM apart. Single shared value still works for
+    dev; documented in `.env.example`.
+  - **L1-2** (reload-before-write): extracted `reloadWallet(handle)` (the reload core) from
+    `openKeymasterFresh` and gave the Warden control daemon a `withWalletWrite()` guard that (1) **serializes**
+    wallet mutations so two requests can't race, and (2) reloads the wallet from disk (torn-read retry,
+    fail-closed) immediately before each write. Every wallet mutation in the daemon — `issueDelegation`,
+    `claimMark`, evidence `forge`, KB `grant`/`revoke` (+ partition provision) — is wrapped, so a concurrent
+    `warden` CLI write is no longer clobbered by the daemon's stale cache. Strictly stronger than the
+    Sovereign's per-request reopen (that mints a fresh handle but doesn't serialize); reuses the shared handle
+    so no service reconstruction.
+  - **L1-4** (rotation CLI): core `runKeyMaintenance(handle, op, newPass?)` (reloads first, then rotate /
+    changePassphrase / checkWallet). Every agent exposes `rotate` + `passphrase <new>` + `check`
+    (`wallet-check` on the registry, whose `check` is its trust-authorization command). A passphrase change
+    re-encrypts the wallet **at rest** — proven live: the new passphrase opens it, the old is refused.
+  - Still OPEN in L1: L1-5 (`zeroize` best-effort — hold key material in Buffers) LOW, and L1-7 (SSE
+    `EventSource` can't send the session header — fails *closed*) is a deliberate NOTE for Sevenfold.
 
 - **L2-1/2 — FIXED.** `clearanceCeiling(tier)` (security.ts) maps a tier to its max sensitivity. Personal
   recall (`control.ts`) derives the ceiling from the viewer's achieved tier — default STANDING→LOW, MEDIUM+

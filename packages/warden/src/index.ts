@@ -2,6 +2,8 @@
 import {
   loadConfig,
   openKeymaster,
+  passphraseFor,
+  runKeyMaintenance,
   ensureIdentity,
   ensureDelegationSchema,
   issueDelegation,
@@ -96,10 +98,13 @@ Usage:
   warden kb-reindex [--kb <kbId>]              Backfill the recall index (embed stored-but-unindexed content)
   warden migrate-owner                         Attribute pre-family vault artefacts to the Sovereign (family model)
   warden household-init <id> [--governor <did>]  Provision a household: shared Vault + rosters + genesis Ruleset
+  warden rotate            Rotate the Warden's signing keys (incident response; DIDs keep resolving)
+  warden passphrase <new>  Re-encrypt the wallet under a new passphrase (then update the env)
+  warden check             Health-check the wallet
   warden help              Show this message
 
 Env:
-  HEARTHOLD_PASSPHRASE       wallet passphrase (required)
+  HEARTHOLD_PASSPHRASE       wallet passphrase — shared, or per-role HEARTHOLD_PASSPHRASE_WARDEN (required)
   HEARTHOLD_NODE_URL         Archon node (Drawbridge) URL; default http://flaxlap.local:4222
   HEARTHOLD_DATA_ROOT        default ~/.hearthold
   HEARTHOLD_OLLAMA_URL       local model endpoint; default http://localhost:11434
@@ -134,10 +139,7 @@ async function main(): Promise<void> {
   }
 
   const config = loadConfig();
-  const passphrase = process.env.HEARTHOLD_PASSPHRASE;
-  if (!passphrase) {
-    throw new Error('HEARTHOLD_PASSPHRASE is required');
-  }
+  const passphrase = passphraseFor('warden');
 
   const handle = await openKeymaster('warden', config, passphrase);
 
@@ -476,6 +478,16 @@ async function main(): Promise<void> {
           (r.failed > 0 ? `  ⚠ ${r.failed} still failed to embed — the embedder may be down; re-run when it has headroom.\n` : '') +
           (r.backfilled > 0 ? `  ✓ ${r.backfilled} artefact(s) are now searchable.\n` : ''),
       );
+      break;
+    }
+    case 'rotate':
+    case 'passphrase':
+    case 'check': {
+      // Incident response (L1): rotate the signing keys, re-encrypt the wallet under a new passphrase, or
+      // health-check the wallet. `rotate` needs the current identity loaded first.
+      if (cmd === 'rotate') await ensureIdentity(handle, config);
+      const result = await runKeyMaintenance(handle, cmd, process.argv[3]);
+      process.stdout.write(`${result}\n`);
       break;
     }
     default:

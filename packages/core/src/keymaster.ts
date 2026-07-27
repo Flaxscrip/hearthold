@@ -79,18 +79,85 @@ export async function openKeymasterFresh(
   passphrase: string,
   opts: { retries?: number; backoffMs?: number } = {},
 ): Promise<KeymasterHandle> {
+  const handle = await openKeymaster(role, config, passphrase);
+  await reloadWallet(handle, opts);
+  return handle;
+}
+
+/**
+ * Force an EXISTING handle's wallet to re-read from disk now, retrying a torn read. This is the
+ * reload-before-write primitive: a long-lived daemon caches the wallet in memory at open, so before it
+ * signs/saves it must re-read to pick up a write from a SEPARATE process (a CLI `rotate`, an `accept`) —
+ * otherwise its non-atomic `saveWallet` writes a stale cache back over the external change (clobber).
+ * Keymaster's `saveWallet` is `writeFileSync` with no temp-rename, so a reload that races a concurrent
+ * write can read a truncated file and fail to parse/decrypt; we retry with a short backoff and, if every
+ * attempt reads a bad file, throw — failing CLOSED (no disclosure through a half-loaded wallet). Reuses the
+ * handle (unlike `openKeymasterFresh`, which mints a new one) so callers sharing it see the refreshed cache.
+ */
+export async function reloadWallet(
+  handle: KeymasterHandle,
+  opts: { retries?: number; backoffMs?: number } = {},
+): Promise<void> {
   const retries = opts.retries ?? 3;
   const backoffMs = opts.backoffMs ?? 50;
-  const handle = await openKeymaster(role, config, passphrase);
   for (let attempt = 0; ; attempt++) {
     try {
-      // Force the fresh disk read now. On failure the wallet cache is left unset, so the next attempt
-      // re-reads the file (no stale/partial state carries over).
+      // On failure the wallet cache is left unset, so the next attempt re-reads the file (no stale/partial
+      // state carries over).
       await handle.keymaster.loadWallet();
-      return handle;
+      return;
     } catch (err) {
       if (attempt >= retries) throw err;
       await new Promise((resolve) => setTimeout(resolve, backoffMs * (attempt + 1)));
+    }
+  }
+}
+
+/**
+ * Resolve an agent's wallet passphrase: a per-role `HEARTHOLD_PASSPHRASE_<ROLE>` if set, else the shared
+ * `HEARTHOLD_PASSPHRASE`. Per-role secrets let a deployment give each agent its OWN passphrase so a single
+ * leak doesn't collapse the PVM separation (custodian ≠ actor ≠ authorizer) — while a single shared value
+ * still works for co-located dev. Throws (fail-closed) when neither is set; never logs or echoes the value.
+ */
+export function passphraseFor(role: AgentRole): string {
+  const key = `HEARTHOLD_PASSPHRASE_${role.toUpperCase()}`;
+  const pass = process.env[key] ?? process.env.HEARTHOLD_PASSPHRASE;
+  if (!pass) throw new Error(`no wallet passphrase — set ${key} (per-role) or HEARTHOLD_PASSPHRASE (shared)`);
+  return pass;
+}
+
+/**
+ * Incident-response key maintenance for an agent's own wallet — the built-in path for a compromised key or
+ * passphrase. Always reloads from disk first (never operate on a stale cache), then:
+ *   `rotate`      — rotate the identity's signing keys forward (existing DIDs keep resolving; the retired
+ *                   key can no longer sign). Run per identity the agent holds.
+ *   `passphrase`  — re-encrypt the wallet at rest under a NEW passphrase (update the env before next start).
+ *   `check`       — a health check of the wallet (mnemonic/DID/key consistency).
+ * Returns a human-readable result line; the passphrase is never logged.
+ */
+export async function runKeyMaintenance(
+  handle: KeymasterHandle,
+  op: 'rotate' | 'passphrase' | 'check',
+  newPassphrase?: string,
+): Promise<string> {
+  await reloadWallet(handle);
+  switch (op) {
+    case 'rotate': {
+      const ok = await handle.keymaster.rotateKeys();
+      return ok
+        ? 'rotated the current identity’s signing keys (existing DIDs keep resolving; the old key can no longer sign)'
+        : 'rotateKeys returned false — nothing to rotate (no current identity?)';
+    }
+    case 'passphrase': {
+      if (!newPassphrase) throw new Error('a new passphrase is required (usage: passphrase <new-passphrase>)');
+      const ok = await handle.keymaster.changePassphrase(newPassphrase);
+      return ok
+        ? 'wallet re-encrypted under the new passphrase — update HEARTHOLD_PASSPHRASE(_<ROLE>) before the next start'
+        : 'changePassphrase returned false — the wallet was not re-encrypted';
+    }
+    case 'check': {
+      const r = await handle.keymaster.checkWallet();
+      return `wallet check: ${JSON.stringify(r)}`;
     }
   }
 }

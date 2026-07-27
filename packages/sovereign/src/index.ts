@@ -2,6 +2,8 @@
 import {
   loadConfig,
   openKeymaster,
+  passphraseFor,
+  runKeyMaintenance,
   openKeymasterFresh,
   ensureIdentity,
   acceptCredential,
@@ -35,10 +37,13 @@ Usage:
   sovereign control [port]   Serve DIDComm + a control API for the Signet Approver app (default 4311)
   sovereign kb-query <mageDid> <kbId> <query>          Ask a Knowledge Base (via its public Mage portal)
   sovereign kb-update <mageDid> <kbId> <kind> <text>   Contribute knowledge to a KB (if authorized)
+  sovereign rotate           Rotate signing keys (incident response)
+  sovereign passphrase <new> Re-encrypt the wallet under a new passphrase
+  sovereign check            Health-check the wallet
   sovereign help             Show this message
 
 Env:
-  HEARTHOLD_PASSPHRASE   wallet passphrase (required)
+  HEARTHOLD_PASSPHRASE   wallet passphrase — shared or per-role _SOVEREIGN (required)
   HEARTHOLD_NODE_URL     Archon node (Drawbridge) URL; default http://flaxlap.local:4222
   HEARTHOLD_DATA_ROOT    default ~/.hearthold
   HEARTHOLD_SIGNET_PIN   Signet PIN that gates each disclosure (required for serve)
@@ -52,8 +57,7 @@ async function main(): Promise<void> {
   }
 
   const config = loadConfig();
-  const passphrase = process.env.HEARTHOLD_PASSPHRASE;
-  if (!passphrase) throw new Error('HEARTHOLD_PASSPHRASE is required');
+  const passphrase = passphraseFor('sovereign');
 
   const handle = await openKeymaster('sovereign', config, passphrase);
   const id = await ensureIdentity(handle, config);
@@ -205,6 +209,15 @@ async function main(): Promise<void> {
       } else if (reply.type === 'hearthold/kb-result' && reply.action === 'update') {
         process.stdout.write(`✓ contributed to the KB · ${reply.artefactId.slice(0, 28)}…\n`);
       }
+      break;
+    }
+    case 'rotate':
+    case 'passphrase':
+    case 'check': {
+      // Incident response (L1): rotate signing keys, re-encrypt the wallet, or health-check it.
+      if (cmd === 'rotate') await ensureIdentity(handle, config);
+      const result = await runKeyMaintenance(handle, cmd, process.argv[3]);
+      process.stdout.write(`${result}\n`);
       break;
     }
     default:
