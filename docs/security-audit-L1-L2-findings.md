@@ -23,7 +23,7 @@ its own B1–B6 ladder under `e2e:pvm-boundaries`.
 | L1-1 | One `HEARTHOLD_PASSPHRASE` decrypts all four agents' wallets — a single leak collapses PVM separation. (Mitigated in a real deployment by device separation; a co-located-dev hardening.) Fix: per-role `HEARTHOLD_PASSPHRASE_<ROLE>` with fallback. | MED | **FIXED** (`e2e:l1-custody`) |
 | L1-2 | Warden control daemon opens its wallet once (no reload-before-write) while mutating routes sign/save — a concurrent `warden` CLI write can be silently clobbered (non-atomic `saveWallet`). Sovereign uses `openKeymasterFresh`; Warden doesn't. | MED | **FIXED** (`e2e:l1-custody`) |
 | L1-4 | No agent CLI exposes `rotateKeys`/`changePassphrase` — no built-in incident-response path for a compromised key/passphrase. | MED | **FIXED** (`e2e:l1-custody`) |
-| L1-5 | `SessionKeyStore.zeroize` is best-effort (JS strings immutable) — hold key material in `Buffer`s for a real wipe. | LOW | OPEN |
+| L1-5 | `SessionKeyStore.zeroize` is best-effort (JS strings immutable) — hold key material in `Buffer`s for a real wipe. | LOW | **FIXED** (`e2e:l1-custody`) |
 | L1-7 | Browser SSE uses bare `EventSource` (can't send `X-Hearthold-Session`), so owner-scoped *private* frames never reach a Table — fails **closed** (broken feature, not a leak); the naive fix (token in query) would leak the token. Design deliberately. | LOW | NOTE (Sevenfold) |
 
 ### Confirmed solid (verified, not asserted)
@@ -51,8 +51,15 @@ its own B1–B6 ladder under `e2e:pvm-boundaries`.
     changePassphrase / checkWallet). Every agent exposes `rotate` + `passphrase <new>` + `check`
     (`wallet-check` on the registry, whose `check` is its trust-authorization command). A passphrase change
     re-encrypts the wallet **at rest** — proven live: the new passphrase opens it, the old is refused.
-  - Still OPEN in L1: L1-5 (`zeroize` best-effort — hold key material in Buffers) LOW, and L1-7 (SSE
-    `EventSource` can't send the session header — fails *closed*) is a deliberate NOTE for Sevenfold.
+  - **L1-5** (real key wipe): `SessionKeyStore` now holds each read-guest key's secret `d` scalar in a
+    `Buffer` (public JWK fields kept plain), so `zeroize` overwrites the key bytes **in place** (`fill(0)`)
+    rather than de-referencing an immutable string that lingered until GC. The JWK is reassembled only
+    transiently for a single decrypt. Proven behaviourally: the e2e reaches the actual held Buffer, confirms
+    it carries the secret, then confirms `zeroize` turns those exact bytes all-zero — and the real rewrap →
+    decrypt → zeroize round-trip (`e2e:partition-rewrap`) still passes. Residual (documented): a JWK string a
+    caller already materialized and any crypto-lib private copy live until GC — the ceiling in a GC'd runtime.
+  - Only L1-7 remains (SSE `EventSource` can't send the session header — fails *closed*), a deliberate NOTE
+    for Sevenfold, not an exposure.
 
 - **L2-1/2 — FIXED.** `clearanceCeiling(tier)` (security.ts) maps a tier to its max sensitivity. Personal
   recall (`control.ts`) derives the ceiling from the viewer's achieved tier — default STANDING→LOW, MEDIUM+

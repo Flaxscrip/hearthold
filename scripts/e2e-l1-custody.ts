@@ -23,7 +23,9 @@ import {
   reloadWallet,
   runKeyMaintenance,
   ensureIdentity,
+  type CipherPrivateJwk,
 } from '@hearthold/core';
+import { SessionKeyStore } from '@hearthold/warden/session-keys';
 
 let failures = 0;
 const check = (label: string, ok: boolean): void => {
@@ -55,6 +57,24 @@ async function main(): Promise<void> {
     else process.env.HEARTHOLD_PASSPHRASE = save.shared;
     if (save.role === undefined) delete process.env.HEARTHOLD_PASSPHRASE_WARDEN;
     else process.env.HEARTHOLD_PASSPHRASE_WARDEN = save.role;
+  }
+
+  step('L1-5: SessionKeyStore.zeroize really wipes the secret (Buffer-backed, not string-scrub)');
+  {
+    const store = new SessionKeyStore();
+    const secret = 'SECRETSCALARdddddddddddddddddddddddddddddddd';
+    const priv = { kty: 'EC', crv: 'secp256k1', x: 'PUBX', y: 'PUBY', d: secret } as unknown as CipherPrivateJwk;
+    store.put('tok', 'part', priv);
+    const round = store.get('tok', 'part') as unknown as { d: string; kty: string } | undefined;
+    check('get() round-trips the JWK (secret + public fields)', round?.d === secret && round?.kty === 'EC');
+    // Reach into the private store to grab the ACTUAL held Buffer, and prove it (a) holds the secret bytes
+    // now and (b) is overwritten in place by zeroize — the property a string-scrub could never give.
+    const held = (store as unknown as { keys: Map<string, Map<string, { d: Buffer }>> }).keys.get('tok')!.get('part')!;
+    check('the session-resident secret is held in a Buffer containing the key bytes', held.d.toString('utf8') === secret);
+    const n = store.zeroize('tok');
+    check('zeroize reports the key count', n === 1);
+    check('the held Buffer is now all-zero (real wipe, in place)', held.d.every((b) => b === 0));
+    check('get() after zeroize returns undefined', store.get('tok', 'part') === undefined && store.count('tok') === 0);
   }
 
   step('L1 wiring (source scan): every agent uses passphraseFor + maintenance; the daemon guards writes');
