@@ -78,12 +78,39 @@ Completing + deciding this table is the concrete goal of the first working sessi
 
 - **Hearthold (this AI):** L1–L3 + L5 *defaults*, and the *assumptions* each higher layer makes about the
   lower ones. Owns the secure-by-default config table and the threat-model doc.
-- **Aegis AI:** L6 (deployment/network) + the network-seal complement to our type/app guarantees. In
-  progress: **`HEARTHOLD_DOCKER_NETWORK` done** (their `hearthold-up.sh` refuses bring-up unless the network is
-  actually `internal:true` — fail-loud, better than a passthrough); **Sentinel** (`~/isolation/aegis/deploy/
-  sentinel/SENTINEL-DESIGN.md`) is the L6 instrument — posture-aware, active-probe drift detection covering
-  asks #1 (topic), #3 (seal + residual), #4 (misconfig). It will deliver the L6 audit-table rows. Coordinate
-  via the `~/isolation/aegis` note channel.
+- **Aegis AI:** L6 (deployment/network) + the network-seal complement to our type/app guarantees.
+  **DELIVERED (2026-07-27):** all four asks closed and **Sentinel** (`deploy/sentinel/sentinel.sh`) is the
+  live L6 instrument — active-probe drift detection across dims 1–6, with a signed, tamper-evident posture
+  attestation. The L6 secure-by-default rows are in `~/isolation/aegis/AEGIS-L6-AUDIT-ROWS.md` (folded below).
+  **First live sweep of the rebuilt deployment (`AEGIS-SENTINEL-REPORT-megaflax.md`): 35 PASS · 27 WARN ·
+  0 FAIL → AT RISK, but 0 proven exposures.** The *provisioned* Hearthold nodes (`aegis`, `aegisb`, and the
+  `archon_default` net running warden/sovereign/emissary/verifier) are clean — `internal:true`, egress
+  `ENETUNREACH`, **registry `local` (our L5 default proven live)**, 64-char admin keys, passphrase set, control
+  plane + Signet loopback-only, gatekeeper seal proven (sphere `enumerate=403 import=403`). The AT RISK is
+  driven entirely by *dev-grade* study nodes that bypass `setup-node.sh` (sample `measure-key`/`measure-pp`,
+  a stock bulk-gossip mediator, a blank-key ephemeral DMZ gatekeeper on loopback) — Aegis-side follow-ups,
+  not our posture. Coordinate via the `~/isolation/aegis` note channel.
+
+### L6 secure-by-default rows (owner: Aegis; from `AEGIS-L6-AUDIT-ROWS.md`, verified live by Sentinel)
+
+| # | Knob / control | Default (Aegis provisioning) | Safe? | Verified by |
+|---|---|---|---|---|
+| L6.1 | network `internal:` | `true` | ✅ egress `ENETUNREACH` | Sentinel dim 1 (egress probe) |
+| L6.2 | `HEARTHOLD_DOCKER_NETWORK` | required; `hearthold-up.sh` refuses a non-`internal` net | ✅ | dims 1 & 4 |
+| L6.3 | `ARCHON_PROTOCOL` topic | `/aegis-private/$(openssl rand -hex 32)` per install | ✅ never public | dim 5 (when gossip present) |
+| L6.4 | `ARCHON_GATEKEEPER_REGISTRIES` | `local` (mirrors our `HEARTHOLD_REGISTRY=local`) | ✅ no gossip | dim 5 (registry-first) |
+| L6.5 | gatekeeper seal (guard) | default-on; tailnet publishes only via resolution-only guard | ✅ by construction | dim 3 (resolve 200 / enum 403 / import 403) |
+| L6.6 | control bind (`HEARTHOLD_CONTROL_HOST`) | loopback `127.0.0.1` | ✅ | dim 2 (probes our L3 guard) |
+| L6.7 | Signet exposure | loopback-only **always** | ✅ | dim 2 (non-loopback ⇒ CRITICAL) |
+| L6.8 | `ARCHON_ADMIN_API_KEY` | unique per install | ✅ (provisioned) | dim 6 (blank/weak/sample flagged) |
+| L6.9 | mediator (if gossip opted in) | `aegis-secure-mediator` (peer-auth + scoped) | ⚠ stock bulk-gossips | dim 5 (stock vs secure image) |
+| L6.10 | misconfig detection | Sentinel (on-demand + `--watch` + signed attestation) | ✅ this row *is* the verifier | — |
+
+The registry-first invariant Aegis named (our refinement #1): **`hyperswarm` is local-only iff `ARCHON_PROTOCOL`
+is a private random topic** — `registries=["local"]` ⇒ PASS (topic irrelevant); a gossip registry present ⇒
+the topic check bites. So a `local` node is never false-failed on a stale topic, and a gossip node can't hide
+a public one. Cross-layer knob that touches us: `HEARTHOLD_DIDCOMM_ENDPOINT` (`transport.ts:81`) overrides the
+node's advertised endpoint in-network — set it where a node advertises a non-resolving host (else DIDComm 502).
 - **Archon / macterra:** L4 gatekeeper transport auth (the read-gating gap), registry semantics. Escalate,
   don't work around (as with the `verifyOperation` / peer-fallback items).
 
