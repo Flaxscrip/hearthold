@@ -78,9 +78,12 @@ Completing + deciding this table is the concrete goal of the first working sessi
 
 - **Hearthold (this AI):** L1–L3 + L5 *defaults*, and the *assumptions* each higher layer makes about the
   lower ones. Owns the secure-by-default config table and the threat-model doc.
-- **Aegis AI:** L6 (deployment/network) + the network-seal complement to our type/app guarantees — generalize
-  `gatekeeper-guard` into a default-on, documented posture; own egress-isolation defaults + misconfig
-  detection. Coordinate via the `~/isolation/aegis` note channel.
+- **Aegis AI:** L6 (deployment/network) + the network-seal complement to our type/app guarantees. In
+  progress: **`HEARTHOLD_DOCKER_NETWORK` done** (their `hearthold-up.sh` refuses bring-up unless the network is
+  actually `internal:true` — fail-loud, better than a passthrough); **Sentinel** (`~/isolation/aegis/deploy/
+  sentinel/SENTINEL-DESIGN.md`) is the L6 instrument — posture-aware, active-probe drift detection covering
+  asks #1 (topic), #3 (seal + residual), #4 (misconfig). It will deliver the L6 audit-table rows. Coordinate
+  via the `~/isolation/aegis` note channel.
 - **Archon / macterra:** L4 gatekeeper transport auth (the read-gating gap), registry semantics. Escalate,
   don't work around (as with the `verifyOperation` / peer-fallback items).
 
