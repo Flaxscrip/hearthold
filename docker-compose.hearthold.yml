@@ -30,7 +30,7 @@ x-hearthold-common: &hearthold-common
     context: .
     dockerfile: Dockerfile
   image: hearthold:sandbox
-  networks: [archon_default]
+  networks: [node_net]
   init: true            # reap the idle/serve process cleanly on stop
   restart: "no"
   environment:
@@ -97,7 +97,12 @@ services:
     container_name: hearthold-verifier
 
 networks:
-  # Attach to the network the Archon sandbox already created; do not create/modify it.
-  archon_default:
+  # The Archon node's docker network the agents attach to (external — created by the node's own compose).
+  # SECURE BY DEFAULT: no silent default. `archon_default` is the GENERIC name a regular Archon compose
+  # creates — a normal EGRESS bridge shared with whatever else is on it. Joining that by accident connects
+  # Hearthold's agents to the public internet and to regular nodes. So name the network DELIBERATELY, and it
+  # must be your ISOLATED node's network (`internal: true`). Aegis's isolated profiles use names like
+  # `aegisb_default`; the local sandbox override makes its `archon_default` internal — set that here on purpose.
+  node_net:
     external: true
-    name: archon_default
+    name: ${HEARTHOLD_DOCKER_NETWORK:?set HEARTHOLD_DOCKER_NETWORK to your ISOLATED node's docker network (internal:true) — e.g. aegisb_default; never leave it to the generic egress-enabled archon_default}
