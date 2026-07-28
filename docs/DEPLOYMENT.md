@@ -1,14 +1,51 @@
 # Deployment — the local-first standard model
 
 This is Hearthold's **default** deployment, not a special case. A node runs **fully local**: its own
-Gatekeeper + Keymaster + IPFS, a **unique per-node hyperswarm topic** as its registry, and nodes connect
-**point-to-point over DIDComm** by exchanging DIDs out of band. **No internet is required** — the same
-posture the isolated (Aegis) substrate proves, generalized. Cross-node credential delivery
+Gatekeeper + Keymaster + IPFS, the **`local` registry** by default (or a **unique per-node hyperswarm
+topic** when separate nodes must resolve each other — see *Two registry topologies* below), and nodes
+connect **point-to-point over DIDComm** by exchanging DIDs out of band. **No internet is required** — the
+same posture the isolated (Aegis) substrate proves, generalized. Cross-node credential delivery
 ([`credential-delivery/FINDINGS.md`](credential-delivery/FINDINGS.md)) and the partition ladder
-([`partition-ladder/`](partition-ladder/)) both assume this model; `world-public` in the ladder means
-"anyone I'm connected to," not "the public," precisely because there is **no publication step** here.
+([`partition-ladder/`](partition-ladder/)) both assume the multi-node case; `world-public` in the ladder
+means "anyone I'm connected to," not "the public," precisely because there is **no publication step** here.
 
 Name the trust assumptions in the same register as everything else — plainly, including the sharp edges.
+
+## Two registry topologies — pick by node count, not by fear
+
+Hearthold runs on one of two registries, and the choice is a **topology** decision, not a
+security-vs-features tradeoff. Pick by how many gatekeeper nodes must resolve each other's DIDs:
+
+| | `local` (default) | `hyperswarm` + unique topic |
+|---|---|---|
+| **When** | one gatekeeper node (all agents share it) | separate nodes must resolve each other (federation / multi-device delivery) |
+| **Writes** | apply immediately (a DB row) | **queue** until `processEvents` drains them |
+| **Reach** | node-local — never leaves the DB, unresolvable off-node | gossips to every peer on the topic |
+| **Isolation** | **structural** — can't-gossip by construction; holds even if the node is misconfigured | **conjunction** — safe only while `internal:true` **and** no mediator runs **and** the topic is a unique random string |
+| **Cross-node** | impossible (that's the point) | the reason to choose it |
+
+**`local` is the default** and the right choice for the common case: a single Archon node all four agents
+(Warden / Emissary / Sovereign / Verifier) point at. Its isolation is *structural* — a DID write is a plain
+local DB row that no topic carries, so private data cannot propagate **regardless** of how the network is
+configured. That is the same defense-in-depth rule as the rest of the audit: safe by construction, not "safe
+only if the deployment stays perfect." Hearthold's flows work fully on `local` because `openKeymaster` sets
+`ephemeralRegistry = config.registry` (`keymaster.ts`), so challenges / responses / credential-accept author
+their ephemeral DIDs on `local` too — not the keymaster's hardcoded `hyperswarm` default that would bar a
+`local` identity. The **entire e2e suite runs on `local`**.
+
+**`hyperswarm` + a unique `ARCHON_PROTOCOL` topic** is required only when **separate gatekeeper nodes must
+resolve each other** — a member's Warden on one laptop delivering a card to a Sovereign on another (Aegis's
+Tor onion mailbox). `local` cannot serve that: it is node-local, so node B has no way to resolve a DID that
+lives only in node A's DB. On `hyperswarm` a DID write **queues** — it is not resolvable (its keyAgreement
+key included, so a sender can't authcrypt) until `processEvents` runs; the transport now drains the queue
+automatically after every publish on a non-`local` registry (`transport.ts`, `publishTo`). Isolation here is
+a *conjunction* the deployment must hold — `internal:true` (no egress) **and** no mediator running (nothing
+consumes the gossip queue) **and** a unique random topic (no shared channel even if a mediator appears). This
+is **L6 / Aegis's domain**, and the gossip semantics in the rest of this doc all describe *this* case.
+
+> The sections below — "gossip is transitive," "holding is republishing" — are the sharp edges of the
+> **`hyperswarm`** topology (federation). On `local` there is no gossip to reason about at all; the only
+> tradeoff is that nothing resolves off-node.
 
 ## Gossip is transitive and unfiltered
 
