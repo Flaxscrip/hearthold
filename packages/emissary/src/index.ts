@@ -29,6 +29,7 @@ Usage:
   emissary kb-portal            Emissary: relay Knowledge Base traffic to the Warden (carries only)
   emissary kb-web [port]        Emissary web portal: HTTP→DIDComm bridge for the browser (default 4313)
   emissary control [port]       Submit + project over DIDComm, with a control API for the Emissary app (default 4312)
+  emissary republish [--endpoint <uri>]  Force-(re)publish the DIDComm endpoint (re-home)
   emissary rotate               Rotate signing keys (incident response)
   emissary passphrase <new>     Re-encrypt the wallet under a new passphrase
   emissary check                Health-check the wallet
@@ -185,6 +186,16 @@ async function main(): Promise<void> {
       };
       process.on('SIGINT', shutdown);
       process.on('SIGTERM', shutdown);
+      break;
+    }
+    case 'republish': {
+      // Force-(re)publish the Emissary's DIDComm endpoint after first boot — re-home onto a new reachable
+      // address (Tor onion / tailnet / migrated host). `--endpoint <uri>` overrides the env/node default.
+      await ensureIdentity(handle, config);
+      const ei = process.argv.indexOf('--endpoint');
+      const endpoint = ei > 0 ? process.argv[ei + 1] : undefined;
+      const { endpoint: pub, previous } = await new DidCommTransport(handle, IDENTITY_NAME.emissary, config.nodeUrl).republish(endpoint);
+      process.stdout.write(`Emissary DIDComm endpoint republished\n${previous ? `  was: ${previous}\n` : ''}  now: ${pub}\n`);
       break;
     }
     case 'rotate':

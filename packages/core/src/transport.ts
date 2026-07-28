@@ -63,42 +63,92 @@ export class DidCommTransport implements Transport {
   ) {}
 
   /**
-   * Publish this identity's DIDComm endpoint. We pass the endpoint explicitly (discovered from the
-   * node) rather than relying on `publishDidComm(undefined)`, which silently writes key-only when
-   * the keymaster points at the Drawbridge root.
+   * Ensure this identity advertises the DESIRED DIDComm endpoint — publishing if absent AND **reconciling**
+   * if a different (stale) endpoint is already advertised. Idempotent and quiet when already correct; when it
+   * changes the DID document it logs the transition to stdout. Reconcile matters because an operator can
+   * re-home a member onto a new reachable address after first boot (a Tor onion, a tailnet host, a migrated
+   * node) by setting `HEARTHOLD_DIDCOMM_ENDPOINT` — before this, `ready()` published-if-absent and a stale
+   * endpoint stuck forever. Throws (with a clear reason) if the write can't go through — see `publishTo`.
    */
   async ready(): Promise<void> {
-    // The DIDComm endpoint OTHERS deliver to (written into this identity's DID document). Normally the
-    // node's own advertised endpoint (`/api/v1/didcomm-endpoint`). `HEARTHOLD_DIDCOMM_ENDPOINT` overrides
-    // it for topologies where the node advertises an address the agents can't reach — e.g. an offline
-    // sandbox where the node advertises its EXTERNAL host (https://sandbox.archon.local/didcomm) but the
-    // agents reach it IN-NETWORK at http://drawbridge:4222/didcomm. Delivery resolves the recipient's
-    // published endpoint, so it must be the address reachable from where senders actually run.
+    const endpoint = await this.desiredEndpoint();
+    const current = await this.currentEndpoint();
+    if (current === endpoint) return; // already correct — avoid DID-doc churn
+    await this.publishTo(endpoint, current);
+  }
+
+  /**
+   * Force-(re)publish this identity's DIDComm endpoint, even if it already matches — the explicit operator
+   * path behind `<agent> republish`. `endpoint` overrides the resolved default (env → node). Clears any
+   * differing endpoint first, then publishes. Returns what was set and what it replaced.
+   */
+  async republish(endpoint?: string): Promise<{ endpoint: string; previous?: string }> {
+    const target = endpoint ?? (await this.desiredEndpoint());
+    const previous = await this.currentEndpoint();
+    await this.publishTo(target, previous, true);
+    return { endpoint: target, previous };
+  }
+
+  /**
+   * The DIDComm endpoint OTHERS deliver to (written into this identity's DID document). Normally the node's
+   * own advertised endpoint (`/api/v1/didcomm-endpoint`). `HEARTHOLD_DIDCOMM_ENDPOINT` overrides it for
+   * topologies where the node advertises an address the agents can't reach — an offline sandbox advertising
+   * its EXTERNAL host while agents reach it in-network, or a sealed node reachable only via a Tor onion
+   * mailbox. Delivery resolves the recipient's published endpoint, so it must be reachable from where
+   * senders actually run.
+   */
+  private desiredEndpoint(): Promise<string> {
     const fromNode = (): Promise<string> =>
       fetch(`${this.nodeUrl}/api/v1/didcomm-endpoint`)
         .then((r) => r.json())
         .then((j: unknown) => (j as { endpoint: string }).endpoint);
-    const endpoint: string = process.env.HEARTHOLD_DIDCOMM_ENDPOINT ?? (await fromNode());
-    if (await this.hasEndpoint(endpoint)) return; // already advertised — avoid DID-doc churn
-    await this.handle.keymaster.publishDidComm(endpoint, this.idName);
+    const override = process.env.HEARTHOLD_DIDCOMM_ENDPOINT;
+    return override ? Promise.resolve(override) : fromNode();
   }
 
-  /** Whether this identity already advertises the given DIDComm endpoint in its DID document. */
-  private async hasEndpoint(endpoint: string): Promise<boolean> {
+  /** The DIDComm endpoint this identity currently advertises in its DID document, or undefined. */
+  private async currentEndpoint(): Promise<string | undefined> {
     try {
       const doc = (await this.handle.keymaster.resolveDID(this.idName)) as {
         didDocument?: { service?: Array<{ type?: unknown; serviceEndpoint?: unknown }> };
       };
-      return (doc.didDocument?.service ?? []).some((s) => {
+      for (const s of doc.didDocument?.service ?? []) {
         const isDidComm = /DIDCommMessaging/.test(JSON.stringify(s?.type));
         const uri =
           typeof s?.serviceEndpoint === 'string'
             ? s.serviceEndpoint
             : (s?.serviceEndpoint as { uri?: string } | undefined)?.uri;
-        return isDidComm && uri === endpoint;
-      });
+        if (isDidComm && typeof uri === 'string' && uri) return uri;
+      }
     } catch {
-      return false;
+      /* unresolved / no doc yet */
+    }
+    return undefined;
+  }
+
+  /**
+   * Write the endpoint into the DID document. Clears a DIFFERING prior endpoint first (publishDidComm may
+   * add rather than replace, which would leave a stale service entry a sender could pick). Publishing a DID
+   * is a WRITE, so it fails when `nodeUrl` points at a resolve-only front (a mailbox / sealed Drawbridge that
+   * doesn't proxy gatekeeper writes or inject an admin key) — the commonest cause, called out in the error so
+   * an operator isn't left guessing. Logs the applied transition to stdout on success.
+   */
+  private async publishTo(endpoint: string, previous: string | undefined, force = false): Promise<void> {
+    const changing = !!previous && previous !== endpoint;
+    try {
+      if (changing) await this.handle.keymaster.unpublishDidComm(this.idName);
+      const ok = await this.handle.keymaster.publishDidComm(endpoint, this.idName);
+      if (!ok) throw new Error('publishDidComm returned false (no current identity, or the write was rejected)');
+      process.stdout.write(
+        `[didcomm] ${this.idName}: ${changing ? `${previous} → ` : force ? 're' : ''}published ${endpoint}\n`,
+      );
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `[didcomm] ${this.idName}: failed to publish ${endpoint} — ${reason}. Publishing a DID endpoint is a ` +
+          `WRITE: HEARTHOLD_NODE_URL (${this.nodeUrl}) must reach a gatekeeper write path (an admin-keyed ` +
+          `Drawbridge / table-gateway), not a resolve-only mailbox front.`,
+      );
     }
   }
 

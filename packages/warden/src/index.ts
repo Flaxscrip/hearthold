@@ -79,7 +79,8 @@ const HELP = `Hearthold Warden — home Keeper
 Usage:
   warden init              Provision the Warden identity + publish its DIDComm endpoint
   warden status            Show identity, vault size, and config
-  warden publish           (Re)publish the Warden's DIDComm endpoint
+  warden publish           (Re)publish the Warden's DIDComm endpoint (publish-if-absent / reconcile)
+  warden republish [--endpoint <uri>]  Force-(re)publish the DIDComm endpoint (re-home onto a new address)
   warden delegate <did>    Issue a delegation credential to an Emissary DID
   warden serve             Serve over DIDComm (poll mailbox, store submissions, reply)
   warden control [port]    Serve DIDComm + a localhost control API for the Warden Console (default 4310)
@@ -161,6 +162,16 @@ async function main(): Promise<void> {
       await ensureIdentity(handle, config);
       await new DidCommTransport(handle, IDENTITY_NAME.warden, config.nodeUrl).ready();
       process.stdout.write('Warden DIDComm endpoint published.\n');
+      break;
+    }
+    case 'republish': {
+      // Force-(re)publish the DIDComm endpoint after first boot — re-home onto a new reachable address
+      // (Tor onion / tailnet / migrated host). `--endpoint <uri>` overrides HEARTHOLD_DIDCOMM_ENDPOINT/node.
+      await ensureIdentity(handle, config);
+      const ei = process.argv.indexOf('--endpoint');
+      const endpoint = ei > 0 ? process.argv[ei + 1] : undefined;
+      const { endpoint: pub, previous } = await new DidCommTransport(handle, IDENTITY_NAME.warden, config.nodeUrl).republish(endpoint);
+      process.stdout.write(`Warden DIDComm endpoint republished\n${previous ? `  was: ${previous}\n` : ''}  now: ${pub}\n`);
       break;
     }
     case 'status': {

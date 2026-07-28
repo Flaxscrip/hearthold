@@ -37,6 +37,7 @@ Usage:
   sovereign control [port]   Serve DIDComm + a control API for the Signet Approver app (default 4311)
   sovereign kb-query <mageDid> <kbId> <query>          Ask a Knowledge Base (via its public Mage portal)
   sovereign kb-update <mageDid> <kbId> <kind> <text>   Contribute knowledge to a KB (if authorized)
+  sovereign republish [--endpoint <uri>]  Force-(re)publish the DIDComm endpoint (re-home)
   sovereign rotate           Rotate signing keys (incident response)
   sovereign passphrase <new> Re-encrypt the wallet under a new passphrase
   sovereign check            Health-check the wallet
@@ -209,6 +210,16 @@ async function main(): Promise<void> {
       } else if (reply.type === 'hearthold/kb-result' && reply.action === 'update') {
         process.stdout.write(`✓ contributed to the KB · ${reply.artefactId.slice(0, 28)}…\n`);
       }
+      break;
+    }
+    case 'republish': {
+      // Force-(re)publish the Sovereign's DIDComm endpoint after first boot — re-home onto a new reachable
+      // address (Tor onion / tailnet / migrated host). `--endpoint <uri>` overrides the env/node default.
+      await ensureIdentity(handle, config);
+      const ei = process.argv.indexOf('--endpoint');
+      const endpoint = ei > 0 ? process.argv[ei + 1] : undefined;
+      const { endpoint: pub, previous } = await new DidCommTransport(handle, IDENTITY_NAME.sovereign, config.nodeUrl).republish(endpoint);
+      process.stdout.write(`Sovereign DIDComm endpoint republished\n${previous ? `  was: ${previous}\n` : ''}  now: ${pub}\n`);
       break;
     }
     case 'rotate':
