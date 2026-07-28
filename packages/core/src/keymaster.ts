@@ -26,6 +26,9 @@ export interface KeymasterHandle {
   /** The node's own gatekeeper client — export/resolve/processEvents, but NOT foreign import (see PrivateGatekeeper). */
   gatekeeper: PrivateGatekeeper;
   dataFolder: string;
+  /** The anchoring registry this handle writes on (`config.registry`) — `local` applies writes immediately;
+   *  any other (hyperswarm, chain) QUEUES them until `processEvents`. Consulted by the transport on publish. */
+  registry: string;
 }
 
 /**
@@ -59,7 +62,7 @@ export async function openKeymaster(
   // assign past the type (an upstream `ephemeralRegistry` constructor option would remove the need to cast).
   (keymaster as unknown as { ephemeralRegistry: string }).ephemeralRegistry = config.ephemeralRegistry;
 
-  return { role, keymaster, cipher, gatekeeper, dataFolder };
+  return { role, keymaster, cipher, gatekeeper, dataFolder, registry: config.registry };
 }
 
 /**

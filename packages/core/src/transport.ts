@@ -127,11 +127,16 @@ export class DidCommTransport implements Transport {
   }
 
   /**
-   * Write the endpoint into the DID document. Clears a DIFFERING prior endpoint first (publishDidComm may
-   * add rather than replace, which would leave a stale service entry a sender could pick). Publishing a DID
-   * is a WRITE, so it fails when `nodeUrl` points at a resolve-only front (a mailbox / sealed Drawbridge that
-   * doesn't proxy gatekeeper writes or inject an admin key) — the commonest cause, called out in the error so
-   * an operator isn't left guessing. Logs the applied transition to stdout on success.
+   * Write the endpoint into the DID document AND apply it. Clears a DIFFERING prior endpoint first
+   * (publishDidComm may add rather than replace, which would leave a stale service entry a sender could
+   * pick), publishes, then drains the gatekeeper event queue with `processEvents` — because on `hyperswarm`
+   * a DID update QUEUES: the endpoint's service AND its **keyAgreement key** don't become resolvable until
+   * the queue is processed, so a sender can't authcrypt (this blocks both onion-endpoint advertising and
+   * credential accept between nodes). On `local` a write applies immediately, so `processEvents` is a cheap
+   * no-op — we run it unconditionally rather than sniff the registry. Publishing a DID is a WRITE, so it
+   * fails when `nodeUrl` points at a resolve-only front (a mailbox / sealed Drawbridge that doesn't proxy
+   * gatekeeper writes or inject an admin key) — the commonest cause, called out in the error so an operator
+   * isn't left guessing. Logs the applied transition to stdout on success.
    */
   private async publishTo(endpoint: string, previous: string | undefined, force = false): Promise<void> {
     const changing = !!previous && previous !== endpoint;
@@ -139,8 +144,13 @@ export class DidCommTransport implements Transport {
       if (changing) await this.handle.keymaster.unpublishDidComm(this.idName);
       const ok = await this.handle.keymaster.publishDidComm(endpoint, this.idName);
       if (!ok) throw new Error('publishDidComm returned false (no current identity, or the write was rejected)');
+      // On a QUEUING registry (hyperswarm / chain) the write lands only after processEvents — until then the
+      // keyAgreement key + DIDComm service aren't resolvable, so a sender can't authcrypt. On `local` writes
+      // apply immediately AND the resolve-only Drawbridge front doesn't expose the events route, so we skip.
+      const applied = this.handle.registry !== 'local';
+      if (applied) await this.handle.gatekeeper.processEvents();
       process.stdout.write(
-        `[didcomm] ${this.idName}: ${changing ? `${previous} → ` : force ? 're' : ''}published ${endpoint}\n`,
+        `[didcomm] ${this.idName}: ${changing ? `${previous} → ` : force ? 're' : ''}published ${endpoint}${applied ? ' (applied)' : ''}\n`,
       );
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);

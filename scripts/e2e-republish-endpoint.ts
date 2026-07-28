@@ -9,9 +9,10 @@
  *
  *   HEARTHOLD_PASSPHRASE=… node --experimental-strip-types scripts/e2e-republish-endpoint.ts   (live node)
  */
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { loadConfig, openKeymaster, ensureIdentity, DidCommTransport, IDENTITY_NAME } from '@hearthold/core';
 
@@ -37,6 +38,17 @@ async function advertised(handle: Awaited<ReturnType<typeof openKeymaster>>, nam
 }
 
 async function main(): Promise<void> {
+  step('wiring: publish drains the event queue (processEvents) on a QUEUING registry, skips it on local');
+  const transportSrc = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), '..', 'packages/core/src/transport.ts'),
+    'utf8',
+  );
+  check(
+    'publishTo calls gatekeeper.processEvents() gated on a non-local registry',
+    /this\.handle\.registry !== 'local'/.test(transportSrc) && /gatekeeper\.processEvents\(\)/.test(transportSrc),
+  );
+  check('ready() and republish() both route through publishTo', /this\.publishTo\(/.test(transportSrc));
+
   const dataRoot = mkdtempSync(join(tmpdir(), 'hearthold-republish-'));
   const A = 'http://endpoint-a.local:4222/didcomm';
   const B = 'http://endpoint-b.local:4222/didcomm';
