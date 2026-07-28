@@ -21,17 +21,48 @@ security-vs-features tradeoff. Pick by how many gatekeeper nodes must resolve ea
 | **When** | one gatekeeper node (all agents share it) | separate nodes must resolve each other (federation / multi-device delivery) |
 | **Writes** | apply immediately (a DB row) | **queue** until `processEvents` drains them |
 | **Reach** | node-local — never leaves the DB, unresolvable off-node | gossips to every peer on the topic |
-| **Isolation** | **structural** — can't-gossip by construction; holds even if the node is misconfigured | **conjunction** — safe only while `internal:true` **and** no mediator runs **and** the topic is a unique random string |
+| **Isolation** | **structural** at the registry layer (can't-**resolve** off-node by construction); full air-gap *also* needs the IPFS/Kubo node on an isolated swarm — the content layer (see below) | **conjunction** — safe only while `internal:true` **and** no mediator runs **and** the topic is a unique random string |
 | **Cross-node** | impossible (that's the point) | the reason to choose it |
 
 **`local` is the default** and the right choice for the common case: a single Archon node all four agents
-(Warden / Emissary / Sovereign / Verifier) point at. Its isolation is *structural* — a DID write is a plain
-local DB row that no topic carries, so private data cannot propagate **regardless** of how the network is
-configured. That is the same defense-in-depth rule as the rest of the audit: safe by construction, not "safe
-only if the deployment stays perfect." Hearthold's flows work fully on `local` because `openKeymaster` sets
+(Warden / Emissary / Sovereign / Verifier) point at. Its **resolution** isolation is *structural* — a DID
+write is a plain local DB row that no topic carries, so the DID cannot **resolve** on another node no matter
+how the network is configured. Hearthold's flows work fully on `local` because `openKeymaster` sets
 `ephemeralRegistry = config.registry` (`keymaster.ts`), so challenges / responses / credential-accept author
 their ephemeral DIDs on `local` too — not the keymaster's hardcoded `hyperswarm` default that would bar a
 `local` identity. The **entire e2e suite runs on `local`**.
+
+#### `local` isolation is two layers — registry AND IPFS content (Aegis finding, 2026-07-28)
+
+`registry=local` is necessary but **not sufficient** for an air-gap. Isolation has two independently-configured
+layers, and `local` only guarantees the first:
+
+| Layer | What it protects | Guaranteed by |
+|---|---|---|
+| Resolution / registry | the DID never gossips; won't **resolve** on other nodes | `registry=local` |
+| **Content / bytes** | the DID create-op **bytes** never leave the host | the **IPFS (Kubo) node on an isolated swarm** |
+
+A `local` DID minted on a node whose Kubo sits on the **public** IPFS swarm has its create-op content
+content-addressed onto the global DHT — un-resolvable elsewhere (registry blocks that), but the **bytes are
+advertised** to the public network (retrieval is slow and unreliable over libp2p, but the exposure is
+architectural, not gated). So the earlier "cannot propagate regardless of network config" claim holds for
+*resolution*, not for *content*.
+
+A full-air-gap `local` deployment must lock **both** layers:
+1. `HEARTHOLD_REGISTRY=local` (resolution), **and**
+2. the node's Kubo on an `internal:true` docker network (or a private swarm key / no public bootstrap) so it
+   has **0 public swarm peers** (content). This is **L6 / deployment** config, not a Hearthold env var.
+
+**Verification (bake into any `setup.sh`):** after bring-up, `ipfs swarm peers` on the identity node must
+return **0** — an unfakeable air-gap check (a node with no peers *cannot* fetch or serve an external CID).
+Aegis's isolated KBs pass this (`aegis-ipfs-1`, `aegisb-ipfs-b-1`: `internal:true`, 0 peers); each agent stack
+runs its own Kubo, so identity content never shares a daemon with a federation bridge.
+
+**Minting rule — mint on the isolated KB, never through the federation node.** A hyperswarm **federation /
+sphere bridge** node (e.g. `sphere-mega-ipfs-1`) runs its Kubo on the *public* IPFS swarm by design — that is
+what lets it federate. Any DID whose create-op is written **through the bridge node's Kubo** is content-
+addressed to the public DHT. So: **create Sovereign / identity DIDs on the isolated identity KB; use a
+federation node only to bridge already-created DIDs**, never to mint them.
 
 **`hyperswarm` + a unique `ARCHON_PROTOCOL` topic** is required only when **separate gatekeeper nodes must
 resolve each other** — a member's Warden on one laptop delivering a card to a Sovereign on another (Aegis's
