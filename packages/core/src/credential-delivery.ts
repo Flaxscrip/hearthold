@@ -114,6 +114,12 @@ export interface DeliverCredentialOptions {
   includeIssuerOps?: boolean;
   /** Reply timeout for the delivery round-trip (default: the transport's own default). */
   timeoutMs?: number;
+  /**
+   * A recipient-readable rendering of the VC's claims, already sealed to `toDid` by the caller (the sender,
+   * who can read the VC). Shipped in the delivery message beside the immutable ops so a readable pass hands
+   * over decryptable content. See `CredentialDeliveryMessage.recipientSealed`.
+   */
+  recipientSealed?: string;
 }
 
 /**
@@ -185,6 +191,7 @@ export async function deliverCredential(
     schemaDid,
     ops,
     includesIssuerThrowaway,
+    ...(opts.recipientSealed ? { recipientSealed: opts.recipientSealed } : {}),
   };
 
   const reply = await transport.request(toDid, message, { timeoutMs: opts.timeoutMs });

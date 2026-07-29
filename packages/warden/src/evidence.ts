@@ -89,7 +89,11 @@ export class EvidenceService {
     }
 
     const sensitivity = assembled.sensitivity as Sensitivity;
+    // The APPROVER (forger) co-signs the disclosure at their own Signet and is the approval's expected signer.
     const subjectDid = req.subjectDid ?? this.config.sovereignDid ?? fromDid;
+    // The credential-BINDING subject: bind to the recipient (forge-for-a-recipient) so THEY can read the
+    // scroll, else to the approver (forge for self). The approval below is always by `subjectDid` (the forger).
+    const bindSubject = req.recipientDid ?? subjectDid;
     const evidenceRoot = assembled.group.commitment.merkleRoot;
     // Ephemeral proof: expires after the requested window (Archon's validUntil), default 10 min.
     const ttlMin = req.validForMinutes && req.validForMinutes > 0 ? req.validForMinutes : 10;
@@ -118,7 +122,7 @@ export class EvidenceService {
 
     const mint = (approval?: Parameters<typeof mintEvidenceGraph>[1]['approval']) =>
       mintEvidenceGraph(this.warden, {
-        subjectDid,
+        subjectDid: bindSubject, // bind to the recipient (forge-for) or the forger (self); NOT the approver role
         claim: req.claim,
         structured: req.spec?.structured,
         evidence: [assembled.group],

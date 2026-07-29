@@ -31,6 +31,8 @@ import {
   DmzSession,
   verifyForeignCredential,
   buildIssuedLeaf,
+  sealForWarden,
+  unsealAsWarden,
   type HearthholdConfig,
   type KeymasterHandle,
   type RequestHandler,
@@ -432,10 +434,11 @@ export async function runWardenControl(
       // MEDIUM+ forge triggers the same out-of-band Signet evidence-approval the DIDComm path uses;
       // LOW/witnessed clears at STANDING with no step-up. The browser holds no key.
       'POST /api/forge': async (ctx) => {
-        const { claim, kind, from, to, structured, validForMinutes } = (ctx.body ?? {}) as ProveRequest;
+        const { claim, kind, from, to, structured, validForMinutes, recipientDid } = (ctx.body ?? {}) as ProveRequest;
         if (!claim || !kind) throw new Error('claim and kind are required');
-        // The forge subject is the SESSION member (Phase 3) — a MEDIUM+ forge then step-ups to THAT
-        // member's own Signet (the per-member approver, Phase 2), never config.sovereignDid.
+        // The forge APPROVER is the SESSION member (Phase 3) — a MEDIUM+ forge step-ups to THAT member's own
+        // Signet (the per-member approver, Phase 2), never config.sovereignDid. `recipientDid` (forge-for)
+        // only changes who the scroll is BOUND to (readable-by), never who approves.
         const subjectDid = effectiveViewer(ctx);
         const at = new Date().toISOString();
         const req: EvidenceRequest = {
@@ -445,6 +448,7 @@ export async function runWardenControl(
           disclosureMode: 'ATTESTATION',
           spec: { kind: kind as never, from, to, structured },
           ...(subjectDid ? { subjectDid } : {}),
+          ...(recipientDid ? { recipientDid } : {}),
           ...(validForMinutes ? { validForMinutes } : {}),
         };
         // Home-plane forge: the member proves from their own vault (delegationValid = true).
@@ -529,7 +533,7 @@ export async function runWardenControl(
       // delivers as custodian on the member's behalf (the control transport authcrypts as the Warden); the
       // credential keeps its original issuer signature (deliverCredential packages + ships, never re-signs).
       'POST /api/card/pass': async (ctx) => {
-        const { toDid, credentialDid, schemaDid } = (ctx.body ?? {}) as CardPassRequest;
+        const { toDid, credentialDid, schemaDid, readable } = (ctx.body ?? {}) as CardPassRequest;
         if (!toDid || !credentialDid) throw new Error('toDid and credentialDid are required');
         const member = effectiveViewer(ctx);
         if (!member) throw new Error('no session — log in');
@@ -538,9 +542,22 @@ export async function runWardenControl(
           member,
           action: 'pass',
           resource: credentialDid,
-          summary: `Pass a card to ${toDid}`,
+          // A READABLE pass discloses the claims (crosses decideRelease), not just provenance — name it so the
+          // human's consent is informed that they're handing over content, not merely proof.
+          summary: readable ? `Pass a READABLE card (claims disclosed) to ${toDid}` : `Pass a card to ${toDid}`,
         });
         if (!approved) throw new Error('pass declined — a Sovereign co-sign is required to disclose a credential to another party');
+        // Readable handover (opt-in): the sender (who CAN read the VC) seals a rendering of the claims to
+        // toDid so the recipient can decrypt it, shipped beside the immutable ops. Best-effort — if we can't
+        // read the VC, the pass still delivers as provenance-only. Only the sender can supply readable content.
+        let recipientSealed: string | undefined;
+        if (readable) {
+          const vc = await handle.keymaster.getCredential(credentialDid).catch(() => null);
+          if (vc) {
+            const leaf = buildIssuedLeaf(credentialDid, vc as ResolvedCredential);
+            recipientSealed = await sealForWarden(handle, toDid, JSON.stringify({ claims: leaf.claims, credentialType: leaf.credentialType, subject: leaf.subject }));
+          }
+        }
         // Ship the issuer ops (the refreshable throwaway): a cross-node recipient verifies this card inside a
         // PEERLESS DMZ, which cannot resolve the issuer fresh over a peer — so without them `verifyChain`
         // fails "issuer unresolvable". This makes the recipient's `verified:true` mean "chain-consistent"; the
@@ -553,6 +570,7 @@ export async function runWardenControl(
           // The pass blocks on the recipient's cross-node ack; over a Tor substrate a slow-but-successful
           // ack can exceed the 60s transport default and be wrongly abandoned. Operator-tunable via env.
           timeoutMs: config.cardPassTimeoutMs,
+          ...(recipientSealed ? { recipientSealed } : {}),
         });
         return {
           ack: {
@@ -920,6 +938,29 @@ export async function runWardenControl(
       } else {
         reason =
           'VC not resolvable on this node and no DMZ configured (HEARTHOLD_DMZ_URL) — refusing to import foreign ops to verify it (fail closed)';
+      }
+      // Readable handover: if the sender shipped a recipient-sealed rendering (opt-in `readable` pass), unseal
+      // it with OUR key (it was sealed to us, the delivery target) and enrich the chain-verified closure with
+      // the readable claims. Best-effort — a blob we can't decrypt leaves the provenance closure untouched.
+      if (verified && closure && m.recipientSealed) {
+        try {
+          const rendering = JSON.parse(await unsealAsWarden(handle, m.recipientSealed)) as {
+            claims?: Record<string, unknown>;
+            credentialType?: string;
+            subject?: string;
+          };
+          if (rendering.claims) {
+            closure = {
+              ...closure,
+              claims: rendering.claims,
+              ...(rendering.credentialType ? { credentialType: rendering.credentialType } : {}),
+              ...(rendering.subject ? { subject: rendering.subject } : {}),
+            };
+            contentReadable = true;
+          }
+        } catch {
+          /* can't decrypt the rendering → keep the provenance closure as-is */
+        }
       }
       // Issuer authenticity: a peerless DMZ only proves the chain is internally consistent — the issuer was
       // SENDER-ASSERTED (shipped in the ops), so a forged-issuer sender could reach verified:true. Cross-check

@@ -270,6 +270,13 @@ export interface CardPassRequest {
   credentialDid: string;
   /** The schema DID the VC conforms to; derived if omitted. */
   schemaDid?: string;
+  /**
+   * Pass a READABLE card (default false). When true the sender seals a rendering of the claims to `toDid`, so
+   * the recipient's card arrives `contentReadable:true` with the claims — a bigger disclosure than provenance
+   * (it crosses `decideRelease`), which the pass co-sign covers (the human sees "readable" in the summary).
+   * Default (false) hands over a provenance-only reference: chain-verified issuer/type, no claims.
+   */
+  readable?: boolean;
 }
 
 /** The recipient's accept/decline ack (mirrors core `CredentialDeliveryAckMessage`; control-types stays dep-free). */
@@ -590,6 +597,12 @@ export interface ProveRequest {
   structured?: Record<string, unknown>;
   /** How long the minted proof should stay valid, in minutes (default 10). */
   validForMinutes?: number;
+  /**
+   * Forge FOR a recipient (the Oracle "forge an attestation *for* you" gesture): bind the scroll to this DID
+   * so THEY can read it once it's passed to them — the forging member still co-signs the disclosure at their
+   * own Signet. Absent ⇒ forge for self (bound to the session member), exactly as before.
+   */
+  recipientDid?: string;
 }
 export interface ProveResponse {
   proof: ProofRecord;

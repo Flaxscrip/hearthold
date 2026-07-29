@@ -116,7 +116,8 @@
     "e2e:republish": "npm run build && node --experimental-strip-types scripts/e2e-republish-endpoint.ts",
     "e2e:inbound-card": "npm run build && node --experimental-strip-types scripts/e2e-inbound-card.ts",
     "e2e:forge-sealed": "npm run build && node --experimental-strip-types scripts/e2e-forge-sealed.ts",
-    "e2e:card-pass-timeout": "npm run build && node --experimental-strip-types scripts/e2e-card-pass-timeout.ts"
+    "e2e:card-pass-timeout": "npm run build && node --experimental-strip-types scripts/e2e-card-pass-timeout.ts",
+    "e2e:readable-handover": "npm run build && node --experimental-strip-types scripts/e2e-readable-handover.ts"
   },
   "engines": {
     "node": ">=22"

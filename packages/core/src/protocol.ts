@@ -63,8 +63,17 @@ export interface EvidenceRequest {
   disclosureMode: DisclosureMode;
   /** Which artefacts back the claim (kind + optional window). Required to assemble evidence. */
   spec?: EvidenceClaimSpec;
-  /** The DID the claim is about (the Sovereign). Defaults to the Warden's configured Sovereign. */
+  /**
+   * The APPROVER of the disclosure — whose proof-of-human co-signs the mint (the forger). Also the default
+   * credential-binding subject. Defaults to the Warden's configured Sovereign.
+   */
   subjectDid?: string;
+  /**
+   * Bind the minted scroll to THIS DID instead of the approver (forge-FOR-a-recipient): the scroll's content
+   * is encrypted to `recipientDid`, so that recipient can decrypt/read it — while the APPROVER (`subjectDid`)
+   * still co-signs the disclosure at their own Signet. Absent ⇒ bound to the approver (forge for self).
+   */
+  recipientDid?: string;
   /** How long the minted proof should stay valid (`validUntil`). Defaults to the Warden's setting. */
   validForMinutes?: number;
   /** Third-party `issued` credentials (by DID) the Sovereign holds, to compose into the proof. */
@@ -483,6 +492,13 @@ export interface CredentialDeliveryMessage {
   ops: GatekeeperEvent[][];
   /** True iff `ops` leads with the issuer Agent DID (opt-in throwaway; the default is false — no issuer). */
   includesIssuerThrowaway?: boolean;
+  /**
+   * OPTIONAL recipient-readable rendering of the VC's claims, sealed to `toDid` by the sender (who can read
+   * the VC). Ships beside the immutable provenance `ops` so a readable pass hands over content the recipient
+   * can actually decrypt — the ops stay the provenance anchor (verifyChain), this is the readable layer. A
+   * bigger disclosure than provenance-only, so it is sender-opt-in (`POST /api/card/pass` `readable:true`).
+   */
+  recipientSealed?: string;
 }
 
 /**
