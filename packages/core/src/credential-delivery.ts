@@ -38,6 +38,13 @@ export interface ForeignVerification {
   ok: boolean;
   /** The verified `issued` leaf — the ONLY thing kept from the DMZ (never the raw ops). Present iff `ok`. */
   leaf?: IssuedLeaf;
+  /**
+   * Whether the credential's PAYLOAD (claims) was decryptable in the DMZ. False for the common cross-node
+   * case — a VC's content is encrypted to the SENDER's audience, which a peerless DMZ (and the recipient)
+   * has no key for. `false` ⇒ the closure is provenance-only (chain-verified issuer/type, no claims); the
+   * card is still acceptable (the DMZ's job is trust, not plaintext). `true` ⇒ full claims (subject/public).
+   */
+  contentReadable?: boolean;
   /** The exact verified version the chain resolved to in the DMZ (provenance pin). */
   versionId?: string;
   reason?: string;
@@ -46,10 +53,13 @@ export interface ForeignVerification {
 /**
  * Verify a cross-node credential inside an ephemeral, PEERLESS DMZ and return ONLY the verified closure —
  * never importing the foreign ops into the caller's own gatekeeper (that is a compile error anyway, B6). It
- * imports the shipped ops into the DMZ, verifies the credential's chain there, reads the VC off the DMZ
- * keymaster to build the `issued` leaf closure, and ALWAYS tears the DMZ down in `finally`. Fail closed:
- * any failure (no DMZ, no ops, chain invalid, unreadable VC, DMZ error) → `{ ok:false, reason }`, nothing
- * kept, DMZ destroyed. The caller keeps `leaf` (the closure), discards the ops, and promotes it on accept.
+ * imports the shipped ops into the DMZ and verifies the credential's chain there — the CHAIN is the trust
+ * gate. It then reads the payload BEST-EFFORT: a VC encrypted to the SENDER's audience (the common cross-node
+ * case) can't be decrypted by this peerless DMZ, so we keep a PROVENANCE closure (chain-verified issuer/type
+ * from the public DID document, no claims) rather than declining an otherwise-valid card — the DMZ's job is
+ * trust, not plaintext. ALWAYS tears the DMZ down in `finally`. Fail closed ONLY on a real failure (no DMZ,
+ * no ops, chain invalid, DMZ error) → `{ ok:false, reason }`, nothing kept. The caller keeps `leaf` (the
+ * closure), discards the ops, and promotes it on accept; `contentReadable` says whether claims are present.
  */
 export async function verifyForeignCredential(
   openDmz: () => Promise<DmzSession>,
@@ -61,9 +71,27 @@ export async function verifyForeignCredential(
     await session.import(m.ops, [m.schemaDid, m.credentialDid]);
     const chain = await session.verifyChain(m.credentialDid);
     if (!chain.ok) return { ok: false, reason: `DMZ chain verification failed: ${chain.reason ?? 'chain did not verify'}` };
+    // Chain verified — the trust gate is passed. Try to read the plaintext; keep a provenance closure if not.
     const vc = await session.keymaster.getCredential(m.credentialDid).catch(() => null);
-    if (!vc) return { ok: false, reason: 'chain verified but the credential closure was unreadable in the DMZ' };
-    return { ok: true, leaf: buildIssuedLeaf(m.credentialDid, vc as ResolvedCredential), versionId: chain.versionId };
+    if (vc) {
+      return { ok: true, leaf: buildIssuedLeaf(m.credentialDid, vc as ResolvedCredential), versionId: chain.versionId, contentReadable: true };
+    }
+    // Provenance-only: the issuer is the credential's controller (public in the DID document — no decrypt).
+    const doc = await session.keymaster.resolveDID(m.credentialDid).catch(() => null);
+    const issuer = (doc?.didDocument as { controller?: string } | undefined)?.controller ?? '';
+    const leaf: IssuedLeaf = {
+      trustClass: 'issued',
+      credentialDid: m.credentialDid,
+      issuer,
+      subject: '',
+      credentialType: 'VerifiableCredential',
+      schema: m.schemaDid,
+      claims: {},
+      descriptionSource: 'issuer-asserted',
+      status: 'valid',
+      acceptedAt: new Date().toISOString(),
+    };
+    return { ok: true, leaf, versionId: chain.versionId, contentReadable: false };
   } catch (err) {
     return { ok: false, reason: err instanceof Error ? err.message : String(err) };
   } finally {

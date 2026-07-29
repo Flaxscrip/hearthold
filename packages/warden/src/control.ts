@@ -587,7 +587,13 @@ export async function runWardenControl(
         if (!card.verified || !card.closure) {
           throw new Error('card is not verified — refusing to import (a cross-node card must pass the DMZ first)');
         }
-        const artefactId = await promoteVerifiedCard(handle, { wardenDid: id.did, ownerDid: viewer, leaf: card.closure, ...(card.authenticity ? { authenticity: card.authenticity } : {}) });
+        const artefactId = await promoteVerifiedCard(handle, {
+          wardenDid: id.did,
+          ownerDid: viewer,
+          leaf: card.closure,
+          ...(card.authenticity ? { authenticity: card.authenticity } : {}),
+          ...(card.contentReadable !== undefined ? { contentReadable: card.contentReadable } : {}),
+        });
         inboundCards.remove(credentialDid);
         const event: CardAcceptedEvent = { credentialDid, artefactId, owner: viewer, acceptedAt: new Date().toISOString() };
         server.emit('card-accepted', event, { owner: viewer });
@@ -889,6 +895,7 @@ export async function runWardenControl(
       let closure: IssuedLeaf | undefined;
       let versionId: string | undefined;
       let reason: string | undefined;
+      let contentReadable: boolean | undefined;
       if (nativelyResolvable) {
         // Native (shared-registry / same node): resolvable on our OWN store, no import needed. Extract the
         // closure off our own store — verified iff we can read the credential to keep as the leaf.
@@ -896,16 +903,20 @@ export async function runWardenControl(
         if (vc) {
           verified = true;
           closure = buildIssuedLeaf(m.credentialDid, vc as ResolvedCredential);
+          contentReadable = true;
         } else {
           reason = 'credential resolvable but its content was unreadable on this node';
         }
       } else if (openDmz) {
         // Cross-node: the ops are foreign. Verify in the ephemeral peerless DMZ and keep ONLY the closure.
+        // The chain is the trust gate; a cross-audience VC yields a provenance-only closure (contentReadable
+        // false) — still acceptable. See verifyForeignCredential.
         const res = await verifyForeignCredential(openDmz, m);
         verified = res.ok;
         closure = res.leaf;
         versionId = res.versionId;
         reason = res.reason;
+        contentReadable = res.contentReadable;
       } else {
         reason =
           'VC not resolvable on this node and no DMZ configured (HEARTHOLD_DMZ_URL) — refusing to import foreign ops to verify it (fail closed)';
@@ -932,6 +943,7 @@ export async function runWardenControl(
         owner: config.sovereignDid ?? id.did, // v1 home-plane recipient; per-member routing by VC subject is a follow-up
         ...(closure ? { closure, issuer: closure.issuer } : {}),
         ...(authenticity ? { authenticity } : {}),
+        ...(contentReadable !== undefined ? { contentReadable } : {}),
         ...(versionId ? { versionId } : {}),
       };
       inboundCards.put(card);

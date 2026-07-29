@@ -97,6 +97,7 @@ async function main(): Promise<void> {
     const good = await verifyForeignCredential(openDmz, msg([issuerOps!, schemaOps!, vcOps!]));
     if (!good.ok) process.stdout.write(`    reason: ${good.reason}\n`);
     check('verified (chain ok)', good.ok === true);
+    check('the payload was readable here → contentReadable true (full claims)', good.contentReadable === true);
     check('the closure is an issued leaf anchored on the ISSUER DID', good.leaf?.issuer === issuerId.did && good.leaf?.trustClass === 'issued');
     check('the closure records the credential DID', good.leaf?.credentialDid === credentialDid);
     check('the DMZ was torn down after a SUCCESSFUL verify (nothing survives)', lastSession?.assertNothingSurvives().destroyed === true);
@@ -130,12 +131,12 @@ async function main(): Promise<void> {
 
     step('promoteVerifiedCard — the verified closure lands as an owner-scoped, private vault artefact (no foreign ops)');
     const ownerDid = subjectId.did;
-    const artefactId = await promoteVerifiedCard(issuer, { wardenDid: issuerId.did, ownerDid, leaf: goodLeaf, authenticity: 'issuer-authentic' });
+    const artefactId = await promoteVerifiedCard(issuer, { wardenDid: issuerId.did, ownerDid, leaf: goodLeaf, authenticity: 'issuer-authentic', contentReadable: true });
     const stored = await new VaultStore(issuer.dataFolder).get(artefactId);
     check('artefact written to the vault', !!stored);
     check('owner-scoped to the recipient member, private scope', stored?.owner === ownerDid && stored?.scope === 'private');
     check('linked back to the signed credential as an issued leaf', stored?.metadata?.trustClass === 'issued' && stored?.metadata?.credentialDid === credentialDid && stored?.metadata?.source === 'inbound-card');
-    check('the authenticity verdict is carried into the artefact', stored?.metadata?.authenticity === 'issuer-authentic');
+    check('the authenticity + readability verdicts are carried into the artefact', stored?.metadata?.authenticity === 'issuer-authentic' && stored?.metadata?.contentReadable === true);
     check('also recorded as a first-class issued evidence leaf', (await new IssuedStore(issuer.dataFolder).get(credentialDid)) !== undefined);
 
     step('InboundCardStore — the closure is kept SERVER-SIDE and stripped from the wire list');
@@ -155,7 +156,7 @@ async function main(): Promise<void> {
     check('accept is session-gated (effectiveViewer)', /effectiveViewer\(ctx\)/.test(acceptBlock));
     check('accept is owner-scoped (card.owner !== viewer → not available)', /card\.owner !== viewer/.test(acceptBlock));
     check('accept is verification-gated (refuse !verified || !closure)', /!card\.verified \|\| !card\.closure/.test(acceptBlock));
-    check('accept promotes the closure, not raw ops', /promoteVerifiedCard\(handle, \{ wardenDid: id\.did, ownerDid: viewer, leaf: card\.closure/.test(acceptBlock));
+    check('accept promotes the closure, not raw ops', /promoteVerifiedCard\(handle, \{/.test(acceptBlock) && /leaf: card\.closure/.test(acceptBlock));
     check('accept is NOT co-signed (no coSign in the accept block)', !/coSign\(/.test(acceptBlock));
     const receiptBlock = control.slice(control.indexOf("'hearthold/credential-delivery'"), control.indexOf("'hearthold/credential-delivery'") + 2200);
     check('the receipt handler routes cross-node through verifyForeignCredential', /verifyForeignCredential\(openDmz, m\)/.test(receiptBlock));
@@ -164,6 +165,12 @@ async function main(): Promise<void> {
     check('card/pass ships the issuer ops for cross-node DMZ verification (includeIssuerOps)', /includeIssuerOps: true/.test(control));
     const declineBlock = control.slice(control.indexOf("'POST /api/card/decline'"), control.indexOf("'POST /api/card/decline'") + 700);
     check('card/decline is session+owner gated and removes without importing', /effectiveViewer\(ctx\)/.test(declineBlock) && /card\.owner !== viewer/.test(declineBlock) && /inboundCards\.remove/.test(declineBlock) && !/promoteVerifiedCard/.test(declineBlock));
+
+    step('source-scan — a cross-audience VC is accepted as a PROVENANCE closure, not declined (option 2)');
+    const cd = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'packages/core/src/credential-delivery.ts'), 'utf8');
+    check('verifyForeignCredential no longer fail-closes on an unreadable payload', !/return \{ ok: false, reason: 'chain verified but the credential closure was unreadable/.test(cd));
+    check('an unreadable cross-audience VC → provenance-only closure (contentReadable:false, issuer from controller)', /contentReadable: false/.test(cd) && /controller/.test(cd));
+    check('a readable payload → contentReadable:true (full claims)', /contentReadable: true/.test(cd));
   } finally {
     rmSync(dataRoot, { recursive: true, force: true });
   }

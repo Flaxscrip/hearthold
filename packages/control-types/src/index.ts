@@ -430,6 +430,13 @@ export interface CardReceivedEvent {
   issuer?: string;
   /** How far the card was vetted (see `CardAuthenticity`) — present iff `verified`. */
   authenticity?: CardAuthenticity;
+  /**
+   * Whether the card's PAYLOAD (claims) is readable here. False for a normal cross-node card — its content is
+   * encrypted to the SENDER's audience, so the recipient holds a chain-verified PROVENANCE reference (issuer +
+   * type, no claims), not readable text. A readable handover requires the sender to ship a recipient-sealed
+   * rendering (a deliberate follow-up). Present iff `verified`.
+   */
+  contentReadable?: boolean;
   /** ISO timestamp of arrival. */
   receivedAt: string;
   /** The recipient member this inbound card is scoped to (the session DID it awaits accept from). */
