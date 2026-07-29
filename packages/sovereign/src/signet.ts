@@ -54,11 +54,24 @@ export interface ApprovalGate {
   approve(ctx: ApprovalContext): Promise<HumanPresenceAssertion | null>;
 }
 
-const pinAssertion = (): HumanPresenceAssertion => ({
+/**
+ * A proof-of-human assertion from the PIN method, at the assurance level the disclosure REQUIRED. The level
+ * is the Warden's server-set `requiredLevel` (from the drawn-on evidence's max sensitivity — never client-
+ * asserted), floored at 1: a fresh human (device possession + PIN) approving a level-N disclosure, on top of
+ * the member's already-proven session, clears level N. This is the same call the card-face fix (`5712cd1`)
+ * made — session factor-1 + Signet proof-of-human factor-2 reaches up to MULTIFACTOR — applied here so a
+ * SEALED (level-2) evidence forge is *approvable* instead of flat-denied ("level 1 below required 2"). The
+ * gate is the designated place for the level to scale with sensitivity (see this file's docstring);
+ * intrinsically-stronger methods (biometric / liveness) will later back the higher levels on their own.
+ */
+const pinAssertion = (level = 1): HumanPresenceAssertion => ({
   method: 'pin',
-  level: 1,
+  level: Math.max(1, level),
   timestamp: new Date().toISOString(),
 });
+
+/** The assurance level an approval attests: the disclosure's server-set requiredLevel, else the base PIN level. */
+const approvedLevel = (ctx: ApprovalContext): number => ctx.disclosure?.requiredLevel ?? 1;
 
 /**
  * Non-interactive PIN gate — approves iff the supplied PIN matches the expected one. Used in tests
@@ -70,8 +83,8 @@ export class PinGate implements ApprovalGate {
     private readonly supplied: string,
   ) {}
 
-  async approve(_ctx: ApprovalContext): Promise<HumanPresenceAssertion | null> {
-    if (this.expected.length > 0 && this.supplied === this.expected) return pinAssertion();
+  async approve(ctx: ApprovalContext): Promise<HumanPresenceAssertion | null> {
+    if (this.expected.length > 0 && this.supplied === this.expected) return pinAssertion(approvedLevel(ctx));
     return null;
   }
 }
@@ -104,7 +117,7 @@ export class PromptGate implements ApprovalGate {
     const pin = await readLine();
     if (pin.length > 0 && this.expected.length > 0 && pin === this.expected) {
       process.stdout.write('   ✓ approved.\n');
-      return pinAssertion();
+      return pinAssertion(approvedLevel(ctx));
     }
     process.stdout.write('   ✗ denied.\n');
     return null;

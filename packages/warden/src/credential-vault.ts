@@ -35,7 +35,7 @@ export function renderIssuedLeaf(leaf: IssuedLeaf): string {
  */
 export async function promoteVerifiedCard(
   handle: KeymasterHandle,
-  args: { wardenDid: string; ownerDid: string; leaf: IssuedLeaf },
+  args: { wardenDid: string; ownerDid: string; leaf: IssuedLeaf; authenticity?: 'issuer-authentic' | 'chain-consistent' },
 ): Promise<string> {
   const text = renderIssuedLeaf(args.leaf);
   const ciphertext = await sealForWarden(handle, args.wardenDid, JSON.stringify({ text }));
@@ -57,6 +57,9 @@ export async function promoteVerifiedCard(
       schema: args.leaf.schema,
       trustClass: 'issued',
       source: 'inbound-card',
+      // How far it was vetted at receipt (see CardAuthenticity) — recorded so a later present/compose can
+      // weight a sender-asserted (chain-consistent) issuer differently from an independently-known one.
+      ...(args.authenticity ? { authenticity: args.authenticity } : {}),
     },
   };
   await new VaultStore(handle.dataFolder).put(artefact);

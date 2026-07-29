@@ -56,9 +56,12 @@ import {
   type CardFaceRequest,
   type CardPassRequest,
   type CardReceivedEvent,
+  type CardAuthenticity,
   type CardAcceptRequest,
   type CardAcceptResponse,
   type CardAcceptedEvent,
+  type CardDeclineRequest,
+  type CardDeclinedEvent,
   type TriageConfirmRequest,
   type MarkCandidate,
   type MarkClaimRequest,
@@ -538,7 +541,16 @@ export async function runWardenControl(
           summary: `Pass a card to ${toDid}`,
         });
         if (!approved) throw new Error('pass declined — a Sovereign co-sign is required to disclose a credential to another party');
-        const ack = await deliverCredential(handle, IDENTITY_NAME.warden, transport, toDid, credentialDid, schemaDid ? { schemaDid } : {});
+        // Ship the issuer ops (the refreshable throwaway): a cross-node recipient verifies this card inside a
+        // PEERLESS DMZ, which cannot resolve the issuer fresh over a peer — so without them `verifyChain`
+        // fails "issuer unresolvable". This makes the recipient's `verified:true` mean "chain-consistent"; the
+        // recipient upgrades to "issuer-authentic" only by cross-checking the issuer against its OWN federated
+        // resolution (see the receipt handler's authenticity check). On a shared-registry recipient the extra
+        // ops are a harmless no-op (the VC is already resolvable there).
+        const ack = await deliverCredential(handle, IDENTITY_NAME.warden, transport, toDid, credentialDid, {
+          ...(schemaDid ? { schemaDid } : {}),
+          includeIssuerOps: true,
+        });
         return {
           ack: {
             credentialDid: ack.credentialDid,
@@ -572,11 +584,27 @@ export async function runWardenControl(
         if (!card.verified || !card.closure) {
           throw new Error('card is not verified — refusing to import (a cross-node card must pass the DMZ first)');
         }
-        const artefactId = await promoteVerifiedCard(handle, { wardenDid: id.did, ownerDid: viewer, leaf: card.closure });
+        const artefactId = await promoteVerifiedCard(handle, { wardenDid: id.did, ownerDid: viewer, leaf: card.closure, ...(card.authenticity ? { authenticity: card.authenticity } : {}) });
         inboundCards.remove(credentialDid);
         const event: CardAcceptedEvent = { credentialDid, artefactId, owner: viewer, acceptedAt: new Date().toISOString() };
         server.emit('card-accepted', event, { owner: viewer });
         return { artefactId } satisfies CardAcceptResponse;
+      },
+
+      // Decline a pending inbound card — drop it from the queue WITHOUT importing (completes the triage
+      // surface). Session-gated + owner-scoped (uniform refusal). Nothing is verified or promoted; it just
+      // removes the pending entry, so the member can dismiss a card they don't want.
+      'POST /api/card/decline': async (ctx) => {
+        const { credentialDid } = (ctx.body ?? {}) as CardDeclineRequest;
+        if (!credentialDid) throw new Error('credentialDid is required');
+        const viewer = effectiveViewer(ctx);
+        if (!viewer) throw new Error('no session — log in');
+        const card = inboundCards.getStored(credentialDid);
+        if (!card || card.owner !== viewer) throw new Error('not available');
+        inboundCards.remove(credentialDid);
+        const event: CardDeclinedEvent = { credentialDid, owner: viewer, declinedAt: new Date().toISOString() };
+        server.emit('card-declined', event, { owner: viewer });
+        return { ok: true };
       },
 
       // Triage — the born-obsidian confirmation queue, scoped to the session member's own quarantine.
@@ -879,6 +907,19 @@ export async function runWardenControl(
         reason =
           'VC not resolvable on this node and no DMZ configured (HEARTHOLD_DMZ_URL) — refusing to import foreign ops to verify it (fail closed)';
       }
+      // Issuer authenticity: a peerless DMZ only proves the chain is internally consistent — the issuer was
+      // SENDER-ASSERTED (shipped in the ops), so a forged-issuer sender could reach verified:true. Cross-check
+      // the issuer against OUR OWN federated resolution (our real gatekeeper, NOT the DMZ): resolves ⇒ the
+      // issuer is an independently-known identity (issuer-authentic); else it is only chain-consistent and the
+      // member decides whether to trust it. We surface both so the accept is an informed trust decision.
+      let authenticity: CardAuthenticity | undefined;
+      if (verified && closure) {
+        const issuerResolves = await handle.keymaster
+          .resolveDID(closure.issuer)
+          .then((d) => Boolean(d.didDocument?.id))
+          .catch(() => false);
+        authenticity = issuerResolves ? 'issuer-authentic' : 'chain-consistent';
+      }
       const card: StoredInboundCard = {
         credentialDid: m.credentialDid,
         schemaDid: m.schemaDid,
@@ -886,7 +927,8 @@ export async function runWardenControl(
         verified,
         receivedAt: new Date().toISOString(),
         owner: config.sovereignDid ?? id.did, // v1 home-plane recipient; per-member routing by VC subject is a follow-up
-        ...(closure ? { closure } : {}),
+        ...(closure ? { closure, issuer: closure.issuer } : {}),
+        ...(authenticity ? { authenticity } : {}),
         ...(versionId ? { versionId } : {}),
       };
       inboundCards.put(card);

@@ -313,6 +313,17 @@ export interface CardAcceptedEvent {
   acceptedAt: string;
 }
 
+/** `POST /api/card/decline` — drop a pending inbound card WITHOUT importing it. Session + owner scoped. */
+export interface CardDeclineRequest {
+  credentialDid: string;
+}
+/** SSE frame when a pending card is declined + dropped from the queue (scoped to the owning member). */
+export interface CardDeclinedEvent {
+  credentialDid: string;
+  owner: string;
+  declinedAt: string;
+}
+
 // ── Triage / born-obsidian confirmation queue (Sevenfold Table) ─────────────────
 
 /** A quarantined artefact awaiting the Sovereign's confirmation (rendered fully obsidian, G1). */
@@ -396,6 +407,16 @@ export interface SubmissionStoredEvent {
  * `triage-confirmed` convention). Wired in `warden control`; cross-node DMZ verification of the shipped ops
  * is a follow-up (v1 verifies via native resolvability).
  */
+/**
+ * How far a `verified:true` card was actually vetted — surfaced so the member's trust decision is informed:
+ * - `issuer-authentic` — the chain verified AND the issuer resolves on the recipient's OWN federated
+ *   gatekeeper (a real, independently-known identity).
+ * - `chain-consistent` — the chain is internally consistent, but the issuer was SENDER-ASSERTED (shipped in
+ *   the card's ops and verified only in the peerless DMZ, which can't resolve it fresh). A malicious sender
+ *   could ship a forged issuer they control + a self-signed VC and reach this — so it is NOT "issuer trusted."
+ */
+export type CardAuthenticity = 'issuer-authentic' | 'chain-consistent';
+
 export interface CardReceivedEvent {
   /** The delivered credential (VC asset) DID. */
   credentialDid: string;
@@ -405,6 +426,10 @@ export interface CardReceivedEvent {
   from: string;
   /** DMZ verification outcome at arrival (provenance + validity, NOT safety). */
   verified: boolean;
+  /** The credential's issuer DID (from the verified closure) — surfaced for the member's trust decision. */
+  issuer?: string;
+  /** How far the card was vetted (see `CardAuthenticity`) — present iff `verified`. */
+  authenticity?: CardAuthenticity;
   /** ISO timestamp of arrival. */
   receivedAt: string;
   /** The recipient member this inbound card is scoped to (the session DID it awaits accept from). */

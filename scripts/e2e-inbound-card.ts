@@ -119,13 +119,23 @@ async function main(): Promise<void> {
     check('a reason is given', typeof bad.reason === 'string' && bad.reason.length > 0);
     check('the DMZ was torn down after a FAILED verify too', lastSession?.assertNothingSurvives().destroyed === true);
 
+    step('issuer authenticity — the receipt cross-check: issuer resolves on OUR federated gatekeeper vs sender-asserted');
+    // The receipt handler cross-checks the closure's issuer against the recipient's OWN federated resolution
+    // (this is the exact call): a resolvable issuer is issuer-authentic; a non-resolvable one is only
+    // chain-consistent (sender-asserted) — the peerless DMZ can't distinguish these, our own gatekeeper can.
+    const issuerResolves = await issuer.keymaster.resolveDID(goodLeaf.issuer).then((d) => Boolean(d.didDocument?.id)).catch(() => false);
+    check('a real issuer resolves on our federated gatekeeper → issuer-authentic', issuerResolves === true);
+    const bogusResolves = await issuer.keymaster.resolveDID('did:test:forged-issuer').then((d) => Boolean(d.didDocument?.id)).catch(() => false);
+    check('a sender-asserted (unresolvable) issuer → chain-consistent', bogusResolves === false);
+
     step('promoteVerifiedCard — the verified closure lands as an owner-scoped, private vault artefact (no foreign ops)');
     const ownerDid = subjectId.did;
-    const artefactId = await promoteVerifiedCard(issuer, { wardenDid: issuerId.did, ownerDid, leaf: goodLeaf });
+    const artefactId = await promoteVerifiedCard(issuer, { wardenDid: issuerId.did, ownerDid, leaf: goodLeaf, authenticity: 'issuer-authentic' });
     const stored = await new VaultStore(issuer.dataFolder).get(artefactId);
     check('artefact written to the vault', !!stored);
     check('owner-scoped to the recipient member, private scope', stored?.owner === ownerDid && stored?.scope === 'private');
     check('linked back to the signed credential as an issued leaf', stored?.metadata?.trustClass === 'issued' && stored?.metadata?.credentialDid === credentialDid && stored?.metadata?.source === 'inbound-card');
+    check('the authenticity verdict is carried into the artefact', stored?.metadata?.authenticity === 'issuer-authentic');
     check('also recorded as a first-class issued evidence leaf', (await new IssuedStore(issuer.dataFolder).get(credentialDid)) !== undefined);
 
     step('InboundCardStore — the closure is kept SERVER-SIDE and stripped from the wire list');
@@ -145,11 +155,15 @@ async function main(): Promise<void> {
     check('accept is session-gated (effectiveViewer)', /effectiveViewer\(ctx\)/.test(acceptBlock));
     check('accept is owner-scoped (card.owner !== viewer → not available)', /card\.owner !== viewer/.test(acceptBlock));
     check('accept is verification-gated (refuse !verified || !closure)', /!card\.verified \|\| !card\.closure/.test(acceptBlock));
-    check('accept promotes the closure, not raw ops', /promoteVerifiedCard\(handle, \{ wardenDid: id\.did, ownerDid: viewer, leaf: card\.closure \}\)/.test(acceptBlock));
+    check('accept promotes the closure, not raw ops', /promoteVerifiedCard\(handle, \{ wardenDid: id\.did, ownerDid: viewer, leaf: card\.closure/.test(acceptBlock));
     check('accept is NOT co-signed (no coSign in the accept block)', !/coSign\(/.test(acceptBlock));
     const receiptBlock = control.slice(control.indexOf("'hearthold/credential-delivery'"), control.indexOf("'hearthold/credential-delivery'") + 2200);
     check('the receipt handler routes cross-node through verifyForeignCredential', /verifyForeignCredential\(openDmz, m\)/.test(receiptBlock));
     check('the receipt handler never persists m.ops (closure only)', !/closure:\s*m\.ops|ops:\s*m\.ops/.test(control) && /StoredInboundCard/.test(control));
+    check('the receipt handler cross-checks the issuer against our OWN federated resolution', /resolveDID\(closure\.issuer\)/.test(control) && /issuerResolves \? 'issuer-authentic' : 'chain-consistent'/.test(control));
+    check('card/pass ships the issuer ops for cross-node DMZ verification (includeIssuerOps)', /includeIssuerOps: true/.test(control));
+    const declineBlock = control.slice(control.indexOf("'POST /api/card/decline'"), control.indexOf("'POST /api/card/decline'") + 700);
+    check('card/decline is session+owner gated and removes without importing', /effectiveViewer\(ctx\)/.test(declineBlock) && /card\.owner !== viewer/.test(declineBlock) && /inboundCards\.remove/.test(declineBlock) && !/promoteVerifiedCard/.test(declineBlock));
   } finally {
     rmSync(dataRoot, { recursive: true, force: true });
   }
