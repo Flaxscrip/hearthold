@@ -550,6 +550,9 @@ export async function runWardenControl(
         const ack = await deliverCredential(handle, IDENTITY_NAME.warden, transport, toDid, credentialDid, {
           ...(schemaDid ? { schemaDid } : {}),
           includeIssuerOps: true,
+          // The pass blocks on the recipient's cross-node ack; over a Tor substrate a slow-but-successful
+          // ack can exceed the 60s transport default and be wrongly abandoned. Operator-tunable via env.
+          timeoutMs: config.cardPassTimeoutMs,
         });
         return {
           ack: {

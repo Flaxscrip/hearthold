@@ -54,6 +54,13 @@ export interface HearthholdConfig {
    * human tap, so it is configurable; clamped to a hard cap so a session can never hang indefinitely.
    */
   stepUpTimeoutMs: { factor1: number; factor2: number };
+  /**
+   * How long `POST /api/card/pass` waits for the recipient's accept/decline ack in ms. The pass blocks on a
+   * cross-node DIDComm round-trip, and over a Tor substrate (double-onion + retries) a slow-but-successful
+   * ack can exceed the 60s default and be abandoned. Raise it for such deployments (Aegis sets ~180s). Env:
+   * `HEARTHOLD_CARD_PASS_TIMEOUT_MS`, clamped to the same 600s hard cap as the step-up.
+   */
+  cardPassTimeoutMs: number;
   /** Control-plane session lifetime in ms (absolute; never slid on use). Default 30 min. */
   sessionTtlMs: number;
   /**
@@ -114,6 +121,7 @@ const DEFAULT_CLASSIFIER_MODEL = 'qwen2.5:3b';
 const DEFAULT_EMBEDDING_MODEL = 'nomic-embed-text';
 const DEFAULT_STEPUP_TIMEOUT_MS = 180_000;
 const STEPUP_TIMEOUT_HARD_CAP_MS = 600_000;
+const DEFAULT_CARD_PASS_TIMEOUT_MS = 60_000; // matches the transport default; raise via env for a Tor substrate
 const DEFAULT_SESSION_TTL_MS = 30 * 60_000;
 
 /** Parse a positive-ms env value, clamp to the hard cap, else fall back. */
@@ -147,6 +155,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): HearthholdConf
       factor1: resolveTimeout(env.HEARTHOLD_STEPUP_TIMEOUT_FACTOR1_MS, stepUpBase),
       factor2: resolveTimeout(env.HEARTHOLD_STEPUP_TIMEOUT_FACTOR2_MS, stepUpBase),
     },
+    cardPassTimeoutMs: resolveTimeout(env.HEARTHOLD_CARD_PASS_TIMEOUT_MS, DEFAULT_CARD_PASS_TIMEOUT_MS),
     sessionTtlMs: (() => {
       const n = Number(env.HEARTHOLD_SESSION_TTL_MS);
       return Number.isFinite(n) && n > 0 ? n : DEFAULT_SESSION_TTL_MS;
