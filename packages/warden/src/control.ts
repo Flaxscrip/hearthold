@@ -28,9 +28,14 @@ import {
   PROTOCOL_VERSION,
   rulesetId,
   deliverCredential,
+  DmzSession,
+  verifyForeignCredential,
+  buildIssuedLeaf,
   type HearthholdConfig,
   type KeymasterHandle,
   type RequestHandler,
+  type ResolvedCredential,
+  type IssuedLeaf,
   type CredentialDeliveryMessage,
   type CredentialDeliveryAckMessage,
   type SubmissionReceipt,
@@ -51,6 +56,9 @@ import {
   type CardFaceRequest,
   type CardPassRequest,
   type CardReceivedEvent,
+  type CardAcceptRequest,
+  type CardAcceptResponse,
+  type CardAcceptedEvent,
   type TriageConfirmRequest,
   type MarkCandidate,
   type MarkClaimRequest,
@@ -71,7 +79,8 @@ import { OllamaEmbedder, RecallService } from './recall.js';
 import { makeDidcommActionApprover, makeDidcommRulesetSigner, makeDidcommMemberAcker } from './kb.js';
 import { hydrateCardFace } from './face.js';
 import { triageQueue, confirmTriage } from './triage.js';
-import { InboundCardStore } from './inbound-card-store.js';
+import { InboundCardStore, type StoredInboundCard } from './inbound-card-store.js';
+import { promoteVerifiedCard } from './credential-vault.js';
 import { claimableMarks, claimMark } from './marks.js';
 import { buildKbServices, KbConfigStore, setKbAssurance, readKbAssurance, provisionMemberPartition } from './kb-config.js';
 import { makeWardenHandler } from './handler.js';
@@ -97,8 +106,23 @@ export async function runWardenControl(
   handle: KeymasterHandle,
   config: HearthholdConfig,
   port: number,
+  passphrase: string,
 ): Promise<void> {
   const id = await ensureIdentity(handle, config);
+  // The DMZ factory: an ephemeral, PEERLESS gatekeeper a cross-node card is verified inside (never our own
+  // gatekeeper — B6). Undefined when no DMZ is configured (HEARTHOLD_DMZ_URL unset) → cross-node cards stay
+  // verified:false (fail closed). `assumePeerless` is the explicit escape hatch for a stand-in target.
+  const openDmz: (() => Promise<DmzSession>) | undefined = config.dmzNodeUrl
+    ? (): Promise<DmzSession> =>
+        DmzSession.open({
+          dmzNodeUrl: config.dmzNodeUrl!,
+          role: 'warden',
+          config,
+          passphrase,
+          ...(config.dmzApiKey ? { apiKey: config.dmzApiKey } : {}),
+          ...(config.dmzAssumePeerless ? { assumePeerless: true } : {}),
+        })
+    : undefined;
   const store = new VaultStore(handle.dataFolder);
   const delegations = new DelegationStore(handle);
   const kbStore = new KbConfigStore(handle.dataFolder);
@@ -529,6 +553,32 @@ export async function runWardenControl(
       // vault (born obsidian; import happens on the member's explicit accept). Scoped to the session member.
       'GET /api/card/inbound': async (ctx) => ({ inbound: inboundCards.list(effectiveViewer(ctx)) }),
 
+      // Promote a pending inbound card into the vault. The verification already happened AT RECEIPT (natively
+      // or in the DMZ); accept is a cheap promotion of the already-verified closure. Session-gated +
+      // owner-scoped + verification-gated. NOT co-signed: an inward accept grants nothing over anyone else —
+      // it imports the closure the Warden already vetted into the member's own peerless vault (Warden custody,
+      // no foreign gatekeeper ops). The Signet is reserved for outward/binding acts, not this.
+      'POST /api/card/accept': async (ctx) => {
+        const { credentialDid } = (ctx.body ?? {}) as CardAcceptRequest;
+        if (!credentialDid) throw new Error('credentialDid is required');
+        const viewer = effectiveViewer(ctx);
+        if (!viewer) throw new Error('no session — log in');
+        const card = inboundCards.getStored(credentialDid);
+        // Owner-scoped: only the card's own recipient may accept — a cross-member accept is a uniform refusal
+        // (indistinguishable from a non-existent card).
+        if (!card || card.owner !== viewer) throw new Error('not available');
+        // Fail-closed: an unverified card (cross-node that never passed the DMZ, or a native unreadable one)
+        // has no closure and can NEVER be imported. There is no code path that imports from raw ops.
+        if (!card.verified || !card.closure) {
+          throw new Error('card is not verified — refusing to import (a cross-node card must pass the DMZ first)');
+        }
+        const artefactId = await promoteVerifiedCard(handle, { wardenDid: id.did, ownerDid: viewer, leaf: card.closure });
+        inboundCards.remove(credentialDid);
+        const event: CardAcceptedEvent = { credentialDid, artefactId, owner: viewer, acceptedAt: new Date().toISOString() };
+        server.emit('card-accepted', event, { owner: viewer });
+        return { artefactId } satisfies CardAcceptResponse;
+      },
+
       // Triage — the born-obsidian confirmation queue, scoped to the session member's own quarantine.
       'GET /api/triage': async (ctx) => {
         const viewer = effectiveViewer(ctx);
@@ -793,33 +843,62 @@ export async function runWardenControl(
   // Wrap the real handler so a stored submission is pushed to connected consoles.
   const inner = makeWardenHandler(service, delegations, evidenceService, kbs, config.sovereignDid);
   const handler: RequestHandler = async (message, fromDid) => {
-    // Inbound card from another node — verify (native resolvability; cross-node DMZ verification via the
-    // shipped ops is a follow-up needing config.dmzNodeUrl), queue as PENDING-INBOUND (born obsidian; import
-    // only on the member's explicit accept — Sevenfold's model), emit `card-received`, and ack the sender.
-    // We never import the shipped foreign ops into our own gatekeeper (B6) — the card is verified + queued,
-    // not accepted, until the member chooses.
+    // Inbound card from another node — VERIFY at receipt, then queue as PENDING-INBOUND (born obsidian;
+    // promote into the vault only on the member's explicit accept — Sevenfold's model), emit `card-received`,
+    // ack the sender. We NEVER import the shipped foreign ops into our own gatekeeper (B6): a cross-node card
+    // is verified inside an ephemeral, peerless DMZ and only its verified closure (the `issued` leaf) is
+    // kept — the raw ops are discarded. Accept later cannot shortcut the DMZ because the ops aren't retained.
     if (message.type === 'hearthold/credential-delivery') {
       const m = message as CredentialDeliveryMessage;
-      const verified = await handle.keymaster
+      const nativelyResolvable = await handle.keymaster
         .resolveDID(m.credentialDid)
         .then((d) => Boolean(d.didDocument?.id))
         .catch(() => false);
-      const card: CardReceivedEvent = {
+      let verified = false;
+      let closure: IssuedLeaf | undefined;
+      let versionId: string | undefined;
+      let reason: string | undefined;
+      if (nativelyResolvable) {
+        // Native (shared-registry / same node): resolvable on our OWN store, no import needed. Extract the
+        // closure off our own store — verified iff we can read the credential to keep as the leaf.
+        const vc = await handle.keymaster.getCredential(m.credentialDid).catch(() => null);
+        if (vc) {
+          verified = true;
+          closure = buildIssuedLeaf(m.credentialDid, vc as ResolvedCredential);
+        } else {
+          reason = 'credential resolvable but its content was unreadable on this node';
+        }
+      } else if (openDmz) {
+        // Cross-node: the ops are foreign. Verify in the ephemeral peerless DMZ and keep ONLY the closure.
+        const res = await verifyForeignCredential(openDmz, m);
+        verified = res.ok;
+        closure = res.leaf;
+        versionId = res.versionId;
+        reason = res.reason;
+      } else {
+        reason =
+          'VC not resolvable on this node and no DMZ configured (HEARTHOLD_DMZ_URL) — refusing to import foreign ops to verify it (fail closed)';
+      }
+      const card: StoredInboundCard = {
         credentialDid: m.credentialDid,
         schemaDid: m.schemaDid,
         from: String(fromDid).split('#')[0] ?? '',
         verified,
         receivedAt: new Date().toISOString(),
         owner: config.sovereignDid ?? id.did, // v1 home-plane recipient; per-member routing by VC subject is a follow-up
+        ...(closure ? { closure } : {}),
+        ...(versionId ? { versionId } : {}),
       };
       inboundCards.put(card);
-      server.emit('card-received', card, { owner: card.owner });
+      // The wire event carries only the CardReceivedEvent fields — the closure stays server-side.
+      const { closure: _cl, versionId: _vid, ...wire } = card;
+      server.emit('card-received', wire as CardReceivedEvent, { owner: card.owner });
       const ack: CredentialDeliveryAckMessage = {
         type: 'hearthold/credential-delivery-ack',
         version: PROTOCOL_VERSION,
         credentialDid: m.credentialDid,
         accepted: verified,
-        ...(verified ? {} : { reason: 'credential not resolvable on the recipient node (queued as unverified pending-inbound)' }),
+        ...(verified ? {} : { reason: reason ?? 'queued as unverified pending-inbound' }),
       };
       return ack;
     }

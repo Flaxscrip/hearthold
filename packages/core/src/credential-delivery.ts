@@ -26,11 +26,50 @@ import type { KeymasterHandle } from './keymaster.js';
 import type { Transport, RequestHandler } from './transport.js';
 import type { GatekeeperEvent } from '@didcid/gatekeeper/types';
 import type { DmzSession } from './dmz.js';
+import { buildIssuedLeaf, type IssuedLeaf, type ResolvedCredential } from './issued.js';
 import {
   PROTOCOL_VERSION,
   type CredentialDeliveryMessage,
   type CredentialDeliveryAckMessage,
 } from './protocol.js';
+
+/** The outcome of verifying a foreign credential in the DMZ: the verified closure, or a fail-closed reason. */
+export interface ForeignVerification {
+  ok: boolean;
+  /** The verified `issued` leaf — the ONLY thing kept from the DMZ (never the raw ops). Present iff `ok`. */
+  leaf?: IssuedLeaf;
+  /** The exact verified version the chain resolved to in the DMZ (provenance pin). */
+  versionId?: string;
+  reason?: string;
+}
+
+/**
+ * Verify a cross-node credential inside an ephemeral, PEERLESS DMZ and return ONLY the verified closure —
+ * never importing the foreign ops into the caller's own gatekeeper (that is a compile error anyway, B6). It
+ * imports the shipped ops into the DMZ, verifies the credential's chain there, reads the VC off the DMZ
+ * keymaster to build the `issued` leaf closure, and ALWAYS tears the DMZ down in `finally`. Fail closed:
+ * any failure (no DMZ, no ops, chain invalid, unreadable VC, DMZ error) → `{ ok:false, reason }`, nothing
+ * kept, DMZ destroyed. The caller keeps `leaf` (the closure), discards the ops, and promotes it on accept.
+ */
+export async function verifyForeignCredential(
+  openDmz: () => Promise<DmzSession>,
+  m: CredentialDeliveryMessage,
+): Promise<ForeignVerification> {
+  let session: DmzSession | undefined;
+  try {
+    session = await openDmz();
+    await session.import(m.ops, [m.schemaDid, m.credentialDid]);
+    const chain = await session.verifyChain(m.credentialDid);
+    if (!chain.ok) return { ok: false, reason: `DMZ chain verification failed: ${chain.reason ?? 'chain did not verify'}` };
+    const vc = await session.keymaster.getCredential(m.credentialDid).catch(() => null);
+    if (!vc) return { ok: false, reason: 'chain verified but the credential closure was unreadable in the DMZ' };
+    return { ok: true, leaf: buildIssuedLeaf(m.credentialDid, vc as ResolvedCredential), versionId: chain.versionId };
+  } catch (err) {
+    return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+  } finally {
+    session?.teardown(); // ephemeral: nothing survives on our node, on every path
+  }
+}
 
 export interface DeliverCredentialOptions {
   /**

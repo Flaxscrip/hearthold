@@ -76,6 +76,22 @@ export interface HearthholdConfig {
    * single-Sovereign node. Env: `HEARTHOLD_REQUIRE_SESSION=true|false`.
    */
   requireSession?: boolean;
+  /**
+   * The ephemeral, PEERLESS gatekeeper a cross-node inbound credential is verified inside (the DMZ) — never
+   * the node's own gatekeeper (B6). A foreign card's ops are imported here, its chain verified, only the
+   * verified closure kept, and the DMZ torn down. Must resolve to a mediator-less gatekeeper (registry
+   * `local`, or Aegis's node-B raw gatekeeper) so nothing propagates. Env: `HEARTHOLD_DMZ_URL`. Unset ⇒ no
+   * DMZ ⇒ cross-node cards stay `verified:false` (fail closed — we never import foreign ops to verify them).
+   */
+  dmzNodeUrl?: string;
+  /** Admin key for the DMZ gatekeeper, if it requires one for import. Env: `HEARTHOLD_DMZ_API_KEY`. */
+  dmzApiKey?: string;
+  /**
+   * Skip the DMZ target's peerless interrogation (`listRegistries`) — the explicit, loud escape hatch for a
+   * stand-in target (e.g. flaxlap's raw gatekeeper in tests). NEVER set in production against a peered node.
+   * Env: `HEARTHOLD_DMZ_ASSUME_PEERLESS=true`.
+   */
+  dmzAssumePeerless?: boolean;
 }
 
 const DEFAULT_NODE_URL = 'http://flaxlap.local:4222';
@@ -146,6 +162,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): HearthholdConf
         : env.HEARTHOLD_REQUIRE_SESSION === 'false'
           ? false
           : undefined,
+    dmzNodeUrl: env.HEARTHOLD_DMZ_URL,
+    dmzApiKey: env.HEARTHOLD_DMZ_API_KEY,
+    dmzAssumePeerless: env.HEARTHOLD_DMZ_ASSUME_PEERLESS === 'true' ? true : undefined,
   };
 }
 

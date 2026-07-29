@@ -113,7 +113,8 @@
     "e2e:kb-reindex": "npm run build && node --experimental-strip-types scripts/e2e-kb-reindex.ts",
     "e2e:evidence-deterministic": "npm run build && node --experimental-strip-types scripts/e2e-evidence-deterministic.ts",
     "e2e:l1-custody": "npm run build && node --experimental-strip-types scripts/e2e-l1-custody.ts",
-    "e2e:republish": "npm run build && node --experimental-strip-types scripts/e2e-republish-endpoint.ts"
+    "e2e:republish": "npm run build && node --experimental-strip-types scripts/e2e-republish-endpoint.ts",
+    "e2e:inbound-card": "npm run build && node --experimental-strip-types scripts/e2e-inbound-card.ts"
   },
   "engines": {
     "node": ">=22"

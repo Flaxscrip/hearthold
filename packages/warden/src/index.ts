@@ -251,7 +251,7 @@ async function main(): Promise<void> {
     }
     case 'control': {
       const port = Number(process.argv[3] ?? process.env.HEARTHOLD_CONTROL_PORT ?? 4310);
-      await runWardenControl(handle, config, port);
+      await runWardenControl(handle, config, port, passphrase);
       break;
     }
     case 'vault': {

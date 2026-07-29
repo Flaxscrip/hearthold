@@ -290,6 +290,29 @@ export interface InboundCardsResponse {
   inbound: CardReceivedEvent[];
 }
 
+/**
+ * `POST /api/card/accept` — the member promotes a pending inbound card into their vault. Session-scoped +
+ * owner-scoped + verification-gated: only the card's owner may accept, and only a `verified:true` card (a
+ * cross-node card must have passed the DMZ, not merely "not found locally"). Not a co-signed act — an inward
+ * accept grants nothing over anyone else; it imports the already-verified closure the Warden vetted.
+ */
+export interface CardAcceptRequest {
+  /** The pending card to accept (its VC asset DID). */
+  credentialDid: string;
+}
+export interface CardAcceptResponse {
+  /** The vault artefact id the verified closure was promoted to. */
+  artefactId: string;
+}
+
+/** SSE frame when a pending card is promoted into the vault (scoped to the owning member). */
+export interface CardAcceptedEvent {
+  credentialDid: string;
+  artefactId: string;
+  owner: string;
+  acceptedAt: string;
+}
+
 // ── Triage / born-obsidian confirmation queue (Sevenfold Table) ─────────────────
 
 /** A quarantined artefact awaiting the Sovereign's confirmation (rendered fully obsidian, G1). */

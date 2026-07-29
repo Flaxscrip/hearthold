@@ -1,8 +1,10 @@
 import {
   sealToKey,
+  sealForWarden,
   contentId,
   Sensitivity,
   DEFAULT_SENSITIVITY,
+  IssuedStore,
   type KeymasterHandle,
   type HearthholdConfig,
   type IssuedLeaf,
@@ -20,6 +22,46 @@ export function renderIssuedLeaf(leaf: IssuedLeaf): string {
     .map(([k, v]) => `${k}=${String(v)}`)
     .join(', ');
   return `${leaf.credentialType} credential from ${leaf.issuer}${fields ? ` — ${fields}` : ''} (issuer-attested)`;
+}
+
+/**
+ * Promote a VERIFIED inbound-card closure (an `issued` leaf, vetted at receipt — natively or in the DMZ)
+ * into the owning member's vault under the Warden's own custody. This imports NO gatekeeper ops — only the
+ * verified leaf the Warden already trusts — so the private gatekeeper never receives foreign operations.
+ * The rendered claim is sealed to the Warden's own key (`sealForWarden`, the baseline vault custody, same
+ * as a submission), tagged `owner`+`scope:'private'` and linked back to the signed credential
+ * (`credentialDid`+`issuer`+`schema`+`trustClass:'issued'`) so it presents as an `issued` leaf later. Also
+ * records the leaf in the `issued` store so it is a first-class evidence leaf. Returns the vault artefact id.
+ */
+export async function promoteVerifiedCard(
+  handle: KeymasterHandle,
+  args: { wardenDid: string; ownerDid: string; leaf: IssuedLeaf },
+): Promise<string> {
+  const text = renderIssuedLeaf(args.leaf);
+  const ciphertext = await sealForWarden(handle, args.wardenDid, JSON.stringify({ text }));
+  const id = contentId(ciphertext, handle.cipher);
+  const now = new Date().toISOString();
+  const artefact: Artefact = {
+    id,
+    kind: 'document',
+    observedAt: args.leaf.acceptedAt ?? now,
+    storedAt: now,
+    sensitivity: DEFAULT_SENSITIVITY, // fail-safe; the member can reclassify via triage after accept
+    ciphertext,
+    owner: args.ownerDid,
+    scope: 'private',
+    metadata: {
+      credentialDid: args.leaf.credentialDid,
+      issuer: args.leaf.issuer,
+      credentialType: args.leaf.credentialType,
+      schema: args.leaf.schema,
+      trustClass: 'issued',
+      source: 'inbound-card',
+    },
+  };
+  await new VaultStore(handle.dataFolder).put(artefact);
+  await new IssuedStore(handle.dataFolder).put(args.leaf);
+  return id;
 }
 
 /**
