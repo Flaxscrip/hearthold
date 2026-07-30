@@ -33,6 +33,7 @@ import {
   buildIssuedLeaf,
   sealForWarden,
   unsealAsWarden,
+  GroupTrustRegistry,
   type HearthholdConfig,
   type KeymasterHandle,
   type RequestHandler,
@@ -85,6 +86,7 @@ import { makeDidcommActionApprover, makeDidcommRulesetSigner, makeDidcommMemberA
 import { hydrateCardFace } from './face.js';
 import { triageQueue, confirmTriage } from './triage.js';
 import { InboundCardStore, type StoredInboundCard } from './inbound-card-store.js';
+import { AutofileStore } from './autofile-store.js';
 import { promoteVerifiedCard } from './credential-vault.js';
 import { claimableMarks, claimMark } from './marks.js';
 import { buildKbServices, KbConfigStore, setKbAssurance, readKbAssurance, provisionMemberPartition } from './kb-config.js';
@@ -655,6 +657,11 @@ export async function runWardenControl(
           await coSign(viewer, 'triage-relax', artefactId, `Reclassify ${sensitivityName(target.sensitivity)} → ${sensitivityName(requested)}`);
         }
         const item = await confirmTriage(handle, { artefactId, sensitivity: requested });
+        // ADMISSION: the Sovereign's confirm is what lets the item enter the recall corpus. Index it now
+        // (it was withheld at submit as born-obsidian) — this is the point an Emissary's proposal becomes
+        // searchable content, and only the Sovereign performs it.
+        const confirmed = await store.get(artefactId);
+        if (confirmed) await service.indexArtefact(confirmed);
         server.emit('triage-confirmed', { item }, { owner: viewer });
         return { item };
       },
@@ -895,8 +902,23 @@ export async function runWardenControl(
   // The step-up approver reaches the member's Signet directly (out-of-band from the Mage).
   const kbs = await buildKbServices(handle, config, id.did, makeDidcommActionApprover(transport), transport as unknown as RewrapChannel);
 
+  // Ingestion trust: a submission quarantines born-obsidian at/below `confirmAtOrBelow` (default SEALED =
+  // all) UNLESS its Emissary is in the Sovereign-managed autofile group — the SAME TRQP/group-membership
+  // model KB read/write uses. No group provisioned ⇒ nobody bypasses (safe default). An Emissary may
+  // PROPOSE; only the Sovereign's triage-confirm ADMITS into the recall/KB corpus.
+  const autofileStore = new AutofileStore(handle.dataFolder);
+  const isAutofileTrusted = async (emissaryDid: string): Promise<boolean> => {
+    const group = autofileStore.group();
+    if (!group) return false;
+    const tr = new GroupTrustRegistry(handle, [{ action: 'autofile', resource: undefined, group }], id.did);
+    return (await tr.authorize({ entity_id: emissaryDid, action: 'autofile' })).authorized;
+  };
+
   // Wrap the real handler so a stored submission is pushed to connected consoles.
-  const inner = makeWardenHandler(service, delegations, evidenceService, kbs, config.sovereignDid);
+  const inner = makeWardenHandler(service, delegations, evidenceService, kbs, config.sovereignDid, {
+    confirmAtOrBelow: config.confirmAtOrBelow,
+    isAutofileTrusted,
+  });
   const handler: RequestHandler = async (message, fromDid) => {
     // Inbound card from another node — VERIFY at receipt, then queue as PENDING-INBOUND (born obsidian;
     // promote into the vault only on the member's explicit accept — Sevenfold's model), emit `card-received`,

@@ -1,6 +1,8 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
+import { Sensitivity } from './security.js';
+
 /** Which Hearthold agent a process is acting as. */
 export type AgentRole = 'warden' | 'emissary' | 'sovereign' | 'verifier' | 'registry';
 
@@ -63,6 +65,15 @@ export interface HearthholdConfig {
   cardPassTimeoutMs: number;
   /** Control-plane session lifetime in ms (absolute; never slid on use). Default 30 min. */
   sessionTtlMs: number;
+  /**
+   * Ingestion gate: a submission whose sensitivity is `<= confirmAtOrBelow` is QUARANTINED (born-obsidian,
+   * awaiting the Sovereign's triage-confirm) rather than admitted to the vault corpus. Default **SEALED** so
+   * `sensitivity <= SEALED` is always true → **everything quarantines** (safe: an Emissary may PROPOSE, only
+   * the Sovereign ADMITS). Lower it (MEDIUM/LOW) to auto-admit the tiers above the bound. Env:
+   * `HEARTHOLD_CONFIRM_AT_OR_BELOW` (a label PUBLIC|LOW|MEDIUM|HIGH|SEALED or a number 0–4). A per-Emissary
+   * `autofile` trust-registry grant bypasses this floor for a trusted device.
+   */
+  confirmAtOrBelow: Sensitivity;
   /**
    * The interface the control-plane HTTP daemons (Warden `:4310`, Signet `:4311`) bind to. Defaults to
    * `127.0.0.1` (loopback only — the safe default; the control API is unauthenticated-at-transport). An
@@ -130,6 +141,23 @@ function resolveTimeout(value: string | undefined, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? Math.min(n, STEPUP_TIMEOUT_HARD_CAP_MS) : fallback;
 }
 
+const SENSITIVITY_BY_LABEL: Record<string, Sensitivity> = {
+  PUBLIC: Sensitivity.PUBLIC,
+  LOW: Sensitivity.LOW,
+  MEDIUM: Sensitivity.MEDIUM,
+  HIGH: Sensitivity.HIGH,
+  SEALED: Sensitivity.SEALED,
+};
+
+/** Parse a sensitivity from a label (PUBLIC…SEALED) or number 0–4; fall back (safe) on anything else. */
+function parseSensitivity(value: string | undefined, fallback: Sensitivity): Sensitivity {
+  if (value === undefined) return fallback;
+  const byLabel = SENSITIVITY_BY_LABEL[value.trim().toUpperCase()];
+  if (byLabel !== undefined) return byLabel;
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 0 && n <= 4 ? (n as Sensitivity) : fallback;
+}
+
 /** Build config from environment with sensible local-node defaults. */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): HearthholdConfig {
   // HEARTHOLD_STEPUP_TIMEOUT_MS sets both levels; per-level overrides are also available.
@@ -160,6 +188,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): HearthholdConf
       const n = Number(env.HEARTHOLD_SESSION_TTL_MS);
       return Number.isFinite(n) && n > 0 ? n : DEFAULT_SESSION_TTL_MS;
     })(),
+    confirmAtOrBelow: parseSensitivity(env.HEARTHOLD_CONFIRM_AT_OR_BELOW, Sensitivity.SEALED),
     controlHost: env.HEARTHOLD_CONTROL_HOST ?? '127.0.0.1',
     controlAllowOrigins: (env.HEARTHOLD_CONTROL_ALLOW_ORIGIN ?? '')
       .split(',')

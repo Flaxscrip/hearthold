@@ -8,6 +8,7 @@ import {
   type KbLoginStartMessage,
   type KbLoginCompleteMessage,
   type KbSessionRequestMessage,
+  type Sensitivity,
 } from '@hearthold/core';
 
 import type { WardenService } from './service.js';
@@ -27,6 +28,12 @@ export function makeWardenHandler(
   kbs?: Map<string, KbService>,
   /** Owner attributed to a submission when its Emissary isn't bound to a member (single-Sovereign fallback). */
   defaultOwner?: string,
+  /**
+   * Ingestion policy for inbound submissions. `confirmAtOrBelow` is the quarantine floor (default SEALED =
+   * quarantine everything); `isAutofileTrusted(emissaryDid)` checks the autofile trust registry so a trusted
+   * device bypasses the floor. Omitted ⇒ the safe default (quarantine all, nobody autofiles).
+   */
+  ingest?: { confirmAtOrBelow?: Sensitivity; isAutofileTrusted: (emissaryDid: string) => Promise<boolean> },
 ): RequestHandler {
   const deny = (reason: string): HearthholdMessage => ({
     type: 'hearthold/error',
@@ -45,7 +52,13 @@ export function makeWardenHandler(
         }
         // Attribute the submission's OWNER: the member this Emissary serves, else the default Sovereign.
         const owner = (await delegations.memberFor(fromDid)) ?? defaultOwner;
-        return service.handleSubmission(message as WitnessSubmission, fromDid, owner);
+        // Ingestion gate: is THIS Emissary autofile-trusted (bypasses quarantine), and what's the floor?
+        // Default (no policy) → quarantine everything (an Emissary may PROPOSE, only the Sovereign ADMITS).
+        const autofileTrusted = ingest ? await ingest.isAutofileTrusted(fromDid) : false;
+        return service.handleSubmission(message as WitnessSubmission, fromDid, owner, {
+          autofileTrusted,
+          ...(ingest?.confirmAtOrBelow !== undefined ? { confirmAtOrBelow: ingest.confirmAtOrBelow } : {}),
+        });
       }
 
       case 'hearthold/evidence-request': {

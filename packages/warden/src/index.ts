@@ -20,6 +20,7 @@ import {
 } from '@hearthold/core';
 
 import { createClassifier } from './classifier.js';
+import { AutofileStore } from './autofile-store.js';
 import { VaultStore } from './store.js';
 import { WardenService } from './service.js';
 import { DelegationStore } from './delegations.js';
@@ -99,6 +100,9 @@ Usage:
   warden kb-reindex [--kb <kbId>]              Backfill the recall index (embed stored-but-unindexed content)
   warden migrate-owner                         Attribute pre-family vault artefacts to the Sovereign (family model)
   warden household-init <id> [--governor <did>]  Provision a household: shared Vault + rosters + genesis Ruleset
+  warden autofile-grant <emissaryDid>   Trust an Emissary to auto-file (bypass ingestion quarantine)
+  warden autofile-revoke <emissaryDid>  Revoke autofile trust (its submissions quarantine again)
+  warden autofile-list                  List autofile-trusted Emissaries
   warden rotate            Rotate the Warden's signing keys (incident response; DIDs keep resolving)
   warden passphrase <new>  Re-encrypt the wallet under a new passphrase (then update the env)
   warden check             Health-check the wallet
@@ -488,6 +492,49 @@ async function main(): Promise<void> {
         `  scanned ${r.scanned} · already-indexed ${r.alreadyIndexed} · backfilled ${r.backfilled} · skipped ${r.skipped} · failed ${r.failed}\n` +
           (r.failed > 0 ? `  ⚠ ${r.failed} still failed to embed — the embedder may be down; re-run when it has headroom.\n` : '') +
           (r.backfilled > 0 ? `  ✓ ${r.backfilled} artefact(s) are now searchable.\n` : ''),
+      );
+      break;
+    }
+    case 'autofile-grant':
+    case 'autofile-revoke':
+    case 'autofile-list': {
+      // Manage the autofile trust group: Emissaries in it BYPASS ingestion quarantine (auto-file);
+      // everyone else quarantines born-obsidian until the Sovereign confirms. Same group-membership model
+      // as KB read/write. The group is created on first grant and its DID persisted in autofile.json.
+      await ensureIdentity(handle, config);
+      const autofile = new AutofileStore(handle.dataFolder);
+      if (cmd === 'autofile-list') {
+        const group = autofile.group();
+        if (!group) {
+          process.stdout.write('No autofile group yet — everything quarantines (safe default).\n');
+          break;
+        }
+        const g = (await handle.keymaster.getGroup(group).catch(() => null)) as { members?: string[] } | null;
+        const members = g?.members ?? [];
+        process.stdout.write(
+          `Autofile-trusted Emissaries (${members.length}) [group ${group.slice(0, 28)}…]:\n` +
+            (members.length ? members.map((m) => `  · ${m}\n`).join('') : '  (none)\n'),
+        );
+        break;
+      }
+      const did = process.argv[3];
+      if (!did) throw new Error(`usage: warden ${cmd} <emissaryDid>`);
+      let group = autofile.group();
+      if (!group) {
+        if (cmd === 'autofile-revoke') {
+          process.stdout.write('No autofile group — nothing to revoke.\n');
+          break;
+        }
+        group = await createRegistryGroup(handle, 'hearthold-autofile', config.registry);
+        autofile.setGroup(group);
+      }
+      const ok =
+        cmd === 'autofile-grant'
+          ? await grantAuthorization(handle, group, did)
+          : await revokeAuthorization(handle, group, did);
+      process.stdout.write(
+        `${cmd === 'autofile-grant' ? 'Granted' : 'Revoked'} autofile trust ${ok ? '✓' : '(no change)'}\n  emissary: ${did.slice(0, 32)}…\n` +
+          (cmd === 'autofile-grant' ? '  → this Emissary’s submissions now auto-file (bypass quarantine).\n' : '  → this Emissary’s submissions now quarantine until you confirm.\n'),
       );
       break;
     }
