@@ -185,7 +185,13 @@ export class DidCommTransport implements Transport {
         let inbound: Awaited<ReturnType<typeof this.handle.keymaster.receiveDidComm>> = [];
         try {
           inbound = await this.handle.keymaster.receiveDidComm({ name: this.idName });
-        } catch {
+        } catch (err) {
+          // DO NOT swallow: a fetched message that fails to unpack (can't authdecrypt, or can't verify/resolve
+          // the sender) is consumed from the mailbox but never dispatched — a silent drop that looks like a
+          // hang to the sender. Name the cause so it's diagnosable (Aegis's ask), then keep the loop alive.
+          process.stderr.write(
+            `[didcomm] ${this.idName}: receiveDidComm/unpack FAILED — ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`,
+          );
           inbound = [];
         }
 
@@ -193,7 +199,10 @@ export class DidCommTransport implements Transport {
           const wrapped = m.message as { thid?: string; body?: HearthholdMessage };
           const body = wrapped?.body;
           const thid = wrapped?.thid;
-          if (!body?.type) continue;
+          if (!body?.type) {
+            process.stderr.write(`[didcomm] ${this.idName}: dropped a fetched message with no usable body (unpacked but empty) — investigate the sender's pack\n`);
+            continue;
+          }
 
           // A reply to one of our in-flight requests — hand it to the waiter.
           if (thid && this.pending.has(thid)) {
@@ -206,7 +215,12 @@ export class DidCommTransport implements Transport {
           // Otherwise it's an incoming request — dispatch to the handler off the loop.
           const h = this.handler;
           const fromDid = bareDid(m.metadata?.sender);
-          if (!h || !fromDid) continue;
+          if (!h || !fromDid) {
+            // A body with no resolvable sender = the authcrypt sender couldn't be verified/resolved — the
+            // likely cause of a silent submit drop. Surface it (but stay quiet when we simply aren't serving).
+            if (h && !fromDid) process.stderr.write(`[didcomm] ${this.idName}: dropped '${body.type}' — no verified sender (authcrypt sender unresolved)\n`);
+            continue;
+          }
           void (async () => {
             let reply: HearthholdMessage | null = null;
             try {

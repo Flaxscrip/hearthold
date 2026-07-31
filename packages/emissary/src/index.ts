@@ -142,7 +142,9 @@ async function main(): Promise<void> {
       // Store the bytes as a NATIVE Archon image asset (→ the node's content-addressed IPFS), and ship only
       // the tiny asset-DID REFERENCE — no 8 MB of base64 in DIDComm. The Warden resolves it (get-image) and
       // captions it with the local vision model. The asset DID is sealed to the Warden (kept private).
-      const assetDid = await handle.keymaster.createImage(bytes);
+      // Born LOCAL by default (privacy by construction; no hyperswarm never-confirms stall) — explicit here
+      // even though the keymaster default is already contentRegistry, because Aegis named this op.
+      const assetDid = await handle.keymaster.createImage(bytes, { registry: config.contentRegistry });
       const ciphertext = await sealForWarden(handle, wardenDid, JSON.stringify({ assetDid, mediaType }));
       const submission: WitnessSubmission = {
         type: 'hearthold/witness-submission',

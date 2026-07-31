@@ -16,6 +16,16 @@ export interface HearthholdConfig {
   /** Registry used when anchoring operations (e.g. 'hyperswarm' on the local node). */
   registry: string;
   /**
+   * The registry newly-created CONTENT is born on — documents, images/Keymaster image assets, vault
+   * credentials (delegations, evidence scrolls, marks), schemas — INDEPENDENT of the identity `registry`.
+   * Default **`local`**: privacy/isolation by construction (new content is the Sovereign's private data on
+   * their node; it doesn't queue for gossip unless deliberately PROMOTED), and it avoids the never-confirms
+   * stall of creating on `hyperswarm` behind a slow/absent mediator. So a FEDERATED Sovereign (identity on
+   * `hyperswarm`, to cross spheres) still creates content `local` — cross-sphere sharing is an explicit
+   * promote (e.g. card-pass ships the ops), not the birth state. Env: `HEARTHOLD_CONTENT_REGISTRY`.
+   */
+  contentRegistry: string;
+  /**
    * Registry for EPHEMERAL DIDs — challenge/response (auth + VP presentation), where the DID is a
    * throwaway. A challenge/response DID is CONTROLLED BY the agent's identity DID (which lives on
    * `registry`), and the gatekeeper correctly refuses to anchor it on a registry whose peers can't resolve
@@ -176,6 +186,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): HearthholdConf
   return {
     nodeUrl: env.HEARTHOLD_NODE_URL ?? DEFAULT_NODE_URL,
     registry: env.HEARTHOLD_REGISTRY ?? DEFAULT_REGISTRY,
+    // Content is born `local` by default, REGARDLESS of the identity registry (privacy by construction +
+    // avoids the hyperswarm never-confirms stall). Federation is a deliberate promote, not the birth state.
+    contentRegistry: env.HEARTHOLD_CONTENT_REGISTRY ?? DEFAULT_REGISTRY,
     ephemeralRegistry: env.HEARTHOLD_EPHEMERAL_REGISTRY ?? env.HEARTHOLD_REGISTRY ?? DEFAULT_REGISTRY,
     dataRoot: env.HEARTHOLD_DATA_ROOT ?? DEFAULT_DATA_ROOT,
     wardenDid: env.HEARTHOLD_WARDEN_DID,

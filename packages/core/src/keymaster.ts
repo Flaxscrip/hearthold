@@ -51,7 +51,12 @@ export async function openKeymaster(
     gatekeeper,
     wallet,
     cipher,
-    defaultRegistry: config.registry,
+    // CONTENT is born on `contentRegistry` (default `local`): issued credentials, image assets, schemas — all
+    // default here, so a federated Sovereign's *content* stays local while its *identity* federates. The
+    // IDENTITY itself is created explicitly on `config.registry` (ensureIdentity → createId), and ephemerals
+    // on `config.ephemeralRegistry` (below), so those remain identity-aligned. On the all-`local` default the
+    // two coincide → no behavioural change; the split only bites once `HEARTHOLD_REGISTRY` becomes hyperswarm.
+    defaultRegistry: config.contentRegistry,
   });
   // A challenge/response DID is controlled by this agent's identity DID (on config.registry). Keymaster
   // hardcodes the ephemeral default to `hyperswarm` and does NOT inherit `defaultRegistry`, so a `local`
