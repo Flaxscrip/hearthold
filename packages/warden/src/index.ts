@@ -20,6 +20,7 @@ import {
 } from '@hearthold/core';
 
 import { createClassifier } from './classifier.js';
+import { createVisionCaptioner } from './vision.js';
 import { AutofileStore } from './autofile-store.js';
 import { VaultStore } from './store.js';
 import { WardenService } from './service.js';
@@ -234,7 +235,7 @@ async function main(): Promise<void> {
       await transport.ready();
       const kbs = await buildKbServices(handle, config, id.did, makeDidcommActionApprover(transport), transport as unknown as RewrapChannel);
       const handler = makeWardenHandler(
-        new WardenService(handle, createClassifier(config), makeEmbedder(config)),
+        new WardenService(handle, createClassifier(config), makeEmbedder(config), createVisionCaptioner(config)),
         new DelegationStore(handle),
         new EvidenceService(handle, config),
         kbs,

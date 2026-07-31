@@ -77,6 +77,7 @@ import {
 } from '@hearthold/control-types';
 
 import { createClassifier } from './classifier.js';
+import { createVisionCaptioner } from './vision.js';
 import { WardenService } from './service.js';
 import { VaultStore, type Artefact } from './store.js';
 import { DelegationStore } from './delegations.js';
@@ -209,7 +210,7 @@ export async function runWardenControl(
     );
   };
   const embedder = config.indexMode === 'ollama' ? new OllamaEmbedder(config.ollamaUrl, config.embeddingModel) : undefined;
-  const service = new WardenService(handle, createClassifier(config), embedder);
+  const service = new WardenService(handle, createClassifier(config), embedder, createVisionCaptioner(config));
 
   const transport = new DidCommTransport(handle, IDENTITY_NAME.warden, config.nodeUrl);
   await transport.ready();

@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { readFileSync } from 'node:fs';
+
 import {
   loadConfig,
   openKeymaster,
@@ -25,6 +27,7 @@ Usage:
   emissary status               Show identity and config
   emissary accept <credDid>     Accept a delegation credential from the Warden
   emissary submit <kind> <text> Seal an observation and submit it to the Warden over DIDComm
+  emissary submit-image <path>  Submit an image; the Warden captions it on-device, then classifies
   emissary serve                Project to the world: relay proof-requests to the Sovereign (Signet)
   emissary kb-portal            Emissary: relay Knowledge Base traffic to the Warden (carries only)
   emissary kb-web [port]        Emissary web portal: HTTP→DIDComm bridge for the browser (default 4313)
@@ -112,6 +115,46 @@ async function main(): Promise<void> {
           `Submitted ${kind} to Warden ${wardenDid.slice(0, 24)}…\n` +
             `  artefact:    ${reply.artefactId.slice(0, 28)}…\n` +
             `  sensitivity: ${reply.assignedSensitivity} (stored ${reply.storedAt})\n`,
+        );
+      } else if (reply.type === 'hearthold/error') {
+        process.stderr.write(`Warden refused: ${reply.reason}\n`);
+        process.exitCode = 1;
+      } else {
+        process.stderr.write(`Unexpected reply: ${reply.type}\n`);
+        process.exitCode = 1;
+      }
+      break;
+    }
+    case 'submit-image': {
+      const path = process.argv[3];
+      if (!path) throw new Error('usage: emissary submit-image <path-to-image>');
+      const wardenDid = config.wardenDid;
+      if (!wardenDid) throw new Error('HEARTHOLD_WARDEN_DID is required for submit');
+      const bytes = readFileSync(path);
+      // Size cap: the image rides in the sealed submission payload over DIDComm. Keep it modest.
+      const MAX_BYTES = 8 * 1024 * 1024;
+      if (bytes.length > MAX_BYTES) throw new Error(`image too large (${bytes.length} bytes > ${MAX_BYTES}); cap is 8 MB`);
+      const ext = (path.split('.').pop() ?? '').toLowerCase();
+      const mediaType = ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+
+      const transport = new DidCommTransport(handle, IDENTITY_NAME.emissary, config.nodeUrl);
+      await transport.ready();
+      // The image bytes ARE the sealed artefact payload (encrypted at rest, like a document). The Warden
+      // unseals + captions with the local vision model, then classifies the caption → the whole pipeline.
+      const ciphertext = await sealForWarden(handle, wardenDid, JSON.stringify({ image: { mediaType, bytesB64: bytes.toString('base64') } }));
+      const submission: WitnessSubmission = {
+        type: 'hearthold/witness-submission',
+        version: PROTOCOL_VERSION,
+        kind: 'image',
+        observedAt: new Date().toISOString(),
+        ciphertext,
+      };
+      const reply = await transport.request(wardenDid, submission);
+      if (reply.type === 'hearthold/submission-receipt') {
+        process.stdout.write(
+          `Submitted image to Warden ${wardenDid.slice(0, 24)}…\n` +
+            `  artefact:    ${reply.artefactId.slice(0, 28)}…\n` +
+            `  sensitivity: ${reply.assignedSensitivity} (captioned on-device; quarantined until you confirm)\n`,
         );
       } else if (reply.type === 'hearthold/error') {
         process.stderr.write(`Warden refused: ${reply.reason}\n`);

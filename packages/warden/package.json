@@ -127,6 +127,10 @@
     "./credential-vault": {
       "types": "./dist/credential-vault.d.ts",
       "import": "./dist/credential-vault.js"
+    },
+    "./vision": {
+      "types": "./dist/vision.d.ts",
+      "import": "./dist/vision.js"
     }
   },
   "scripts": {

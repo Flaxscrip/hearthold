@@ -43,6 +43,15 @@ export interface HearthholdConfig {
    * fast — the two roles have different tradeoffs (classification wants speed, answering wants quality).
    */
   answerModel: string;
+  /**
+   * Warden: local VISION model that captions an `image` submission (description + tags) BEFORE the text
+   * classifier assigns sensitivity — so images inherit every gate (classify → ingestion quarantine → triage
+   * → recall) with no parallel pipeline. Same `ollamaUrl` + `/api/chat` shape as the classifier, just an
+   * `images:[b64]` attachment. Default a SMALL model (`moondream`) for modest hardware; opt up via
+   * `HEARTHOLD_VISION_MODEL` (`llava`, `llama3.2-vision`, …). Absent/errored ⇒ the image classifies SEALED
+   * (fail-closed) so a missing model quarantines rather than leaks. On-device; no egress.
+   */
+  visionModel: string;
   /** Warden: 'ollama' (local model) or 'quarantine' (fail-safe stub, everything SEALED). */
   classifierMode: 'ollama' | 'quarantine';
   /** Warden: local embedding model for the recall index (Ollama). Stays on-device. */
@@ -130,6 +139,7 @@ const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
 // answers, HEARTHOLD_ANSWER_MODEL).
 const DEFAULT_CLASSIFIER_MODEL = 'qwen2.5:3b';
 const DEFAULT_EMBEDDING_MODEL = 'nomic-embed-text';
+const DEFAULT_VISION_MODEL = 'moondream'; // ~1.7 GB — hackathon-class hardware copes; opt up via env
 const DEFAULT_STEPUP_TIMEOUT_MS = 180_000;
 const STEPUP_TIMEOUT_HARD_CAP_MS = 600_000;
 const DEFAULT_CARD_PASS_TIMEOUT_MS = 60_000; // matches the transport default; raise via env for a Tor substrate
@@ -171,6 +181,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): HearthholdConf
     wardenDid: env.HEARTHOLD_WARDEN_DID,
     sovereignDid: env.HEARTHOLD_SOVEREIGN_DID,
     ollamaUrl: env.HEARTHOLD_OLLAMA_URL ?? DEFAULT_OLLAMA_URL,
+    visionModel: env.HEARTHOLD_VISION_MODEL ?? DEFAULT_VISION_MODEL,
     classifierModel,
     // The RAG answerer follows the classifier unless separately overridden (back-compat: one var still
     // moved both). Split so a strong-hardware install can raise answer quality without slowing classify.
