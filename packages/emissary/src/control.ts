@@ -85,11 +85,30 @@ export async function runEmissaryControl(
       'GET /api/status': () => ({ status: status() }),
       'GET /api/snapshot': () => snapshot(),
       'POST /api/submit': async ({ body }) => {
-        const { kind, text } = (body ?? {}) as SubmitRequest;
-        if (!kind || !text) throw new Error('kind and text are required');
+        const { kind, text, attachment } = (body ?? {}) as SubmitRequest;
+        if (!kind) throw new Error('kind is required');
         const wardenDid = config.wardenDid;
         if (!wardenDid) throw new Error('HEARTHOLD_WARDEN_DID is not set on the Emissary daemon');
-        const ciphertext = await sealForWarden(handle, wardenDid, JSON.stringify({ text }));
+        // Two payload shapes, one reliable path (this daemon owns the mailbox, so no receive contention —
+        // unlike the racy `submit-image` CLI). A binary attachment becomes a NATIVE Archon image asset:
+        // the bytes go to the node's content-addressed IPFS (born on contentRegistry = local by construction),
+        // and only the tiny asset-DID REFERENCE is sealed to the Warden — never base64 in DIDComm. The Warden
+        // get-image's it and captions on-device. Kind-enforcement still applies at the Warden, so only an
+        // image-delegated Emissary (e.g. :4313 `--kinds image`) actually lands an image.
+        let payload: string;
+        if (attachment) {
+          if (!attachment.mediaType || !attachment.bytesB64) throw new Error('attachment requires mediaType and bytesB64');
+          const bytes = Buffer.from(attachment.bytesB64, 'base64');
+          const MAX_BYTES = 8 * 1024 * 1024;
+          if (bytes.length === 0) throw new Error('attachment bytes are empty (bad base64?)');
+          if (bytes.length > MAX_BYTES) throw new Error(`attachment too large (${bytes.length} bytes > ${MAX_BYTES}); cap is 8 MB`);
+          const assetDid = await handle.keymaster.createImage(bytes, { registry: config.contentRegistry });
+          payload = JSON.stringify({ assetDid, mediaType: attachment.mediaType });
+        } else {
+          if (!text) throw new Error('text is required for a non-attachment submission');
+          payload = JSON.stringify({ text });
+        }
+        const ciphertext = await sealForWarden(handle, wardenDid, payload);
         const thid = randomUUID();
         const submittedAt = new Date().toISOString();
         const submission: WitnessSubmission = {

@@ -597,7 +597,14 @@ export interface EmissarySnapshot {
 /** Submit a captured observation to the Warden. */
 export interface SubmitRequest {
   kind: string;
-  text: string;
+  /** Text observation. Required for text kinds; omit when submitting a binary `attachment` (e.g. an image). */
+  text?: string;
+  /**
+   * A binary attachment (e.g. an image) submitted through the RELIABLE daemon path — the Emissary turns it
+   * into a native Archon image asset (bytes → the node's IPFS) and ships only the sealed asset-DID reference,
+   * never base64 in DIDComm. Use this instead of the racy `submit-image` CLI. Present ⇒ `kind` is `'image'`.
+   */
+  attachment?: WitnessAttachment;
 }
 export interface SubmitResponse {
   receipt: ReceiptRecord;
