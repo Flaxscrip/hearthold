@@ -2,6 +2,7 @@
 
 export * from './config.js';
 export * from './security.js';
+export * from './escalation.js';
 export * from './protocol.js';
 export * from './keymaster.js';
 export * from './identity.js';

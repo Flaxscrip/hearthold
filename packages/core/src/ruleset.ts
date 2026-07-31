@@ -16,6 +16,7 @@ import { createHash } from 'node:crypto';
 
 import type { KeymasterHandle } from './keymaster.js';
 import type { AssuranceTier } from './trust-registry.js';
+import type { SpendAllowance } from './escalation.js';
 
 /** Lifecycle of the chain's head. Non-head versions are 'superseded' by position (a display state). */
 export type RulesetStatus = 'active' | 'superseded' | 'revoked';
@@ -51,6 +52,16 @@ export interface RulesetCapabilities {
     /** Audiences the Warden keys (overrides a `'subject'` default for these). */
     warden?: string[];
   };
+  /**
+   * Agent-family SPEND / RISK allowance (docs/agent-family.md): the cost band within which this actor (an
+   * AI-agent Sovereign) may SELF-authorize at its own Signet, and the point past which a priced action
+   * escalates to the human PARENT's Signet. Set + SIGNED by the governor (the parent); the chain is
+   * governor-pinned, so the agent cannot raise its own limit — a raise is a parent-signed supersession
+   * (graduated autonomy). Absent ⇒ no self-authority for cost: any priced action escalates to the parent.
+   * Consumed by `decideEscalation` / `warden/spend.ts`; orthogonal to the sensitivity ladder (the required
+   * tier is the max of the two).
+   */
+  spend?: SpendAllowance;
 }
 
 export interface Ruleset {
