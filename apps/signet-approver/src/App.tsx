@@ -121,23 +121,52 @@ function ApprovalCard({ approval, onResolved }: { approval: PendingApproval; onR
     }
   };
 
+  const isSpend = approval.kind === 'spend';
   const isEvidence = approval.kind === 'evidence-approval';
   const isAction = approval.kind === 'kb-action';
   const isPolicy = approval.kind === 'policy-signature';
-  const label = isEvidence
-    ? 'evidence disclosure'
-    : isAction
-      ? 'action authorization'
-      : isPolicy
-        ? 'sign the law'
-        : 'disclosure request';
+  const label = isSpend
+    ? 'approve a spend'
+    : isEvidence
+      ? 'evidence disclosure'
+      : isAction
+        ? 'action authorization'
+        : isPolicy
+          ? 'sign the law'
+          : 'disclosure request';
   return (
-    <div className={`approval${isEvidence ? ' evidence' : ''}${isAction ? ' action' : ''}${isPolicy ? ' policy' : ''}`}>
+    <div className={`approval${isSpend ? ' spend' : ''}${isEvidence ? ' evidence' : ''}${isAction ? ' action' : ''}${isPolicy ? ' policy' : ''}`}>
       <div className="approval-head">
         <span className="req-label">{label}</span>
         <span className="ago">{new Date(approval.receivedAt).toLocaleTimeString()}</span>
       </div>
-      {isPolicy ? (
+      {isSpend ? (
+        <dl className="ctx">
+          <dt>agent</dt>
+          <dd><DidTag did={approval.agent ?? approval.requester} /></dd>
+          <dt>spend</dt>
+          <dd className="claim">
+            <span className="chip amount">{approval.amount}{approval.unit ? ` ${approval.unit}` : ''}</span>
+          </dd>
+          {approval.summary && (
+            <>
+              <dt>purpose</dt>
+              <dd className="reason">{approval.summary}</dd>
+            </>
+          )}
+          <dt>band</dt>
+          <dd>
+            <span className="chip">{approval.band ?? 'parent'}</span>
+            {approval.multifactor && <span className="chip mf">2nd factor</span>}
+          </dd>
+          {approval.sensitivityName && (
+            <>
+              <dt>sensitivity</dt>
+              <dd><span className="chip">{approval.sensitivityName}</span></dd>
+            </>
+          )}
+        </dl>
+      ) : isPolicy ? (
         <dl className="ctx">
           <dt>sign policy</dt>
           <dd className="claim">{approval.summary}</dd>
