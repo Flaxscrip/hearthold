@@ -112,9 +112,9 @@ async function main(): Promise<void> {
 
       if (reply.type === 'hearthold/submission-receipt') {
         process.stdout.write(
-          `Submitted ${kind} to Warden ${wardenDid.slice(0, 24)}…\n` +
+          `Submitted ${kind} to Warden ${wardenDid.slice(0, 24)}… — received & queued for review\n` +
             `  artefact:    ${reply.artefactId.slice(0, 28)}…\n` +
-            `  sensitivity: ${reply.assignedSensitivity} (stored ${reply.storedAt})\n`,
+            `  status:      ${reply.queued ? 'classifying in the background; born-obsidian in triage until you confirm' : `sensitivity ${reply.assignedSensitivity}`}\n`,
         );
       } else if (reply.type === 'hearthold/error') {
         process.stderr.write(`Warden refused: ${reply.reason}\n`);
@@ -156,9 +156,9 @@ async function main(): Promise<void> {
       const reply = await transport.request(wardenDid, submission);
       if (reply.type === 'hearthold/submission-receipt') {
         process.stdout.write(
-          `Submitted image to Warden ${wardenDid.slice(0, 24)}…\n` +
+          `Submitted image to Warden ${wardenDid.slice(0, 24)}… — received & queued for review\n` +
             `  artefact:    ${reply.artefactId.slice(0, 28)}…\n` +
-            `  sensitivity: ${reply.assignedSensitivity} (captioned on-device; quarantined until you confirm)\n`,
+            `  status:      captioning on-device in the background; born-obsidian in triage until you confirm\n`,
         );
       } else if (reply.type === 'hearthold/error') {
         process.stderr.write(`Warden refused: ${reply.reason}\n`);

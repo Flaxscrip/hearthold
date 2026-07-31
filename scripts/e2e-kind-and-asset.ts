@@ -105,8 +105,11 @@ async function main(): Promise<void> {
     await delegations.record(eid.did, imgCred, undefined, ['image']); // re-scope this Emissary to image
     const ciphertext = await sealForWarden(warden, wid.did, JSON.stringify({ assetDid, mediaType: 'image/png' }));
     const receipt = await imgHandler({ type: 'hearthold/witness-submission', version: PROTOCOL_VERSION, kind: 'image', observedAt: new Date('2026-07-30').toISOString(), ciphertext }, eid.did);
-    check('the image submission (asset DID only, no base64) is accepted + stored', receipt?.type === 'hearthold/submission-receipt');
-    const art = receipt?.type === 'hearthold/submission-receipt' ? await store.get((receipt as { artefactId: string }).artefactId) : undefined;
+    check('the image submission (asset DID only, no base64) is accepted + queued', receipt?.type === 'hearthold/submission-receipt');
+    // Ack-before-caption: the caption/classify/store runs in the background — poll for the landed artefact.
+    const artId = receipt?.type === 'hearthold/submission-receipt' ? (receipt as { artefactId: string }).artefactId : '';
+    let art = await store.get(artId);
+    for (let i = 0; i < 40 && !art; i++) { await new Promise((r) => setTimeout(r, 100)); art = await store.get(artId); }
     check('captioned from the IPFS-retrieved bytes (has a description)', typeof art?.metadata?.description === 'string' && (art!.metadata!.description as string).length > 0);
     check('the artefact links the native image asset DID', art?.metadata?.assetDid === assetDid);
     check('and inherits the ingestion gate (quarantined)', art?.metadata?.needsHumanConfirmation === true);
@@ -121,7 +124,7 @@ async function main(): Promise<void> {
   check('makeWardenHandler enforces the delegated kinds (fail-closed)', /grantedKinds\.includes\(kind\)/.test(handlerSrc) && /not delegated for/.test(handlerSrc));
   check('the delegate route records the granted kinds', /delegations\.record\(emissaryDid, credentialDid, actor, grantKinds\)/.test(control));
   check('the Warden resolves an image asset via getImage (no base64)', /keymaster\.getImage\(payload\.assetDid\)/.test(serviceSrc));
-  check('the Emissary creates a native image asset + ships the DID', /keymaster\.createImage\(bytes\)/.test(emissarySrc) && /JSON\.stringify\(\{ assetDid, mediaType \}\)/.test(emissarySrc));
+  check('the Emissary creates a native image asset + ships the DID', /keymaster\.createImage\(bytes,/.test(emissarySrc) && /JSON\.stringify\(\{ assetDid, mediaType \}\)/.test(emissarySrc));
 
   process.stdout.write(
     failures === 0

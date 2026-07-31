@@ -33,11 +33,17 @@ export interface WitnessSubmission {
 export interface SubmissionReceipt {
   type: 'hearthold/submission-receipt';
   version: typeof PROTOCOL_VERSION;
-  /** Stable id of the stored artefact (content hash of the ciphertext). */
+  /** Stable id of the stored artefact (content hash of the ciphertext) — known immediately, before processing. */
   artefactId: string;
-  /** Sensitivity the Warden assigned (post-classification, or quarantine default). */
-  assignedSensitivity: Sensitivity;
+  /**
+   * Sensitivity the Warden assigned (post-classification). ABSENT on the immediate `queued` ack — a
+   * submission is a PROPOSAL, so the honest fast reply is "received & queued", and the caption/classify
+   * runs in the background; the final sensitivity arrives via the `submission-stored` SSE.
+   */
+  assignedSensitivity?: Sensitivity;
   storedAt: string;
+  /** True on the immediate ack (accepted, queued for background caption/classify → born-obsidian for triage). */
+  queued?: boolean;
 }
 
 // ── Emissary → Warden: evidence (with per-request step-up) ──────────────────────

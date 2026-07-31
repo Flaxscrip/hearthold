@@ -98,12 +98,19 @@ async function main(): Promise<void> {
     const reply = await witnessTransport.request(wardenId.did, submission, { pollMs: 1000 });
     check('reply is a submission receipt', reply.type === 'hearthold/submission-receipt');
     const receipt = reply.type === 'hearthold/submission-receipt' ? reply : null;
-    check(`quarantined by default (SEALED=${Sensitivity.SEALED})`, receipt?.assignedSensitivity === Sensitivity.SEALED);
+    // Ack-before-caption: the reply is an immediate "received & queued" ack (artefactId known, no sensitivity
+    // yet); classify/store runs in the background and the artefact lands born-obsidian shortly after.
+    check('the ack is immediate "queued" (received, not yet classified)', receipt?.queued === true && !!receipt?.artefactId);
 
-    step('Vault holds the (encrypted) artefact');
-    const vault = await new WardenService(warden).listArtefacts();
-    const stored = vault.find((a) => a.id === receipt?.artefactId);
-    check('artefact present in vault', stored != null);
+    step('Vault holds the (encrypted) artefact after the background processing lands it');
+    const svc = new WardenService(warden);
+    let stored: Awaited<ReturnType<typeof svc.listArtefacts>>[number] | undefined;
+    for (let i = 0; i < 50 && !stored; i++) {
+      stored = (await svc.listArtefacts()).find((a) => a.id === receipt?.artefactId);
+      if (!stored) await new Promise((r) => setTimeout(r, 200));
+    }
+    check('artefact present in vault (background store completed)', stored != null);
+    check(`quarantined by default (SEALED=${Sensitivity.SEALED})`, stored?.sensitivity === Sensitivity.SEALED);
     check('stored payload is ciphertext, not plaintext', !!stored && !stored.ciphertext.includes('Paris'));
   } finally {
     stop();

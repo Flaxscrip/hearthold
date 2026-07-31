@@ -3,6 +3,7 @@ import {
   type RequestHandler,
   type HearthholdMessage,
   type WitnessSubmission,
+  type SubmissionReceipt,
   type EvidenceRequest,
   type KbRequestMessage,
   type KbLoginStartMessage,
@@ -34,6 +35,12 @@ export function makeWardenHandler(
    * device bypasses the floor. Omitted ⇒ the safe default (quarantine all, nobody autofiles).
    */
   ingest?: { confirmAtOrBelow?: Sensitivity; isAutofileTrusted: (emissaryDid: string) => Promise<boolean> },
+  /**
+   * Fired AFTER a submission finishes processing in the background (caption/classify/store/index) — the seam
+   * for the control plane to emit the `submission-stored` SSE with the real, post-classification receipt.
+   * The submit is ack'd immediately ("received & queued"); this runs later, when the artefact actually lands.
+   */
+  onStored?: (receipt: SubmissionReceipt, submission: WitnessSubmission, fromDid: string) => void,
 ): RequestHandler {
   const deny = (reason: string): HearthholdMessage => ({
     type: 'hearthold/error',
@@ -63,10 +70,26 @@ export function makeWardenHandler(
         // Ingestion gate: is THIS Emissary autofile-trusted (bypasses quarantine), and what's the floor?
         // Default (no policy) → quarantine everything (an Emissary may PROPOSE, only the Sovereign ADMITS).
         const autofileTrusted = ingest ? await ingest.isAutofileTrusted(fromDid) : false;
-        return service.handleSubmission(message as WitnessSubmission, fromDid, owner, {
-          autofileTrusted,
-          ...(ingest?.confirmAtOrBelow !== undefined ? { confirmAtOrBelow: ingest.confirmAtOrBelow } : {}),
-        });
+        const submission = message as WitnessSubmission;
+        // ACK FIRST, process after: the caption (vision model) + classify can exceed the reply-wait on modest
+        // hardware, giving a false "timeout" for a submission that actually succeeded. A submission is a
+        // PROPOSAL, so the honest immediate reply is "received & queued" (with the deterministic artefactId);
+        // the slow caption/classify/store runs in the background and fires `onStored` (→ the SSE) when the
+        // artefact lands born-obsidian for the Sovereign to admit.
+        void service
+          .handleSubmission(submission, fromDid, owner, {
+            autofileTrusted,
+            ...(ingest?.confirmAtOrBelow !== undefined ? { confirmAtOrBelow: ingest.confirmAtOrBelow } : {}),
+          })
+          .then((receipt) => onStored?.(receipt, submission, fromDid))
+          .catch((err: unknown) => process.stderr.write(`[warden] background submission processing failed: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`));
+        return {
+          type: 'hearthold/submission-receipt',
+          version: PROTOCOL_VERSION,
+          artefactId: service.artefactIdFor(submission),
+          storedAt: new Date().toISOString(),
+          queued: true,
+        };
       }
 
       case 'hearthold/evidence-request': {

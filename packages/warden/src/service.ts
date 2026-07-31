@@ -185,6 +185,12 @@ export class WardenService {
     }
   }
 
+  /** The stable artefact id for a submission — the content hash of its ciphertext, known WITHOUT decrypting
+   *  or captioning. Lets the handler ack "received & queued" immediately, before the slow processing runs. */
+  artefactIdFor(submission: WitnessSubmission): string {
+    return contentId(submission.ciphertext, this.warden.cipher);
+  }
+
   /** List stored artefacts (metadata only; payloads remain encrypted). */
   async listArtefacts(): Promise<Artefact[]> {
     return this.store.list();

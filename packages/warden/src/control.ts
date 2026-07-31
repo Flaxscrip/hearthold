@@ -916,11 +916,31 @@ export async function runWardenControl(
     return (await tr.authorize({ entity_id: emissaryDid, action: 'autofile' })).authorized;
   };
 
+  // A submission is ack'd immediately ("received & queued"); when the background caption/classify/store lands
+  // the artefact, THIS fires — push the real, post-classification `submission-stored` to the owning member's
+  // console (scoped: activity metadata is a disclosure). Runs off the reply path, so a slow vision model
+  // never delays the ack.
+  const onSubmissionStored = (receipt: SubmissionReceipt, sub: WitnessSubmission, fromDid: string): void => {
+    void (async () => {
+      const stored = await store.get(receipt.artefactId);
+      const sensitivity = receipt.assignedSensitivity ?? stored?.sensitivity ?? Sensitivity.SEALED;
+      const item: VaultItem = {
+        id: receipt.artefactId,
+        kind: sub.kind,
+        sensitivity,
+        sensitivityName: sensitivityName(sensitivity),
+        observedAt: sub.observedAt,
+        ...(stored?.scope ? { scope: stored.scope } : {}),
+      };
+      server.emit('submission-stored', { item, from: fromDid }, { owner: stored?.owner ?? config.sovereignDid, scope: stored?.scope });
+    })();
+  };
+
   // Wrap the real handler so a stored submission is pushed to connected consoles.
   const inner = makeWardenHandler(service, delegations, evidenceService, kbs, config.sovereignDid, {
     confirmAtOrBelow: config.confirmAtOrBelow,
     isAutofileTrusted,
-  });
+  }, onSubmissionStored);
   const handler: RequestHandler = async (message, fromDid) => {
     // Inbound card from another node — VERIFY at receipt, then queue as PENDING-INBOUND (born obsidian;
     // promote into the vault only on the member's explicit accept — Sevenfold's model), emit `card-received`,
@@ -1025,28 +1045,9 @@ export async function runWardenControl(
       return ack;
     }
 
-    const result = await inner(message, fromDid);
-    if (
-      result &&
-      (result as { type?: string }).type === 'hearthold/submission-receipt' &&
-      message.type === 'hearthold/witness-submission'
-    ) {
-      const receipt = result as SubmissionReceipt;
-      const sub = message as WitnessSubmission;
-      // The stored artefact carries the attributed owner/scope — scope the event so only that member's
-      // console sees their own `submission-stored` (activity metadata is a disclosure, Fable amendment 3).
-      const stored = await store.get(receipt.artefactId);
-      const item: VaultItem = {
-        id: receipt.artefactId,
-        kind: sub.kind,
-        sensitivity: receipt.assignedSensitivity,
-        sensitivityName: sensitivityName(receipt.assignedSensitivity),
-        observedAt: sub.observedAt,
-        ...(stored?.scope ? { scope: stored.scope } : {}),
-      };
-      server.emit('submission-stored', { item, from: fromDid }, { owner: stored?.owner ?? config.sovereignDid, scope: stored?.scope });
-    }
-    return result;
+    // A witness submission is ack'd immediately by `inner` ("received & queued"); the `submission-stored` SSE
+    // fires later from `onSubmissionStored` when the background caption/classify/store lands the artefact.
+    return inner(message, fromDid);
   };
 
   const stop = await transport.serve(handler);

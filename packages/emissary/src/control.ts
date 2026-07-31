@@ -236,11 +236,13 @@ export async function runEmissaryControl(
           let rec: ReceiptRecord;
           if (body.type === 'hearthold/submission-receipt') {
             const r = body as SubmissionReceipt;
+            // Ack-before-caption: the Warden replies "received & queued" immediately (no sensitivity yet);
+            // the born-obsidian artefact + its classification surface via the Table's SSE, not this ack.
             rec = {
               id: thid,
               kind,
-              status: 'stored',
-              sensitivityName: sensName(r.assignedSensitivity),
+              status: r.queued ? 'queued' : 'stored',
+              ...(r.assignedSensitivity !== undefined ? { sensitivityName: sensName(r.assignedSensitivity) } : {}),
               at: r.storedAt,
             };
           } else {
