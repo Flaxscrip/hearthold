@@ -29,6 +29,9 @@
       "path": "packages/registry"
     },
     {
+      "path": "packages/agent-mcp"
+    },
+    {
       "path": "packages/signet-tui"
     },
     {
