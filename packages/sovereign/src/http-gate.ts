@@ -41,7 +41,23 @@ export class HttpGate implements ApprovalGate {
   approve(ctx: ApprovalContext): Promise<HumanPresenceAssertion | null> {
     const id = randomUUID();
     let approval: PendingApproval;
-    if (ctx.disclosure) {
+    if (ctx.spend) {
+      // A spend escalation renders as its own decision — amount, agent, band — for the Table / TUI.
+      approval = {
+        id,
+        requester: ctx.requester,
+        kind: 'spend-approval',
+        agent: ctx.spend.agentDid,
+        amount: ctx.spend.amount,
+        unit: ctx.spend.unit,
+        band: ctx.spend.band,
+        multifactor: ctx.spend.tier >= 4,
+        action: ctx.action?.action,
+        resource: ctx.action?.resource,
+        summary: ctx.action?.summary,
+        receivedAt: new Date().toISOString(),
+      };
+    } else if (ctx.disclosure) {
       approval = {
         id,
         requester: ctx.requester,

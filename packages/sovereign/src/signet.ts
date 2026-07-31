@@ -10,7 +10,7 @@
  * and the gate is where the proof-of-human level scales with sensitivity.
  */
 
-import type { HumanPresenceAssertion } from '@hearthold/core';
+import type { HumanPresenceAssertion, SpendApprovalDetail } from '@hearthold/core';
 
 export interface ApprovalContext {
   /** The party the disclosure would go to (a verifier, or the Warden for an evidence approval). */
@@ -32,6 +32,11 @@ export interface ApprovalContext {
     resource: string;
     summary: string;
   };
+  /**
+   * For an agent-family SPEND escalation: the amount/agent/band the Signet renders as a spend decision
+   * (docs/agent-family.md). Accompanies `action` (which carries the purpose) when a priced step-up escalates.
+   */
+  spend?: SpendApprovalDetail;
   /** For Ruleset governance: the policy change the Sovereign is asked to sign. */
   governance?: {
     summary: string;
@@ -101,13 +106,17 @@ export class PromptGate implements ApprovalGate {
   constructor(private readonly expected: string) {}
 
   async approve(ctx: ApprovalContext): Promise<HumanPresenceAssertion | null> {
-    const detail = ctx.disclosure
-      ? `   claim:     ${ctx.disclosure.claim}\n   reason:    ${ctx.disclosure.reason}\n`
-      : ctx.governance
-        ? `   sign law:  ${ctx.governance.summary}\n`
-        : ctx.action
-          ? `   action:    ${ctx.action.action} on ${ctx.action.resource}\n   detail:    ${ctx.action.summary}\n`
-          : `   challenge: ${(ctx.challengeDid ?? '').slice(0, 40)}…\n`;
+    const detail = ctx.spend
+      ? `   agent:     ${ctx.spend.agentDid.slice(0, 40)}…\n   spend:     ${ctx.spend.amount}${ctx.spend.unit ? ` ${ctx.spend.unit}` : ''}\n` +
+        `   purpose:   ${ctx.action?.summary ?? ctx.action?.resource ?? '(unnamed)'}\n` +
+        `   band:      ${ctx.spend.band}${ctx.spend.tier >= 4 ? ' · 2nd factor' : ''}\n`
+      : ctx.disclosure
+        ? `   claim:     ${ctx.disclosure.claim}\n   reason:    ${ctx.disclosure.reason}\n`
+        : ctx.governance
+          ? `   sign law:  ${ctx.governance.summary}\n`
+          : ctx.action
+            ? `   action:    ${ctx.action.action} on ${ctx.action.resource}\n   detail:    ${ctx.action.summary}\n`
+            : `   challenge: ${(ctx.challengeDid ?? '').slice(0, 40)}…\n`;
     process.stdout.write(
       `\n🔑 Signet — a disclosure needs your approval\n` +
         `   from:      ${ctx.requester.slice(0, 40)}…\n` +

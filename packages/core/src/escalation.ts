@@ -56,6 +56,26 @@ export interface SpendAllowance {
 /** Which principal a tier's step-up routes to in the agent family. */
 export type EscalationBand = 'standing' | 'agent' | 'parent';
 
+/**
+ * The spend context carried on a step-up so the Signet can render a real SPEND decision — "agent X wants
+ * N unit — purpose — band" — instead of a generic yes/no. Threaded from the `SpendRequest` through the
+ * approval request to the Signet handler + its approval UI.
+ */
+export interface SpendApprovalDetail {
+  /** The agent Sovereign asking to spend. */
+  agentDid: string;
+  /** The cost, in the household's canonical minor unit. */
+  amount: number;
+  /** Unit label for display (e.g. `'sat'`, `'USD_cents'`). */
+  unit?: string;
+  /** Which band this escalation is — `agent` (self) or `parent`. */
+  band: EscalationBand;
+  /** The required tier (distinguishes `MULTIFACTOR` = the parent's Signet + 2nd factor from plain `HUMAN`). */
+  tier: AuthzTier;
+  /** Sensitivity the action touches, if any (a cheap-but-sensitive action can reach the parent). */
+  sensitivity?: Sensitivity;
+}
+
 /** The two Signets an escalation can route to: the acting agent's own, and the human parent's. */
 export interface FamilyTopology {
   /** The AI agent's own Sovereign DID (its Signet answers the CHALLENGE / agent band). */

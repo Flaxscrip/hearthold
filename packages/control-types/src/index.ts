@@ -477,8 +477,9 @@ export interface PendingApproval {
    * `evidence-approval` — co-sign the Warden's disclosure of derived, witnessed data.
    * `kb-action` — authorize a factor-2 Knowledge Base action (the Warden's out-of-band step-up).
    * `policy-signature` — sign a Warden policy change (Ruleset governance).
+   * `spend-approval` — approve an agent-family SPEND escalation (agent · amount · purpose · band).
    */
-  kind: 'proof-request' | 'evidence-approval' | 'kb-action' | 'policy-signature';
+  kind: 'proof-request' | 'evidence-approval' | 'kb-action' | 'policy-signature' | 'spend-approval';
   /** Proof-request: the challenge being answered. */
   challengeDid?: string;
   schema?: string;
@@ -487,10 +488,16 @@ export interface PendingApproval {
   claim?: string;
   /** Evidence approval: the Warden-authored reason shown to the Sovereign (never the agent's words). */
   reason?: string;
-  /** KB action: the action (`write`/`read`), the KB resource, and a Warden-authored summary. */
+  /** KB action / spend: the action, the resource, and a Warden-authored summary (the purpose). */
   action?: string;
   resource?: string;
   summary?: string;
+  /** Spend-approval: the agent Sovereign asking, the cost + unit, the band, and whether a 2nd factor is due. */
+  agent?: string;
+  amount?: number;
+  unit?: string;
+  band?: 'standing' | 'agent' | 'parent';
+  multifactor?: boolean;
   receivedAt: string;
 }
 

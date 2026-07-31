@@ -10,7 +10,8 @@
   "exports": {
     ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
     "./handler": { "types": "./dist/handler.d.ts", "import": "./dist/handler.js" },
-    "./signet": { "types": "./dist/signet.d.ts", "import": "./dist/signet.js" }
+    "./signet": { "types": "./dist/signet.d.ts", "import": "./dist/signet.js" },
+    "./http-gate": { "types": "./dist/http-gate.d.ts", "import": "./dist/http-gate.js" }
   },
   "scripts": {
     "build": "tsc --build",

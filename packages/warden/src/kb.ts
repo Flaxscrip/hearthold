@@ -38,6 +38,7 @@ import {
   type KbResultMessage,
   type KbSessionMessage,
   type KbSessionRequestMessage,
+  type SpendApprovalDetail,
 } from '@hearthold/core';
 
 import { createClassifier } from './classifier.js';
@@ -89,6 +90,8 @@ export interface KbActionApprover {
     action: string;
     resource: string;
     summary: string;
+    /** Present for an agent-family SPEND escalation — the Signet renders it as a spend decision. */
+    spend?: SpendApprovalDetail;
   }): Promise<boolean>;
 }
 
@@ -159,6 +162,7 @@ export function makeDidcommActionApprover(transport: Transport, timeoutMs = 170_
             action: req.action,
             resource: req.resource,
             summary: req.summary,
+            ...(req.spend ? { spend: req.spend } : {}),
           },
           { timeoutMs },
         );

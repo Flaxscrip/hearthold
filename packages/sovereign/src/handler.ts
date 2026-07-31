@@ -170,6 +170,8 @@ export function makeSovereignHandler(
       const humanProof = await gate.approve({
         requester: fromDid,
         action: { action: m.action, resource: m.resource, summary: m.summary },
+        // A spend escalation renders as a spend decision (amount/agent/band), not a generic yes/no.
+        ...(m.spend ? { spend: m.spend } : {}),
       });
       return {
         type: 'hearthold/kb-approval-response',

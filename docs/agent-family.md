@@ -106,6 +106,12 @@ Signet. `authorizeSpend` is action-agnostic — Lightning is the first caller, n
   (`RulesetCapabilities.spend`), the Warden enforcement with two-Signet routing + the notify/gate dial +
   receipts (`warden/spend.ts`), verified live end-to-end incl. real DIDComm (`scripts/e2e-agent-spend.ts`,
   `npm run e2e:agent-spend`).
+- **Shipped** — the Signet answers a spend step-up: the escalation carries a `SpendApprovalDetail` (agent ·
+  amount · unit · band · tier), the Sovereign handler renders it as a distinct `spend-approval` (PIN-gated
+  in the `PromptGate` / `HttpGate` the `sovereign control` daemon `:4311` already serves), and the human's
+  correct-PIN verdict flows back over DIDComm. `scripts/e2e-signet-spend.ts` / `npm run e2e:signet-spend`
+  proves it end-to-end incl. the halt (decline), the MULTIFACTOR flag, and the agent-band case. The Table
+  drives it via the daemon's `GET /api/snapshot` (pending `spend-approval`s) + `POST /api/approve`.
 - **Next** — wire `authorizeSpend` into a real priced surface (the Lightning path); the shared team-workspace
   Vault + DIDComm coordination that lets Hearthold / Aegis / Sevenfold read each other directly instead of
   the human relaying notes; the session-aware control plane that carries the acting agent's identity

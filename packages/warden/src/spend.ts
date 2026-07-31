@@ -22,6 +22,7 @@ import {
   decideEscalation,
   activeRuleset,
   type SpendAllowance,
+  type SpendApprovalDetail,
   type FamilyTopology,
   type EscalationBand,
   type SignedRuleset,
@@ -130,6 +131,16 @@ export async function authorizeSpend(
     return { allowed, band: decision.band, tier: decision.tier, reason, receipt };
   };
 
+  // The spend context the Signet renders as a real decision ("agent X wants N unit — purpose — band").
+  const spendDetail: SpendApprovalDetail = {
+    agentDid: topology.agentDid,
+    amount: request.cost,
+    ...(allowance?.unit !== undefined ? { unit: allowance.unit } : {}),
+    band: decision.band,
+    tier: decision.tier,
+    ...(request.sensitivity !== undefined ? { sensitivity: request.sensitivity } : {}),
+  };
+
   // Standing band — routine; the agent just acts. The receipt is the only trace.
   if (decision.band === 'standing') {
     return finish(true, 'standing', decision.reason);
@@ -146,6 +157,7 @@ export async function authorizeSpend(
       action: request.action,
       resource: request.resource ?? '',
       summary: request.summary,
+      spend: spendDetail,
     });
     return finish(ok, ok ? topology.agentDid : 'self-declined', ok ? 'agent self-approved at its own Signet' : 'agent declined at its own Signet');
   }
@@ -156,6 +168,7 @@ export async function authorizeSpend(
     action: request.action,
     resource: request.resource ?? '',
     summary: request.summary,
+    spend: spendDetail,
   });
   return finish(ok, ok ? topology.parentDid : 'parent-declined', ok ? "the parent approved at their Signet" : 'the parent declined (or the Signet was unreachable) — fail closed');
 }

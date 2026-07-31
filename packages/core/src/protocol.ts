@@ -6,6 +6,7 @@
  */
 
 import type { Sensitivity, DisclosureMode } from './security.js';
+import type { SpendApprovalDetail } from './escalation.js';
 import type { CipherPublicJwk } from './payload.js';
 import type { GatekeeperEvent } from '@didcid/gatekeeper/types';
 
@@ -370,6 +371,11 @@ export interface KbApprovalRequestMessage {
   resource: string;
   /** A human-readable description of the action (Warden-authored). */
   summary: string;
+  /**
+   * Present when this step-up is an agent-family SPEND escalation — the amount/agent/band the Signet renders
+   * as a spend decision (docs/agent-family.md). Absent for a plain KB assurance step-up.
+   */
+  spend?: SpendApprovalDetail;
 }
 
 /** Member's Signet → Warden: the out-of-band decision. */
