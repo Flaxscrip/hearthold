@@ -50,6 +50,14 @@ export function makeWardenHandler(
         if (!(await delegations.isAuthorized(fromDid))) {
           return deny('no valid delegation for this Emissary');
         }
+        // Kind-enforcement (compartmentalized Emissaries): a submission whose kind isn't in THIS Emissary's
+        // delegated kinds is refused — fail-closed. So a text Emissary can't submit images and vice versa; a
+        // compromised Emissary's blast radius is capped at its own delegated path.
+        const kind = (message as WitnessSubmission).kind;
+        const grantedKinds = await delegations.kindsFor(fromDid);
+        if (!grantedKinds.includes(kind)) {
+          return deny(`this Emissary is not delegated for '${kind}' (granted: ${grantedKinds.join(', ') || 'none'})`);
+        }
         // Attribute the submission's OWNER: the member this Emissary serves, else the default Sovereign.
         const owner = (await delegations.memberFor(fromDid)) ?? defaultOwner;
         // Ingestion gate: is THIS Emissary autofile-trusted (bypasses quarantine), and what's the floor?

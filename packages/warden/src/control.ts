@@ -43,6 +43,7 @@ import {
   type CredentialDeliveryAckMessage,
   type SubmissionReceipt,
   type WitnessSubmission,
+  type WitnessKind,
   type EvidenceRequest,
   type Ruleset,
   type SignedRuleset,
@@ -382,7 +383,7 @@ export async function runWardenControl(
         return { ok: true, revoked: !!revoked };
       },
       'POST /api/delegate': async (ctx) => {
-        const { emissaryDid } = (ctx.body ?? {}) as DelegateRequest;
+        const { emissaryDid, kinds } = (ctx.body ?? {}) as DelegateRequest;
         if (!emissaryDid) throw new Error('emissaryDid is required');
         // Session-gated (was reachable UNAUTHENTICATED — it bypassed require-session by never calling
         // effectiveViewer, and minted a delegation for any body-supplied DID). Delegating submission
@@ -392,13 +393,13 @@ export async function runWardenControl(
         await coSign(actor, 'delegate', emissaryDid, `Delegate submission authority to ${emissaryDid}`);
         const schemaDid = await ensureDelegationSchema(handle);
         const validUntil = new Date(Date.now() + 1000 * 60 * 60 * 24 * 365).toISOString();
+        // Scope the delegation to the requested kinds (a per-path Emissary, e.g. ['image']), else the default
+        // TEXT set — `image` is never granted by default; a dedicated image Emissary must ask for it.
+        const grantKinds: WitnessKind[] = kinds && kinds.length > 0 ? (kinds as WitnessKind[]) : ['event', 'location', 'activity', 'browsing', 'document', 'book', 'link'];
         const credentialDid = await withWalletWrite(() =>
-          issueDelegation(handle, emissaryDid, schemaDid, {
-            kinds: ['event', 'location', 'activity', 'browsing', 'document'],
-            validUntil,
-          }),
+          issueDelegation(handle, emissaryDid, schemaDid, { kinds: grantKinds, validUntil }),
         );
-        await delegations.record(emissaryDid, credentialDid, actor);
+        await delegations.record(emissaryDid, credentialDid, actor, grantKinds);
         server.emit('delegation-issued', { subjectDid: emissaryDid, credentialDid });
         return { subjectDid: emissaryDid, credentialDid };
       },

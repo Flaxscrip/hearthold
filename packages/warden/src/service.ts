@@ -44,20 +44,29 @@ export class WardenService {
   }
 
   /**
-   * Caption an `image` payload with the local vision model. The sealed payload is JSON
-   * `{ image: { bytesB64, mediaType? } }`; returns the caption, or null on ANY failure (no captioner, bad
-   * payload, model error) — the caller then fails closed to SEALED so a missing model quarantines, never leaks.
+   * Resolve an `image` submission's bytes for captioning. The sealed payload is one of:
+   *   - `{ assetDid }` — a native Archon image asset (bytes in the node's IPFS); we `getImage` it back
+   *     (the idiomatic transport — no base64 in DIDComm). PREFERRED.
+   *   - `{ image | attachment: { bytesB64, mediaType? } }` — inline base64 (a direct/test submission).
+   * Returns the base64 + media type + the asset DID (if any, for provenance), or null on ANY failure (bad
+   * payload, unresolvable asset) so the caller fails CLOSED to SEALED — a missing image quarantines, never leaks.
    */
-  private async captionImage(plaintext: string): Promise<{ description: string; tags: string[] } | null> {
-    if (!this.captioner) return null;
-    let payload: { image?: { bytesB64?: string; mediaType?: string } };
+  private async imageBytes(plaintext: string): Promise<{ bytesB64: string; mediaType?: string; assetDid?: string } | null> {
+    let payload: { assetDid?: string; image?: { bytesB64?: string; mediaType?: string }; attachment?: { bytesB64?: string; mediaType?: string } };
     try {
       payload = JSON.parse(plaintext) as typeof payload;
     } catch {
       return null;
     }
-    if (!payload.image?.bytesB64) return null;
-    return this.captioner.caption({ bytesB64: payload.image.bytesB64, mediaType: payload.image.mediaType });
+    if (payload.assetDid) {
+      const asset = await this.warden.keymaster.getImage(payload.assetDid).catch(() => null);
+      const data = asset?.file?.data;
+      if (!data) return null; // unresolvable asset → fail closed
+      return { bytesB64: Buffer.from(data).toString('base64'), mediaType: asset.file.type, assetDid: payload.assetDid };
+    }
+    const inline = payload.image ?? payload.attachment;
+    if (inline?.bytesB64) return { bytesB64: inline.bytesB64, mediaType: inline.mediaType };
+    return null;
   }
 
   /**
@@ -85,12 +94,15 @@ export class WardenService {
     let classification: Classification;
     let embedText = plaintext;
     let imageDescription: { description: string; tags: string[] } | undefined;
+    let imageAssetDid: string | undefined;
     if (submission.kind === 'image') {
-      const cap = await this.captionImage(plaintext);
+      const src = await this.imageBytes(plaintext);
+      const cap = src && this.captioner ? await this.captioner.caption({ bytesB64: src.bytesB64, mediaType: src.mediaType }) : null;
       if (!cap) {
-        classification = { sensitivity: DEFAULT_SENSITIVITY, metadata: { visionError: 'no caption (vision model absent/errored)' }, needsHumanConfirmation: true };
+        classification = { sensitivity: DEFAULT_SENSITIVITY, metadata: { visionError: 'no caption (vision model absent/errored, or unresolvable image)' }, needsHumanConfirmation: true };
       } else {
         imageDescription = cap;
+        imageAssetDid = src?.assetDid;
         classification = await this.classifier.classify({ kind: submission.kind, text: cap.description });
         embedText = cap.description;
       }
@@ -119,8 +131,10 @@ export class WardenService {
         ...classification.metadata,
         witness: emissaryDid,
         needsHumanConfirmation: mustConfirm,
-        // The vision caption is the image's recallable/face text + tags (the bytes stay the sealed payload).
+        // The vision caption is the image's recallable/face text + tags; the bytes live in the sealed payload
+        // OR (preferred) a native image asset — `assetDid` links the artefact to that content-addressed object.
         ...(imageDescription ? { description: imageDescription.description, tags: imageDescription.tags } : {}),
+        ...(imageAssetDid ? { assetDid: imageAssetDid } : {}),
       },
       // A personal submission is the member's own; scope 'private'. `owner` scopes the visible set (Phase 3).
       ...(owner ? { owner, scope: 'private' as const } : {}),

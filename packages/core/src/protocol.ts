@@ -12,7 +12,7 @@ import type { GatekeeperEvent } from '@didcid/gatekeeper/types';
 export const PROTOCOL_VERSION = '0.4.0' as const;
 
 /** Kinds of observation the Emissary can submit. Extended over time. */
-export type WitnessKind = 'event' | 'location' | 'activity' | 'browsing' | 'document' | 'image';
+export type WitnessKind = 'event' | 'location' | 'activity' | 'browsing' | 'document' | 'book' | 'link' | 'image';
 
 // ── Emissary → Warden: submission ──────────────────────────────────────────────
 

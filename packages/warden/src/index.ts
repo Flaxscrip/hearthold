@@ -5,6 +5,7 @@ import {
   passphraseFor,
   runKeyMaintenance,
   ensureIdentity,
+  type WitnessKind,
   ensureDelegationSchema,
   issueDelegation,
   createRegistryGroup,
@@ -213,17 +214,19 @@ async function main(): Promise<void> {
     }
     case 'delegate': {
       const emissaryDid = process.argv[3];
-      if (!emissaryDid) throw new Error('usage: warden delegate <emissaryDid>');
+      if (!emissaryDid) throw new Error('usage: warden delegate <emissaryDid> [--kinds image,document,…]');
       await ensureIdentity(handle, config);
       const schemaDid = await ensureDelegationSchema(handle);
       const validUntil = new Date(Date.now() + 1000 * 60 * 60 * 24 * 365).toISOString();
-      const credentialDid = await issueDelegation(handle, emissaryDid, schemaDid, {
-        kinds: ['event', 'location', 'activity', 'browsing', 'document'],
-        validUntil,
-      });
-      await new DelegationStore(handle).record(emissaryDid, credentialDid);
+      // Scope a per-path Emissary with --kinds (e.g. `--kinds image` for a dedicated image Emissary); default
+      // is the text set (no `image` — that path gets its own separately-revocable delegation).
+      const ki = process.argv.indexOf('--kinds');
+      const kinds = (ki > 0 && process.argv[ki + 1] ? process.argv[ki + 1]!.split(',').map((s) => s.trim()).filter(Boolean) : ['event', 'location', 'activity', 'browsing', 'document', 'book', 'link']) as WitnessKind[];
+      const credentialDid = await issueDelegation(handle, emissaryDid, schemaDid, { kinds, validUntil });
+      await new DelegationStore(handle).record(emissaryDid, credentialDid, undefined, kinds);
       process.stdout.write(
         `Delegation issued to ${emissaryDid.slice(0, 28)}…\n` +
+          `  kinds:      ${kinds.join(', ')}\n` +
           `  credential: ${credentialDid}\n` +
           `  → optionally run on the Emissary:  emissary accept ${credentialDid}\n`,
       );

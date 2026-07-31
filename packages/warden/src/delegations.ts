@@ -1,7 +1,14 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import type { KeymasterHandle } from '@hearthold/core';
+import type { KeymasterHandle, WitnessKind } from '@hearthold/core';
+
+/**
+ * The kinds a legacy delegation (recorded before per-path kind-scoping) is treated as granting — the set the
+ * delegate route hardcoded before `kinds` was recorded. Deliberately EXCLUDES `image`/`book`/`link`: an old
+ * text delegation must not silently gain the image path (which needs an explicit, separately-revocable grant).
+ */
+export const LEGACY_DELEGATION_KINDS: WitnessKind[] = ['event', 'location', 'activity', 'browsing', 'document'];
 
 interface DelegationRecord {
   subjectDid: string;
@@ -12,6 +19,12 @@ interface DelegationRecord {
    * submissions. Absent on single-Sovereign delegations (owner then defaults to the configured Sovereign).
    */
   memberDid?: string;
+  /**
+   * The witness kinds this Emissary is delegated to submit — the compartment boundary. A submission whose
+   * `kind` isn't in this set is REFUSED (per-path Emissary isolation). Absent on a legacy record ⇒ treated
+   * as `LEGACY_DELEGATION_KINDS` (never `image`).
+   */
+  kinds?: WitnessKind[];
 }
 
 /**
@@ -49,17 +62,29 @@ export class DelegationStore {
     }));
   }
 
-  /** Record a freshly issued delegation. `memberDid` binds the Emissary to the member it serves (family model). */
-  async record(subjectDid: string, credentialDid: string, memberDid?: string): Promise<void> {
+  /** Record a freshly issued delegation. `memberDid` binds the Emissary to a member; `kinds` scopes its path. */
+  async record(subjectDid: string, credentialDid: string, memberDid?: string, kinds?: WitnessKind[]): Promise<void> {
     await mkdir(this.warden.dataFolder, { recursive: true });
     const all = await this.readAll();
-    all.push({ subjectDid, credentialDid, issuedAt: new Date().toISOString(), memberDid });
+    all.push({ subjectDid, credentialDid, issuedAt: new Date().toISOString(), memberDid, ...(kinds ? { kinds } : {}) });
     await writeFile(this.file, JSON.stringify(all, null, 2), 'utf8');
   }
 
   /** The household member (Sovereign) an Emissary submits for, or undefined (single-Sovereign). */
   async memberFor(emissaryDid: string): Promise<string | undefined> {
     return (await this.readAll()).find((r) => r.subjectDid === emissaryDid)?.memberDid;
+  }
+
+  /**
+   * The witness kinds this Emissary is delegated to submit (the compartment). Undefined recorded kinds ⇒
+   * `LEGACY_DELEGATION_KINDS` (an old text delegation, never image). Returns `[]` for an unknown Emissary.
+   */
+  async kindsFor(emissaryDid: string): Promise<WitnessKind[]> {
+    // The MOST RECENT delegation for this Emissary wins — a re-delegation supersedes an earlier scope.
+    const recs = (await this.readAll()).filter((r) => r.subjectDid === emissaryDid);
+    const rec = recs[recs.length - 1];
+    if (!rec) return [];
+    return rec.kinds ?? LEGACY_DELEGATION_KINDS;
   }
 
   /** Authorized iff we issued this DID a delegation whose credential still resolves (not revoked). */

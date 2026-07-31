@@ -139,9 +139,11 @@ async function main(): Promise<void> {
 
       const transport = new DidCommTransport(handle, IDENTITY_NAME.emissary, config.nodeUrl);
       await transport.ready();
-      // The image bytes ARE the sealed artefact payload (encrypted at rest, like a document). The Warden
-      // unseals + captions with the local vision model, then classifies the caption → the whole pipeline.
-      const ciphertext = await sealForWarden(handle, wardenDid, JSON.stringify({ image: { mediaType, bytesB64: bytes.toString('base64') } }));
+      // Store the bytes as a NATIVE Archon image asset (→ the node's content-addressed IPFS), and ship only
+      // the tiny asset-DID REFERENCE — no 8 MB of base64 in DIDComm. The Warden resolves it (get-image) and
+      // captions it with the local vision model. The asset DID is sealed to the Warden (kept private).
+      const assetDid = await handle.keymaster.createImage(bytes);
+      const ciphertext = await sealForWarden(handle, wardenDid, JSON.stringify({ assetDid, mediaType }));
       const submission: WitnessSubmission = {
         type: 'hearthold/witness-submission',
         version: PROTOCOL_VERSION,

@@ -88,8 +88,24 @@ export interface WardenSnapshot {
 }
 
 /** Issue a delegation to an Emissary DID. */
+/** A witness kind a delegation may grant / a submission may carry. Mirrors core's `WitnessKind` (dep-free). */
+export type WitnessKindName = 'event' | 'location' | 'activity' | 'browsing' | 'document' | 'book' | 'link' | 'image';
+
 export interface DelegateRequest {
   emissaryDid: string;
+  /**
+   * Scope this Emissary to only these kinds (compartmentalized per-path Emissaries — e.g. `['image']` for a
+   * dedicated image Emissary). Omitted ⇒ the default text set (no `image` — that needs an explicit grant).
+   */
+  kinds?: WitnessKindName[];
+}
+
+/** `POST :4312/api/submit` (Table → Emissary control plane) — a binary attachment beside optional text. */
+export interface WitnessAttachment {
+  /** e.g. `image/jpeg`, `image/png`. */
+  mediaType: string;
+  /** Base64 of the bytes. The Emissary turns this into the sealed payload / a native image asset. */
+  bytesB64: string;
 }
 export interface DelegateResponse {
   subjectDid: string;

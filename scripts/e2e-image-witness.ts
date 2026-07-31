@@ -145,10 +145,10 @@ async function main(): Promise<void> {
   const cfg = readFileSync(join(root, '..', 'packages/core/src/config.ts'), 'utf8');
   const control = readFileSync(join(root, '..', 'packages/warden/src/control.ts'), 'utf8');
   const service = readFileSync(join(root, '..', 'packages/warden/src/service.ts'), 'utf8');
-  check("WitnessKind includes 'image'", /'document' \| 'image'/.test(proto));
+  check("WitnessKind includes 'image'", /\| 'image'/.test(proto));
   check('config defaults the vision model to moondream', /DEFAULT_VISION_MODEL = 'moondream'/.test(cfg));
   check('the control plane wires the vision captioner into WardenService', /createVisionCaptioner\(config\)/.test(control));
-  check('handleSubmission captions an image then classifies the caption', /submission\.kind === 'image'/.test(service) && /this\.captionImage\(plaintext\)/.test(service));
+  check('handleSubmission captions an image then classifies the caption', /submission\.kind === 'image'/.test(service) && /this\.imageBytes\(plaintext\)/.test(service));
   check('indexArtefact embeds the caption (description), never the image bytes', /artefact\.kind === 'image' \? undefined/.test(service));
 
   process.stdout.write(
