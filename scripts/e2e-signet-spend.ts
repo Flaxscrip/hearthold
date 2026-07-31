@@ -6,7 +6,7 @@
  * through the browser/daemon gate — the `HttpGate` the `sovereign control` daemon (:4311) uses:
  *
  *   Warden  authorizeSpend (parent band) → kb-approval-request(spend) → Signet
- *   Signet  HttpGate parks a `spend-approval` (agent · amount · unit · band) — what the Table renders
+ *   Signet  HttpGate parks a `spend` (agent · amount · unit · band) — what the Table renders
  *   human   POST /api/approve {pin}  → HttpGate.decide → proof-of-human → kb-approval-response
  *   Warden  authorizeSpend resolves allowed / denied
  *
@@ -45,14 +45,14 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 const PIN = '2468';
 const AT = new Date('2026-08-01T12:00:00.000Z').toISOString();
 
-/** Wait for the gate to park a spend-approval, then return it (or throw). */
+/** Wait for the gate to park a spend, then return it (or throw). */
 async function waitForSpendPending(gate: HttpGate): Promise<PendingApproval> {
   for (let i = 0; i < 60; i++) {
-    const p = gate.listPending().find((a) => a.kind === 'spend-approval');
+    const p = gate.listPending().find((a) => a.kind === 'spend');
     if (p) return p;
     await sleep(250);
   }
-  throw new Error('no spend-approval parked within timeout');
+  throw new Error('no spend approval parked within timeout');
 }
 
 async function main(): Promise<void> {
@@ -101,7 +101,7 @@ async function main(): Promise<void> {
     {
       const pending = authorizeSpend(warden, { chain, topology, request: req(20000), approver, at: AT });
       const p = await waitForSpendPending(parentGate);
-      check('the parked approval is a SPEND decision, not a generic yes/no', p.kind === 'spend-approval');
+      check('the parked approval is a SPEND decision, not a generic yes/no', p.kind === 'spend');
       check('it names the AGENT that is asking', p.agent === agentId.did);
       check('it carries the amount + unit (20000 sat)', p.amount === 20000 && p.unit === 'sat');
       check('it is marked the parent band', p.band === 'parent' && p.multifactor === false);
@@ -136,7 +136,7 @@ async function main(): Promise<void> {
     {
       const pending = authorizeSpend(warden, { chain, topology, request: req(2500), approver, agentTierMode: 'gate', at: AT });
       const p = await waitForSpendPending(agentGate);
-      check('the agent-band spend parks at the AGENT’s Signet, marked the agent band', p.kind === 'spend-approval' && p.band === 'agent' && p.agent === agentId.did);
+      check('the agent-band spend parks at the AGENT’s Signet, marked the agent band', p.kind === 'spend' && p.band === 'agent' && p.agent === agentId.did);
       agentGate.decide(p.id, true, PIN);
       check('the agent self-approves at its own Signet → allowed', (await pending).allowed);
     }

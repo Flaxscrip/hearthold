@@ -477,9 +477,9 @@ export interface PendingApproval {
    * `evidence-approval` — co-sign the Warden's disclosure of derived, witnessed data.
    * `kb-action` — authorize a factor-2 Knowledge Base action (the Warden's out-of-band step-up).
    * `policy-signature` — sign a Warden policy change (Ruleset governance).
-   * `spend-approval` — approve an agent-family SPEND escalation (agent · amount · purpose · band).
+   * `spend` — approve an agent-family SPEND escalation (agent · amount · purpose · band · sensitivity).
    */
-  kind: 'proof-request' | 'evidence-approval' | 'kb-action' | 'policy-signature' | 'spend-approval';
+  kind: 'proof-request' | 'evidence-approval' | 'kb-action' | 'policy-signature' | 'spend';
   /** Proof-request: the challenge being answered. */
   challengeDid?: string;
   schema?: string;
@@ -492,13 +492,47 @@ export interface PendingApproval {
   action?: string;
   resource?: string;
   summary?: string;
-  /** Spend-approval: the agent Sovereign asking, the cost + unit, the band, and whether a 2nd factor is due. */
+  /** Spend (`kind:'spend'`): the agent asking, cost + unit, the band, and whether a 2nd factor is due.
+   *  Purpose rides in `summary` (Warden-authored); `resource` is the payee/invoice; sensitivity in
+   *  `sensitivityName`. */
   agent?: string;
   amount?: number;
   unit?: string;
   band?: 'standing' | 'agent' | 'parent';
   multifactor?: boolean;
   receivedAt: string;
+}
+
+/**
+ * The Warden's SPEND observation feed entry (`GET /api/spend/receipts`) — the parent's passive log of
+ * agent-family spends: autonomous notify-mode settlements that never entered `pending[]`, plus the
+ * outcome of gated ones. Contract converged with Aegis + Sevenfold (docs/agent-family.md).
+ *
+ * INVARIANT the Table relies on: **`approved === false` ⇒ `paid === false`** (fail-closed — a refused or
+ * unanswered spend never moves funds). `approved:true, paid:false` is the one honest non-fail-closed edge:
+ * approved but the payment did not (yet) succeed.
+ */
+export interface SpendReceipt {
+  /** The agent Sovereign that spent (or was refused). */
+  agent: string;
+  amount: number;
+  unit?: string;
+  /** The Warden-authored purpose. */
+  purpose: string;
+  band: 'standing' | 'agent' | 'parent';
+  /** Who decided: `'standing'` (routine), `'self-notify'` (agent auto-approved), a Sovereign DID (a Signet
+   *  decision — the parent or the agent), or `'timeout'` (no answer). */
+  approver: string;
+  approved: boolean;
+  /** Did money actually move. `approved:false ⇒ paid:false`. Set by the settlement caller (the Lightning rail). */
+  paid: boolean;
+  /** Present when `!approved`. */
+  reason?: 'declined' | 'timeout' | 'no-allowance';
+  at: string;
+  /** Set iff `paid` — the Lightning payment hash. */
+  paymentHash?: string;
+  /** Optional: the sensitivity the action touched, for the feed card. */
+  sensitivityName?: SensitivityName;
 }
 
 export interface ApprovalHistoryEntry {

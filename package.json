@@ -125,7 +125,8 @@
     "e2e:ack-before-caption": "npm run build && node --experimental-strip-types scripts/e2e-ack-before-caption.ts",
     "e2e:daemon-image-submit": "npm run build && node --experimental-strip-types scripts/e2e-daemon-image-submit.ts",
     "e2e:agent-spend": "npm run build && node --experimental-strip-types scripts/e2e-agent-spend.ts",
-    "e2e:signet-spend": "npm run build && node --experimental-strip-types scripts/e2e-signet-spend.ts"
+    "e2e:signet-spend": "npm run build && node --experimental-strip-types scripts/e2e-signet-spend.ts",
+    "e2e:spend-receipts": "npm run build && node --experimental-strip-types scripts/e2e-spend-receipts.ts"
   },
   "engines": {
     "node": ">=22"

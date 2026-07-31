@@ -40,6 +40,10 @@
       "types": "./dist/spend.d.ts",
       "import": "./dist/spend.js"
     },
+    "./spend-receipt-store": {
+      "types": "./dist/spend-receipt-store.d.ts",
+      "import": "./dist/spend-receipt-store.js"
+    },
     "./inbound-card-store": {
       "types": "./dist/inbound-card-store.d.ts",
       "import": "./dist/inbound-card-store.js"

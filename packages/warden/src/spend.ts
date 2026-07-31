@@ -28,8 +28,12 @@ import {
   type SignedRuleset,
   type KeymasterHandle,
 } from '@hearthold/core';
+import { SENSITIVITY_NAMES, type SpendReceipt } from '@hearthold/control-types';
 
 import type { KbActionApprover } from './kb.js';
+
+/** The Warden's spend observation feed entry — the converged contract (control-types). */
+export type { SpendReceipt } from '@hearthold/control-types';
 
 /** How the agent band behaves — the tuning dial on top of the topology (docs/agent-family.md). */
 export type AgentTierMode =
@@ -49,20 +53,6 @@ export interface SpendRequest {
   cost: number;
   /** Sensitivity the action touches, if any. Defaults to PUBLIC (cost is the only axis). */
   sensitivity?: Sensitivity;
-}
-
-/** An audit record of a spend decision — emitted for allowed AND denied outcomes (evidence pointed inward). */
-export interface SpendReceipt {
-  action: string;
-  resource?: string;
-  cost: number;
-  unit?: string;
-  tier: AuthzTier;
-  band: EscalationBand;
-  approved: boolean;
-  /** Who answered: a Signet DID, or `'standing'` / `'self-notify'` for the non-gated bands. */
-  approver: string;
-  at: string;
 }
 
 export interface SpendDecision {
@@ -115,20 +105,33 @@ export async function authorizeSpend(
     topology,
   });
 
+  // The converged feed shape (control-types SpendReceipt). `paid`/`paymentHash` are the settlement caller's
+  // (the Lightning rail) to fill after money moves — authorizeSpend only decides, so it emits `paid:false`.
   const baseReceipt = {
-    action: request.action,
-    ...(request.resource !== undefined ? { resource: request.resource } : {}),
-    cost: request.cost,
+    agent: topology.agentDid,
+    amount: request.cost,
     ...(allowance?.unit !== undefined ? { unit: allowance.unit } : {}),
-    tier: decision.tier,
+    purpose: request.summary,
     band: decision.band,
+    ...(request.sensitivity !== undefined ? { sensitivityName: SENSITIVITY_NAMES[request.sensitivity] } : {}),
     at,
   };
 
-  const finish = async (allowed: boolean, approver: string, reason: string): Promise<SpendDecision> => {
-    const receipt: SpendReceipt = { ...baseReceipt, approved: allowed, approver };
+  const finish = async (
+    allowed: boolean,
+    receiptApprover: string,
+    humanReason: string,
+    code?: SpendReceipt['reason'],
+  ): Promise<SpendDecision> => {
+    const receipt: SpendReceipt = {
+      ...baseReceipt,
+      approver: receiptApprover,
+      approved: allowed,
+      paid: false, // fail-closed default; the settlement caller sets paid:true (never on a denial)
+      ...(code ? { reason: code } : {}),
+    };
     await opts.onReceipt?.(receipt);
-    return { allowed, band: decision.band, tier: decision.tier, reason, receipt };
+    return { allowed, band: decision.band, tier: decision.tier, reason: humanReason, receipt };
   };
 
   // The spend context the Signet renders as a real decision ("agent X wants N unit — purpose — band").
@@ -159,7 +162,7 @@ export async function authorizeSpend(
       summary: request.summary,
       spend: spendDetail,
     });
-    return finish(ok, ok ? topology.agentDid : 'self-declined', ok ? 'agent self-approved at its own Signet' : 'agent declined at its own Signet');
+    return finish(ok, topology.agentDid, ok ? 'agent self-approved at its own Signet' : 'agent declined at its own Signet', ok ? undefined : 'declined');
   }
 
   // Parent band — the human's Signet. ALWAYS a hard gate; never auto-approved regardless of mode.
@@ -170,5 +173,10 @@ export async function authorizeSpend(
     summary: request.summary,
     spend: spendDetail,
   });
-  return finish(ok, ok ? topology.parentDid : 'parent-declined', ok ? "the parent approved at their Signet" : 'the parent declined (or the Signet was unreachable) — fail closed');
+  return finish(
+    ok,
+    topology.parentDid,
+    ok ? 'the parent approved at their Signet' : 'the parent declined (or the Signet was unreachable) — fail closed',
+    ok ? undefined : 'declined',
+  );
 }

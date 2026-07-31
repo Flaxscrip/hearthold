@@ -88,6 +88,7 @@ import { makeDidcommActionApprover, makeDidcommRulesetSigner, makeDidcommMemberA
 import { hydrateCardFace } from './face.js';
 import { triageQueue, confirmTriage } from './triage.js';
 import { InboundCardStore, type StoredInboundCard } from './inbound-card-store.js';
+import { SpendReceiptStore } from './spend-receipt-store.js';
 import { AutofileStore } from './autofile-store.js';
 import { promoteVerifiedCard } from './credential-vault.js';
 import { claimableMarks, claimMark } from './marks.js';
@@ -145,6 +146,8 @@ export async function runWardenControl(
   const sessionKeys = new SessionKeyStore();
   // Pending inbound cards passed from other nodes: verified but not yet accepted into the vault.
   const inboundCards = new InboundCardStore(handle.dataFolder);
+  // Agent-family spend observation feed: the parent's passive log of agent spends (docs/agent-family.md).
+  const spendReceipts = new SpendReceiptStore(handle.dataFolder);
   // ── Reload-before-write guard (L1-2). This daemon caches the Warden wallet in memory for its lifetime,
   // so a wallet MUTATION (issuing a delegation/mark/evidence VC, a KB grant/revoke) would write a stale
   // cache back over a concurrent `warden` CLI write via Keymaster's non-atomic saveWallet → clobber. Route
@@ -589,6 +592,11 @@ export async function runWardenControl(
       // The pending-inbound queue — cards passed from other nodes, verified but not yet accepted into the
       // vault (born obsidian; import happens on the member's explicit accept). Scoped to the session member.
       'GET /api/card/inbound': async (ctx) => ({ inbound: inboundCards.list(effectiveViewer(ctx)) }),
+
+      // Agent-family SPEND observation feed — the parent's passive log of agent spends (autonomous
+      // notify-mode settlements + the outcomes of gated ones). Written by the process that runs
+      // authorizeSpend + settlement; served here from the same data root. See docs/agent-family.md.
+      'GET /api/spend/receipts': async () => ({ receipts: await spendReceipts.list() }),
 
       // Promote a pending inbound card into the vault. The verification already happened AT RECEIPT (natively
       // or in the DMZ); accept is a cheap promotion of the already-verified closure. Session-gated +

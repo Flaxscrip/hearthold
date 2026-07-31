@@ -107,11 +107,19 @@ Signet. `authorizeSpend` is action-agnostic — Lightning is the first caller, n
   receipts (`warden/spend.ts`), verified live end-to-end incl. real DIDComm (`scripts/e2e-agent-spend.ts`,
   `npm run e2e:agent-spend`).
 - **Shipped** — the Signet answers a spend step-up: the escalation carries a `SpendApprovalDetail` (agent ·
-  amount · unit · band · tier), the Sovereign handler renders it as a distinct `spend-approval` (PIN-gated
-  in the `PromptGate` / `HttpGate` the `sovereign control` daemon `:4311` already serves), and the human's
-  correct-PIN verdict flows back over DIDComm. `scripts/e2e-signet-spend.ts` / `npm run e2e:signet-spend`
-  proves it end-to-end incl. the halt (decline), the MULTIFACTOR flag, and the agent-band case. The Table
-  drives it via the daemon's `GET /api/snapshot` (pending `spend-approval`s) + `POST /api/approve`.
+  amount · unit · band · tier · sensitivity), the Sovereign handler renders it as a distinct
+  `PendingApproval(kind:'spend')` (PIN-gated in the `PromptGate` / `HttpGate` the `sovereign control` daemon
+  `:4311` already serves), and the human's correct-PIN verdict flows back over DIDComm.
+  `scripts/e2e-signet-spend.ts` / `npm run e2e:signet-spend` proves it end-to-end incl. the halt (decline),
+  the MULTIFACTOR flag, and the agent-band case. The Table drives it via the daemon's `GET /api/snapshot`
+  (pending `kind:'spend'`) + `POST /api/approve` (**PIN entered at the Signet, never the Table**).
+- **Shipped** — the **spend receipts feed** (converged with Aegis + Sevenfold): the published
+  `SpendReceipt { agent, amount, unit?, purpose, band, approver, approved, paid, reason?, at, paymentHash?,
+  sensitivityName? }` with the fail-closed invariant **`!approved ⇒ !paid`**, a file-backed
+  `SpendReceiptStore`, and `GET /api/spend/receipts` on the Warden control daemon (`:4310`) — the parent's
+  passive observation log (autonomous notify-mode settlements + gated outcomes). `authorizeSpend` emits it
+  through `onReceipt` (`paid:false`; the settlement caller / Lightning rail fills `paid`/`paymentHash`).
+  `npm run e2e:spend-receipts`.
 - **Next** — wire `authorizeSpend` into a real priced surface (the Lightning path); the shared team-workspace
   Vault + DIDComm coordination that lets Hearthold / Aegis / Sevenfold read each other directly instead of
   the human relaying notes; the session-aware control plane that carries the acting agent's identity

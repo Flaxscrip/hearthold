@@ -95,7 +95,7 @@ async function main(): Promise<void> {
     const d = await authorizeSpend(warden, { chain, topology, request: req(2500), approver: s.approver, agentTierMode: 'notify', onReceipt: (r) => { receipts.push(r); }, at: AT });
     check('$25 is allowed in the agent band', d.allowed && d.band === 'agent' && d.tier === AuthzTier.CHALLENGE);
     check('notify mode did NOT block on a Signet (auto-approved)', s.targets.length === 0 && d.receipt.approver === 'self-notify');
-    check('a receipt was emitted for the parent’s observation feed', receipts.length === 1 && receipts[0]?.approved === true && receipts[0]?.cost === 2500);
+    check('a receipt was emitted for the parent’s observation feed', receipts.length === 1 && receipts[0]?.approved === true && receipts[0]?.amount === 2500 && receipts[0]?.paid === false);
   }
 
   step('Part A · AGENT band, gate mode — $25 routes to the AGENT’s own Signet (not the parent’s)');
