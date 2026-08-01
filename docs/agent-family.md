@@ -100,6 +100,23 @@ of the loop (evidence discipline pointed inward).
 initiates a payment; under its self-limit it self-signs (receipted); over the limit it blocks on the human's
 Signet. `authorizeSpend` is action-agnostic — Lightning is the first caller, not a special case.
 
+## The trinity — each agent Sovereign needs Emissary · Warden · Signet
+
+A Warden alone is custody without a voice or a conscience. A fully-participating agent Sovereign needs all three:
+
+- **Emissary** — the *voice*: contributes observations into the agent's vault (so it has content to forge/mint
+  cards from).
+- **Warden** — *custody*: holds the vault, receives cards, serves the control plane, and **routes** co-signs.
+- **Signet** — the *conscience*: authorizes disclosures. Crucially, an AI agent's Signet is **not** a
+  PIN gate — it runs an **`AgentGate`** that *self-approves within the parent-signed allowance* (proof-of-agent,
+  receipted) and *escalates above scope to the parent's Signet*.
+
+Co-signs route by the **same escalation ladder as spend** (`warden/escalate.ts` `routeCoSign` →
+`approverForTier`): `STANDING` self-clears · `CHALLENGE` → the agent's own Signet (AgentGate) · `HUMAN`/`MULTIFACTOR`
+→ the parent's Signet. A **readable card pass** (discloses claims) is above-scope → **flaxscrip co-signs**; a
+**provenance-only** pass is within scope → the **agent's AgentGate** self-approves. Set `HEARTHOLD_PARENT_DID` on
+an agent Warden to turn on the ladder (absent ⇒ classic single-Sovereign co-sign, back-compat).
+
 ## Status
 
 - **Shipped** — the pure ladder (`core/escalation.ts`), the parent-signed allowance

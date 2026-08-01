@@ -43,6 +43,13 @@ export interface HearthholdConfig {
   wardenDid?: string;
   /** Emissary (projector): the Sovereign's DID to relay sensitive disclosures to (the Signet). */
   sovereignDid?: string;
+  /**
+   * Agent-family: the PARENT/governor Sovereign's DID (`did:cid:…ij3ufa` in the node family). Set on an AGENT
+   * Warden plane so that a disclosure above the agent's standing authority — a readable card pass, a sensitive
+   * forge — escalates the co-sign to the parent's Signet, not the agent's own. Absent ⇒ a classic
+   * single-Sovereign plane: co-signs route to the acting member as before (back-compat). See docs/agent-family.md.
+   */
+  parentDid?: string;
   /** Warden: local model endpoint for the classifier (Ollama). Stays on-device. */
   ollamaUrl: string;
   /** Warden: local model used to classify sensitivity. */
@@ -193,6 +200,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): HearthholdConf
     dataRoot: env.HEARTHOLD_DATA_ROOT ?? DEFAULT_DATA_ROOT,
     wardenDid: env.HEARTHOLD_WARDEN_DID,
     sovereignDid: env.HEARTHOLD_SOVEREIGN_DID,
+    parentDid: env.HEARTHOLD_PARENT_DID,
     ollamaUrl: env.HEARTHOLD_OLLAMA_URL ?? DEFAULT_OLLAMA_URL,
     visionModel: env.HEARTHOLD_VISION_MODEL ?? DEFAULT_VISION_MODEL,
     classifierModel,

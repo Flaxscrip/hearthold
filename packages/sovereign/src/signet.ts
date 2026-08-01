@@ -101,6 +101,35 @@ export class DenyGate implements ApprovalGate {
   }
 }
 
+/**
+ * The AGENT's Signet gate — the third member of an AI-agent Sovereign's trinity (Emissary · Warden · Signet).
+ *
+ * An AI agent has no proof-of-human, so its Signet is not a PIN gate: it **self-approves within the agent's
+ * parent-signed allowance** and emits a receipt (proof-of-AGENT, the "notify" mode). Above-scope acts never
+ * reach this gate — the Warden's escalation ladder (`warden/escalate.ts`) routes those to the PARENT's Signet
+ * — so anything that DOES arrive here is within the agent's authority and is authorized autonomously, with a
+ * record. Preserves PVM: the parent signs the allowance (the law), the agent's Signet approves within it (the
+ * conscience), the Warden custodies + enforces. See docs/agent-family.md.
+ *
+ * `onDecision` is the receipt hook — the parent's observation feed / an audit log (evidence pointed inward).
+ * An optional `permit` predicate can refuse a within-scope act the agent's own policy rejects (fail closed).
+ */
+export class AgentGate implements ApprovalGate {
+  constructor(
+    private readonly onDecision?: (ctx: ApprovalContext, approved: boolean) => void | Promise<void>,
+    private readonly permit?: (ctx: ApprovalContext) => boolean | Promise<boolean>,
+  ) {}
+
+  async approve(ctx: ApprovalContext): Promise<HumanPresenceAssertion | null> {
+    const ok = this.permit ? await this.permit(ctx) : true;
+    await this.onDecision?.(ctx, ok);
+    if (!ok) return null;
+    // Proof-of-AGENT: the agent's own key deliberately co-signs a within-scope act. Method names it as an
+    // agent assertion (not human presence); level 1 is the agent's standing authority.
+    return { method: 'agent', level: 1, timestamp: new Date().toISOString() };
+  }
+}
+
 /** Interactive gate — shows the request on the terminal and reads the Signet PIN from stdin. */
 export class PromptGate implements ApprovalGate {
   constructor(private readonly expected: string) {}

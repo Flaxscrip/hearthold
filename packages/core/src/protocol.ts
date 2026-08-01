@@ -149,9 +149,15 @@ export interface ProofRequestMessage {
   schema?: string;
 }
 
-/** A proof-of-human assertion the Signet produces when the Sovereign approves a disclosure. */
+/**
+ * A presence assertion the Signet produces when a Sovereign approves a disclosure. For a HUMAN Sovereign
+ * this is proof-of-human (`pin`/`passphrase`/`biometric`/`face-liveness`). For an AI-AGENT Sovereign it is
+ * `agent` — proof-of-AGENT: the agent's own key deliberately co-signs a within-scope act at its Signet
+ * (docs/agent-family.md). The field records the method; consumers that require human presence should check
+ * for `method !== 'agent'`.
+ */
 export interface HumanPresenceAssertion {
-  method: 'pin' | 'passphrase' | 'biometric' | 'face-liveness';
+  method: 'pin' | 'passphrase' | 'biometric' | 'face-liveness' | 'agent';
   /** Assurance level (higher = stronger presence evidence), cf. NIST AAL. */
   level: number;
   timestamp: string;

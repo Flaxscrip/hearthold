@@ -85,6 +85,7 @@ import { DelegationStore } from './delegations.js';
 import { EvidenceService, type SovereignApprover } from './evidence.js';
 import { OllamaEmbedder, RecallService } from './recall.js';
 import { makeDidcommActionApprover, makeDidcommRulesetSigner, makeDidcommMemberAcker } from './kb.js';
+import { routeCoSign } from './escalate.js';
 import { hydrateCardFace } from './face.js';
 import { triageQueue, confirmTriage } from './triage.js';
 import { InboundCardStore, type StoredInboundCard } from './inbound-card-store.js';
@@ -544,16 +545,33 @@ export async function runWardenControl(
         if (!toDid || !credentialDid) throw new Error('toDid and credentialDid are required');
         const member = effectiveViewer(ctx);
         if (!member) throw new Error('no session — log in');
-        const stepUp = makeDidcommActionApprover(transport, config.stepUpTimeoutMs.factor2);
-        const approved = await stepUp.requestActionApproval({
-          member,
-          action: 'pass',
-          resource: credentialDid,
-          // A READABLE pass discloses the claims (crosses decideRelease), not just provenance — name it so the
-          // human's consent is informed that they're handing over content, not merely proof.
-          summary: readable ? `Pass a READABLE card (claims disclosed) to ${toDid}` : `Pass a card to ${toDid}`,
-        });
-        if (!approved) throw new Error('pass declined — a Sovereign co-sign is required to disclose a credential to another party');
+        // A READABLE pass discloses the claims (crosses decideRelease), not just provenance — name it so the
+        // co-signer's consent is informed that content is being handed over, not merely proof.
+        const summary = readable ? `Pass a READABLE card (claims disclosed) to ${toDid}` : `Pass a card to ${toDid}`;
+        let approved: boolean;
+        if (config.parentDid) {
+          // AGENT plane: route the co-sign through the escalation ladder (docs/agent-family.md). A readable
+          // disclosure is above the agent's standing authority → the PARENT's Signet co-signs; a provenance-only
+          // pass is within scope → the AGENT's own Signet self-approves (its AgentGate). Same ladder as spend.
+          const tier = readable ? AuthzTier.HUMAN : AuthzTier.CHALLENGE;
+          const outcome = await routeCoSign(
+            transport,
+            { agentDid: member, parentDid: config.parentDid },
+            tier,
+            { action: 'pass', resource: credentialDid, summary },
+            config.stepUpTimeoutMs,
+          );
+          approved = outcome.approved;
+        } else {
+          // Classic single-Sovereign plane: the acting member co-signs directly (back-compat).
+          approved = await makeDidcommActionApprover(transport, config.stepUpTimeoutMs.factor2).requestActionApproval({
+            member,
+            action: 'pass',
+            resource: credentialDid,
+            summary,
+          });
+        }
+        if (!approved) throw new Error('pass declined — a co-sign is required to disclose a credential to another party (readable → the parent, provenance → the agent)');
         // Readable handover (opt-in): the sender (who CAN read the VC) seals a rendering of the claims to
         // toDid so the recipient can decrypt it, shipped beside the immutable ops. Best-effort — if we can't
         // read the VC, the pass still delivers as provenance-only. Only the sender can supply readable content.
