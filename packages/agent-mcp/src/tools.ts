@@ -165,14 +165,14 @@ export const HEARTHOLD_TOOLS: HeartholdTool[] = [
   {
     name: 'hearthold_accept_card',
     description: 'Accept an inbound card into my vault. Mirrors DataSource.acceptCard.',
-    inputSchema: { type: 'object', properties: { did: { type: 'string' } }, required: ['did'], additionalProperties: false },
-    handler: (ctx, a) => control(ctx, ctx.control.wardenUrl, 'Warden', 'POST', '/api/card/accept', { did: a.did }),
+    inputSchema: { type: 'object', properties: { credentialDid: { type: 'string', description: 'the inbound card’s VC asset DID' } }, required: ['credentialDid'], additionalProperties: false },
+    handler: (ctx, a) => control(ctx, ctx.control.wardenUrl, 'Warden', 'POST', '/api/card/accept', { credentialDid: a.credentialDid }),
   },
   {
     name: 'hearthold_decline_card',
     description: 'Decline an inbound card (fail-closed, nothing enters my vault).',
-    inputSchema: { type: 'object', properties: { did: { type: 'string' } }, required: ['did'], additionalProperties: false },
-    handler: (ctx, a) => control(ctx, ctx.control.wardenUrl, 'Warden', 'POST', '/api/card/decline', { did: a.did }),
+    inputSchema: { type: 'object', properties: { credentialDid: { type: 'string', description: 'the inbound card’s VC asset DID' } }, required: ['credentialDid'], additionalProperties: false },
+    handler: (ctx, a) => control(ctx, ctx.control.wardenUrl, 'Warden', 'POST', '/api/card/decline', { credentialDid: a.credentialDid }),
   },
   {
     name: 'hearthold_forge',
@@ -197,14 +197,14 @@ export const HEARTHOLD_TOOLS: HeartholdTool[] = [
   },
   {
     name: 'hearthold_confirm_triage',
-    description: 'Admit a triaged proposal at a chosen sensitivity. Mirrors DataSource.confirmTriage.',
+    description: 'Admit a triaged proposal at a chosen sensitivity (0=PUBLIC…4=SEALED). Mirrors DataSource.confirmTriage.',
     inputSchema: {
       type: 'object',
-      properties: { id: { type: 'string' }, sensitivity: { type: 'string' } },
-      required: ['id', 'sensitivity'],
+      properties: { artefactId: { type: 'string' }, sensitivity: { type: 'number', description: '0 PUBLIC · 1 LOW · 2 MEDIUM · 3 HIGH · 4 SEALED' } },
+      required: ['artefactId', 'sensitivity'],
       additionalProperties: false,
     },
-    handler: (ctx, a) => control(ctx, ctx.control.wardenUrl, 'Warden', 'POST', '/api/triage/confirm', { id: a.id, sensitivity: a.sensitivity }),
+    handler: (ctx, a) => control(ctx, ctx.control.wardenUrl, 'Warden', 'POST', '/api/triage/confirm', { artefactId: a.artefactId, sensitivity: a.sensitivity }),
   },
   {
     name: 'hearthold_pending_approvals',

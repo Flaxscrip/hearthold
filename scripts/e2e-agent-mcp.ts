@@ -92,7 +92,7 @@ async function main(): Promise<void> {
         res.setHeader('content-type', 'application/json');
         if (req.url === '/api/card/inbound') res.end(JSON.stringify({ inbound: [{ did: 'did:cid:card1' }] }));
         else if (req.url === '/api/recall') res.end(JSON.stringify({ citations: [{ id: 'a', text: 'recalled' }] }));
-        else { res.statusCode = 404; res.end('{}'); }
+        else res.end(JSON.stringify({ ok: true }));
       });
     });
     await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
@@ -104,6 +104,19 @@ async function main(): Promise<void> {
     const recall = (await tool('hearthold_recall').handler(withWarden, { query: 'when did I visit Paris' })) as { citations: unknown[] };
     const recallHit = hits.find((h) => h.url === '/api/recall');
     check('recall POSTs the query to the Warden recall route', recallHit?.method === 'POST' && JSON.parse(recallHit?.body ?? '{}').query === 'when did I visit Paris' && recall.citations.length === 1);
+    // FIELD-NAME MAPPING — the facade must POST the EXACT control-types request fields (Sevenfold caught
+    // accept_card sending {did} when the route wants {credentialDid}). Assert every write facade's body.
+    const bodyOf = (url: string) => JSON.parse([...hits].reverse().find((h) => h.url === url)?.body ?? '{}');
+    await tool('hearthold_accept_card').handler(withWarden, { credentialDid: 'did:cid:c1' });
+    check('accept_card POSTs { credentialDid } (not { did })', bodyOf('/api/card/accept').credentialDid === 'did:cid:c1');
+    await tool('hearthold_decline_card').handler(withWarden, { credentialDid: 'did:cid:c2' });
+    check('decline_card POSTs { credentialDid }', bodyOf('/api/card/decline').credentialDid === 'did:cid:c2');
+    await tool('hearthold_confirm_triage').handler(withWarden, { artefactId: 'a1', sensitivity: 2 });
+    const ct = bodyOf('/api/triage/confirm');
+    check('confirm_triage POSTs { artefactId, sensitivity:number } (not { id })', ct.artefactId === 'a1' && ct.sensitivity === 2);
+    await tool('hearthold_pass_card').handler(withWarden, { toDid: 'did:cid:seven', cardDid: 'did:cid:card' });
+    check('pass_card maps cardDid → { credentialDid }', bodyOf('/api/card/pass').credentialDid === 'did:cid:card');
+
     let noUrlErr = '';
     try { await tool('hearthold_list_inbound').handler(ctx, {}); } catch (e) { noUrlErr = e instanceof Error ? e.message : String(e); }
     check('a facade tool without its control URL errors clearly (read tools still work)', /needs the Warden control URL/.test(noUrlErr));
