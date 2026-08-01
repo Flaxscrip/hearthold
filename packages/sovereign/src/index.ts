@@ -21,7 +21,7 @@ import {
 } from '@hearthold/core';
 
 import { makeSovereignHandler } from './handler.js';
-import { PromptGate } from './signet.js';
+import { PromptGate, AgentGate } from './signet.js';
 import { runSovereignControl } from './control.js';
 
 const HELP = `Hearthold Sovereign — the principal (Signet precursor)
@@ -35,6 +35,8 @@ Usage:
                              Issue a credential to a subject (act as an issuer, e.g. a sphere manager)
   sovereign serve            Serve over DIDComm: present proofs on request (terminal PIN)
   sovereign control [port]   Serve DIDComm + a control API for the Signet Approver app (default 4311)
+  sovereign agent-signet     Serve as an AGENT's Signet (AgentGate: self-approve within the parent-signed
+                             allowance, no PIN; above-scope escalates to the parent). For AI-agent Sovereigns.
   sovereign kb-query <mageDid> <kbId> <query>          Ask a Knowledge Base (via its public Mage portal)
   sovereign kb-update <mageDid> <kbId> <kind> <text>   Contribute knowledge to a KB (if authorized)
   sovereign republish [--endpoint <uri>]  Force-(re)publish the DIDComm endpoint (re-home)
@@ -110,6 +112,34 @@ async function main(): Promise<void> {
     case 'control': {
       const port = Number(process.argv[3] ?? process.env.HEARTHOLD_CONTROL_PORT ?? 4311);
       await runSovereignControl(handle, config, port, reopenSovereign);
+      break;
+    }
+    // The AGENT's Signet — the third member of an AI-agent Sovereign's trinity (docs/agent-family.md). Serves
+    // the agent's DIDComm mailbox with the `AgentGate`: it SELF-APPROVES co-signs WITHIN the agent's parent-
+    // signed allowance (proof-of-agent + a receipt, no PIN — an AI has no proof-of-human). Above-scope acts
+    // never reach here: the Warden's escalation ladder routes those to the PARENT's Signet. Use this for an
+    // agent (autonomous within scope); use `serve`/`control` (PIN) for a human Sovereign.
+    case 'agent-signet': {
+      const transport = new DidCommTransport(handle, IDENTITY_NAME.sovereign, config.nodeUrl);
+      await transport.ready();
+      const gate = new AgentGate((ctx, approved) => {
+        // The receipt feed — the agent's within-scope self-authorizations (the parent's observation trail).
+        process.stderr.write(
+          `[agent-signet] ${approved ? 'self-approved' : 'refused'} ${ctx.action?.action ?? 'action'}` +
+            `${ctx.action?.summary ? ` — ${ctx.action.summary}` : ''}\n`,
+        );
+      });
+      const stop = await transport.serve(makeSovereignHandler(handle, gate, reopenSovereign));
+      process.stdout.write(
+        `Agent Signet serving over DIDComm (AgentGate — self-approves within the parent-signed allowance;\n` +
+          `above-scope escalates to the parent). No PIN; proof-of-agent + receipts.\n  did: ${id.did}\n  (Ctrl-C to stop)\n`,
+      );
+      const shutdown = (): void => {
+        stop();
+        process.exit(0);
+      };
+      process.on('SIGINT', shutdown);
+      process.on('SIGTERM', shutdown);
       break;
     }
     case 'status': {
