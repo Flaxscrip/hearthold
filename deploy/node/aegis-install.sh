@@ -26,7 +26,7 @@ HEARTHOLD_DIR="${HEARTHOLD_DIR:-$HOME/hearthold}"
 # Our deploy/ tooling (setup-node.sh, create-internal-network.sh, the operator CLI, compose overlays, pi-lean).
 # TODO(layout): this currently lives in a working checkout, NOT committed to either repo. It must ship somewhere the
 # installer can reach — recommended: flaxscrip/hearthold/deploy/, operating on $ARCHON_DIR by path. $DEPLOY_DIR points at it.
-DEPLOY_DIR="${DEPLOY_DIR:-$HEARTHOLD_DIR/deploy}"
+DEPLOY_DIR="${DEPLOY_DIR:-$HEARTHOLD_DIR/deploy/node}"
 AEGIS_SWAP_GB="${AEGIS_SWAP_GB:-6}"
 AEGIS_MIN_DISK_GB="${AEGIS_MIN_DISK_GB:-20}"
 AEGIS_PROFILE_DEFAULT="pi-lean"                      # identity + cards + one model; no lightning/tor at rest (see deploy/PI-LEAN.md)
