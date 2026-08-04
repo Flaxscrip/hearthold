@@ -23,9 +23,8 @@ ARCHON_DIR="${ARCHON_DIR:-$HOME/archon}"             # gatekeeper/keymaster/stor
 HEARTHOLD_REPO="${HEARTHOLD_REPO:-https://github.com/flaxscrip/hearthold.git}"
 HEARTHOLD_REF="${HEARTHOLD_REF:-main}"               # Warden/Signet/Emissary/Table + our deploy/ tooling
 HEARTHOLD_DIR="${HEARTHOLD_DIR:-$HOME/hearthold}"
-# Our deploy/ tooling (setup-node.sh, create-internal-network.sh, the operator CLI, compose overlays, pi-lean).
-# TODO(layout): this currently lives in a working checkout, NOT committed to either repo. It must ship somewhere the
-# installer can reach — recommended: flaxscrip/hearthold/deploy/, operating on $ARCHON_DIR by path. $DEPLOY_DIR points at it.
+# Our deploy/ tooling (operator CLI, bring-up scripts, compose overlays, pi-lean) — committed under
+# flaxscrip/hearthold deploy/node/. Runs against the archon node at $ARCHON_DIR by path.
 DEPLOY_DIR="${DEPLOY_DIR:-$HEARTHOLD_DIR/deploy/node}"
 AEGIS_SWAP_GB="${AEGIS_SWAP_GB:-6}"
 AEGIS_MIN_DISK_GB="${AEGIS_MIN_DISK_GB:-20}"
