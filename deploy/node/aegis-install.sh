@@ -17,12 +17,13 @@ set -euo pipefail
 
 # ─────────────────────────────── configuration (override via env) ───────────────────────────────
 # TWO repos: the archon node substrate + the flaxscrip/hearthold custodian layer.
+AEGIS_BASE="${AEGIS_BASE:-$HOME}"                  # base for code + node data; point at a fast SSD to keep the OS drive lean
 ARCHON_REPO="${ARCHON_REPO:-https://github.com/archetech/archon.git}"
 ARCHON_REF="${ARCHON_REF:-v0.11.0}"                  # the tagged base
-ARCHON_DIR="${ARCHON_DIR:-$HOME/archon}"             # gatekeeper/keymaster/storage + the profiles system
+ARCHON_DIR="${ARCHON_DIR:-$AEGIS_BASE/archon}"             # gatekeeper/keymaster/storage + the profiles system
 HEARTHOLD_REPO="${HEARTHOLD_REPO:-https://github.com/flaxscrip/hearthold.git}"
 HEARTHOLD_REF="${HEARTHOLD_REF:-main}"               # Warden/Signet/Emissary/Table + our deploy/ tooling
-HEARTHOLD_DIR="${HEARTHOLD_DIR:-$HOME/hearthold}"
+HEARTHOLD_DIR="${HEARTHOLD_DIR:-$AEGIS_BASE/hearthold}"
 # Our deploy/ tooling (operator CLI, bring-up scripts, compose overlays, pi-lean) — committed under
 # flaxscrip/hearthold deploy/node/. Runs against the archon node at $ARCHON_DIR by path.
 DEPLOY_DIR="${DEPLOY_DIR:-$HEARTHOLD_DIR/deploy/node}"
