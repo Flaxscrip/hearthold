@@ -1,7 +1,7 @@
 # `aegis` — operator CLI for a secured Archon node
 
 A small, human-usable interface for **running and using** an egress-isolated Aegis
-node once it's up. Bring-up lives elsewhere (`deploy/install.sh`, `deploy/setup-node.sh`,
+node once it's up. Bring-up lives elsewhere (`deploy/node/install.sh`, `deploy/node/setup-node.sh`,
 `start-node`, `SANDBOX-PROFILE.md`); this is the layer on top that a person actually
 touches during a demo or hackathon.
 
@@ -18,10 +18,10 @@ operator can't get it wrong.
 
 ```bash
 # put them on PATH (or call by full path)
-ln -s "$PWD/deploy/operator/aegis"        /usr/local/bin/aegis          # client CLI  (or ~/.local/bin)
-ln -s "$PWD/deploy/operator/aegis-wallet" /usr/local/bin/aegis-wallet   # admin wallet CLI (see below)
-ln -s "$PWD/deploy/operator/aegis-mcp"    /usr/local/bin/aegis-mcp      # agent-Sovereign MCP launcher (see below)
-cp deploy/operator/aegis.env.example deploy/operator/aegis.env   # then edit for this node
+ln -s "$PWD/deploy/node/operator/aegis"        /usr/local/bin/aegis          # client CLI  (or ~/.local/bin)
+ln -s "$PWD/deploy/node/operator/aegis-wallet" /usr/local/bin/aegis-wallet   # admin wallet CLI (see below)
+ln -s "$PWD/deploy/node/operator/aegis-mcp"    /usr/local/bin/aegis-mcp      # agent-Sovereign MCP launcher (see below)
+cp deploy/node/operator/aegis.env.example deploy/node/operator/aegis.env   # then edit for this node
 ```
 
 Config search order: `$AEGIS_CONFIG` → `./aegis.env` (next to the script) → `~/.aegis.env`.
@@ -203,7 +203,7 @@ higher tiers. See `SOVEREIGN-DATA-SECURITY.md` §9 (mechanism 13).
 Requires these in `aegis.env` (per node):
 ```
 AEGIS_CONTROL_ENV=$HOME/.control-gamer.env
-AEGIS_CONTROL_COMPOSE=/path/to/deploy/topology/docker-compose.control.yml
+AEGIS_CONTROL_COMPOSE=/path/to/deploy/node/topology/docker-compose.control.yml
 #AEGIS_CONTROL_PROJECT=aegis-control      # default
 ```
 Note: `require-session on` needs the compose to pass `HEARTHOLD_REQUIRE_SESSION` through
@@ -211,7 +211,7 @@ to the daemon env (the command warns if it doesn't).
 
 ## `aegis-wallet` — admin wallet access (without exposing the gatekeeper)
 
-A **separate** tool (`deploy/operator/aegis-wallet`) for a **different** job: running the Keymaster CLI against a
+A **separate** tool (`deploy/node/operator/aegis-wallet`) for a **different** job: running the Keymaster CLI against a
 wallet — which genuinely needs the gatekeeper. The gatekeeper lives on the sealed network and is **never published
 to the host**. Rather than punch the port out, `aegis-wallet` runs keymaster in an **ephemeral container that joins
 the sealed net for the command's lifetime and exits** — the same shape as `docker compose exec gatekeeper …`: admin
@@ -232,7 +232,7 @@ aegis-wallet aegis help                      # full keymaster command list
 #   parent/sovereign/warden are node-managed identities → refused; see ~/aegis-env/node/ENVIRONMENT.md
 ```
 
-- **Passphrase** precedence: `AEGIS_WALLET_PASS` → `FAMILY_PASSPHRASE` in `deploy/family/family.env` → ambient
+- **Passphrase** precedence: `AEGIS_WALLET_PASS` → `FAMILY_PASSPHRASE` in `deploy/node/family/family.env` → ambient
   `ARCHON_PASSPHRASE`. `family.env` **wins over** an ambient `ARCHON_PASSPHRASE` so a node/MCP passphrase in your
   shell can't shadow the agent wallets. The secret is passed via a shredded temp `--env-file`, never the command line.
 - **Overrides:** `AEGIS_FAMILY_DATA` (identity store root, default `~/aegis-env/node/data/identities`), `AEGIS_NET`
@@ -241,7 +241,7 @@ aegis-wallet aegis help                      # full keymaster command list
 
 ## `aegis-mcp` — launch a bound agent-Sovereign MCP (in-network, gatekeeper unpublished)
 
-A **third** tool (`deploy/operator/aegis-mcp`), sibling to `aegis-wallet`, for the newest job: running Hearthold's
+A **third** tool (`deploy/node/operator/aegis-mcp`), sibling to `aegis-wallet`, for the newest job: running Hearthold's
 agent-as-Sovereign MCP (`@hearthold/agent-mcp`) **bound to a node-env agent**. The MCP server needs the gatekeeper, so
 — like `aegis-wallet` — it runs in an **ephemeral container on the sealed net**; an MCP client on the host drives it
 over `docker run -i` stdio. **Server-in-sealed-net, client-on-host — the gatekeeper is never published.** Same

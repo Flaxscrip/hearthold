@@ -1,0 +1,32 @@
+# Canonical image set for the complete Aegis + Hearthold air-gapped demo.
+# One image per line; blank lines and #-comments ignored. pack + load both
+# read this file so they never disagree about what's in the bundle.
+#
+# These are exactly the images the running stack uses (docker ps -a). Rebuild
+# / re-pull them on an internet-connected machine, then `pack` docker-saves
+# this set; `load` restores it on the air-gapped target. Layers shared across
+# the six archetech/* Node images (and hearthold) dedupe inside one docker
+# save, so the tarball is far smaller than the raw per-image sum.
+
+# --- Archon node, built from source in this repo ---
+ghcr.io/archetech/gatekeeper-typescript:latest
+ghcr.io/archetech/keymaster:latest
+ghcr.io/archetech/cli:latest
+ghcr.io/archetech/didcomm:latest
+ghcr.io/archetech/drawbridge:latest
+ghcr.io/archetech/lightning-mediator:latest
+
+# --- Third-party, pulled ---
+mongo:8.0
+redis:8.0.4-alpine
+ipfs/kubo:v0.40.1
+ollama/ollama:latest
+
+# --- Lightning stretch goals (§8/§9) ---
+polarlightning/bitcoind:28.0
+polarlightning/lnd:0.18.5-beta
+ghcr.io/lightning-goats/cl-hive-node:3.4.0
+ghcr.io/archetech/lnbits:1.5.3-archetech.1
+
+# --- Hearthold, built from ~/hearthold (downstream consumer) ---
+hearthold:sandbox

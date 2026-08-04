@@ -1,7 +1,7 @@
 /**
  * Provision the node family — reproducible, idempotent.
  *
- * The node Sovereign (…ij3ufa = flaxscrip / the Table login) is the PARENT / governor. This creates the
+ * This node's Sovereign (the Table login) is the PARENT / governor. This creates the
  * three AI-agent identities — Aegis · Sevenfold · Hearthold — FRESH in the `node` environment's identity
  * store, each with a parent-SIGNED spend allowance. No demo parent, no duplicate id-names: the agents get
  * their own names, and the parent is the real Sovereign the Table logs in as.
@@ -19,7 +19,10 @@ import {
 } from '@hearthold/core';
 import { writeFileSync, mkdirSync } from 'node:fs';
 
-const NODE_SOVEREIGN_DID = 'did:cid:bagaaierayveej3vjjm4owqq2ialx7zew3lyhuqjph2mnydlbedh4sjij3ufa';
+// The expected parent (governor) DID — from the environment so a FRESH node (its own Sovereign, e.g. the Pi)
+// works, not just megaflax. Unset → trust the parent wallet's current identity; set → assert it matches (a
+// safety pin against pointing at the wrong wallet). Set it from the node's ENVIRONMENT.md / onboarding.
+const EXPECTED_PARENT_DID = process.env.EXPECTED_PARENT_DID ?? process.env.AEGIS_PARENT_DID ?? '';
 const need = (k: string): string => { const v = process.env[k]; if (!v) throw new Error(`missing env ${k}`); return v; };
 
 // NOTE on id-naming: each agent lives in its OWN wallet dir (agents/<name>/), so we use the sovereign ROLE name
@@ -34,14 +37,14 @@ async function main(): Promise<void> {
   const agentsRoot = need('AGENTS_DATA_ROOT');
   const agentPass = need('AGENT_PASSPHRASE');
 
-  // PARENT = the node Sovereign …ij3ufa. Read-only: currentIdentity() never mutates the wallet.
+  // PARENT = this node's Sovereign (the Table login). Read-only: currentIdentity() never mutates the wallet.
   const parentKm = await openKeymaster('sovereign', { ...base, dataRoot: parentRoot }, parentPass);
   const parent = await currentIdentity(parentKm);
   if (!parent) throw new Error('parent wallet has no current id');
-  if (parent.did !== NODE_SOVEREIGN_DID) {
-    throw new Error(`parent is ${parent.did}, expected node Sovereign ${NODE_SOVEREIGN_DID} — refusing`);
+  if (EXPECTED_PARENT_DID && parent.did !== EXPECTED_PARENT_DID) {
+    throw new Error(`parent is ${parent.did}, expected ${EXPECTED_PARENT_DID} — refusing`);
   }
-  process.stdout.write(`parent   flaxscrip / node-sovereign   ${parent.did}\n`);
+  process.stdout.write(`parent   node-sovereign   ${parent.did}\n`);
 
   const AGENTS = [
     { name: 'aegis',     selfLimit: 2000 },
