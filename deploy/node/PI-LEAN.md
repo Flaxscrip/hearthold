@@ -56,3 +56,10 @@ the relay with no drawbridge** (tonight's `gateway challenge request returned 40
 relay — the relay is the actual mailbox, so this should hold, but it's the thing to prove first). If it doesn't, the
 fallback is a small overlay that runs a *lean* drawbridge (its `depends_on: tor/lightning-mediator` removed, those
 services re-tagged out of the `drawbridge` profile) — heavier to maintain, so didcomm-direct is preferred.
+
+## Connecting out — the public gatekeeper (optional, NOT the pi-lean default)
+pi-lean runs **isolated**: local registry, no fallback resolver, no egress. But when you *deliberately* want to
+resolve a public DID or peer with another node, **`https://archon.technology/api/v1`** is our public gatekeeper —
+a live Archon **v0.11.0** drawbridge (`/api/v1/ready` → `true`; ~10.9k DIDs). It is also the delegation target for a
+connected (non-isolated) noderunner. Leave it OUT of the sealed node's config (isolation is the point); reach for it
+only as an explicit, controlled connection — the same way we'll peer to `flaxscrip.local`'s full node.

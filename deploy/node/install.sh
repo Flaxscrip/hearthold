@@ -96,7 +96,7 @@ Next steps:
        /archon-noderunner install --domain <yourdomain> --node-name <Name> --node-id <ID>
 
 You'll be prompted for chain registries, RPC keys, and DNS confirmation.
-Stage 0 (minimal hyperswarm node, delegating to 4tress.org) requires no funding.
+Stage 0 (minimal hyperswarm node, delegating to archon.technology) requires no funding.
 
 Docs: ~/archon/deploy/claude-skill/archon-noderunner/README.md
 EOF
