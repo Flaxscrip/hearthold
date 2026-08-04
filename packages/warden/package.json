@@ -151,6 +151,7 @@
   },
   "dependencies": {
     "@hearthold/control-types": "0.1.0",
-    "@hearthold/core": "0.1.0"
+    "@hearthold/core": "0.1.0",
+    "jimp": "^1.6.1"
   }
 }

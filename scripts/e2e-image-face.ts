@@ -12,6 +12,8 @@
  */
 import { deflateSync } from 'node:zlib';
 
+import { Jimp } from 'jimp';
+
 import { loadConfig, openKeymaster, ensureIdentity, sealForWarden, contentId, Sensitivity, AuthzTier } from '@hearthold/core';
 import { VaultStore, type Artefact } from '@hearthold/warden/store';
 import { hydrateCardFace } from '@hearthold/warden/face';
@@ -62,6 +64,21 @@ async function main(): Promise<void> {
   const faceBytes = face.granted && face.face ? Buffer.from(face.face, 'base64') : Buffer.alloc(0);
   check('the face bytes are the resolved PNG, not the reference JSON', faceBytes.equals(bytes));
   check('the face is NOT the {assetDid} reference string', !faceBytes.toString('utf8').includes('assetDid'));
+
+  step('a LARGE image face is downscaled to a ~256px THUMBNAIL (bulk spreads stay light)');
+  const bigBytes = png(800, 600, 30, 120, 210);
+  const bigAsset = await warden.keymaster.createImage(bigBytes, { registry: base.registry });
+  const bigId = await putImage(Sensitivity.PUBLIC, bigAsset);
+  const bigFace = await hydrate(bigId, AuthzTier.STANDING);
+  const bigFaceBytes = bigFace.granted && bigFace.face ? Buffer.from(bigFace.face, 'base64') : Buffer.alloc(0);
+  const thumb = await Jimp.read(bigFaceBytes).catch(() => null);
+  check('granted with an image/* mimeType', bigFace.granted === true && (bigFace.mimeType ?? '').startsWith('image/'));
+  check('the face decodes to a valid image ≤ 256px longest edge', !!thumb && thumb.width <= 256 && thumb.height <= 256);
+  check('the thumbnail is smaller than the full asset (downscaled, not full-res)', bigFaceBytes.length < bigBytes.length);
+  check('aspect ratio preserved (800×600 → 256×192)', !!thumb && thumb.width === 256 && thumb.height === 192);
+
+  step('a SMALL image (≤256px) is served as-is — no needless re-encode');
+  check('the 64×64 face is the exact original bytes (not re-encoded)', faceBytes.equals(bytes));
 
   step('the ladder is unchanged — a SEALED image stays obsidian (no bytes leak)');
   const sealed = await hydrate(sealedId, AuthzTier.STANDING);

@@ -21,7 +21,7 @@ import {
 } from '@hearthold/core';
 
 import { VaultStore, type Artefact } from './store.js';
-import { resolveImageBytes } from './image-asset.js';
+import { resolveImageBytes, thumbnailImage } from './image-asset.js';
 import type { CardFace } from '@hearthold/control-types';
 
 const SENSITIVITY_NAMES = ['PUBLIC', 'LOW', 'MEDIUM', 'HIGH', 'SEALED'] as const;
@@ -81,8 +81,10 @@ export async function hydrateCardFace(
   if (artefact.kind === 'image') {
     const img = await resolveImageBytes(warden, plain);
     if (img) {
-      const mimeType = img.mediaType && img.mediaType.startsWith('image/') ? img.mediaType : 'image/png';
-      return { ...base, granted: true, face: img.bytesB64, mimeType };
+      // A face is a card PREVIEW — downscale to a ~256px thumbnail so a bulk spread stays light. Full-res
+      // belongs to a deliberate open/reveal, not the bulk face load. Graceful: on any failure, full bytes.
+      const thumb = await thumbnailImage(img.bytesB64, img.mediaType);
+      return { ...base, granted: true, face: thumb.bytesB64, mimeType: thumb.mediaType };
     }
     // Unresolvable asset → prefer the on-device caption over the raw reference (still meaningful, never leaks bytes).
     const caption = artefact.metadata?.description as string | undefined;
