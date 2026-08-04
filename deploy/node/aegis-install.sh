@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # aegis-install.sh — stand up a personal, egress-isolated Aegis Sovereign node.
 #
-#   curl -fsSL https://<host>/aegis-install.sh | bash          # (future: hosted one-liner)
+#   curl -fsSL https://archon.technology/aegis-install.sh | bash          # (future: hosted one-liner)
 #   bash aegis-install.sh                                      # (local run)
 #
 # Target: a Raspberry Pi 5 (8 GB, ARM64) running Raspberry Pi OS / Debian — but works on any apt-based

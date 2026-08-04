@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Archon Noderunner — VPS bootstrap
-# Usage: curl -fsSL https://4tress.org/install.sh | bash
+# Usage: curl -fsSL https://archon.technology/install.sh | bash
 
 set -euo pipefail
 
