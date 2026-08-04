@@ -14,6 +14,7 @@ import { createClassifier, type Classifier, type Classification } from './classi
 import type { VisionCaptioner } from './vision.js';
 import { VaultStore, type Artefact } from './store.js';
 import { IndexStore } from './index-store.js';
+import { resolveImageBytes } from './image-asset.js';
 
 /**
  * The Warden's submission handler: unseal a witness payload locally, classify its sensitivity,
@@ -51,22 +52,9 @@ export class WardenService {
    * Returns the base64 + media type + the asset DID (if any, for provenance), or null on ANY failure (bad
    * payload, unresolvable asset) so the caller fails CLOSED to SEALED — a missing image quarantines, never leaks.
    */
-  private async imageBytes(plaintext: string): Promise<{ bytesB64: string; mediaType?: string; assetDid?: string } | null> {
-    let payload: { assetDid?: string; image?: { bytesB64?: string; mediaType?: string }; attachment?: { bytesB64?: string; mediaType?: string } };
-    try {
-      payload = JSON.parse(plaintext) as typeof payload;
-    } catch {
-      return null;
-    }
-    if (payload.assetDid) {
-      const asset = await this.warden.keymaster.getImage(payload.assetDid).catch(() => null);
-      const data = asset?.file?.data;
-      if (!data) return null; // unresolvable asset → fail closed
-      return { bytesB64: Buffer.from(data).toString('base64'), mediaType: asset.file.type, assetDid: payload.assetDid };
-    }
-    const inline = payload.image ?? payload.attachment;
-    if (inline?.bytesB64) return { bytesB64: inline.bytesB64, mediaType: inline.mediaType };
-    return null;
+  private imageBytes(plaintext: string): Promise<{ bytesB64: string; mediaType?: string; assetDid?: string } | null> {
+    // Shared with card-face hydration (face.ts) — the same asset→bytes resolution the keyless browser can't do.
+    return resolveImageBytes(this.warden, plaintext);
   }
 
   /**

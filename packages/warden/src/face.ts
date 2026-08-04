@@ -21,6 +21,7 @@ import {
 } from '@hearthold/core';
 
 import { VaultStore, type Artefact } from './store.js';
+import { resolveImageBytes } from './image-asset.js';
 import type { CardFace } from '@hearthold/control-types';
 
 const SENSITIVITY_NAMES = ['PUBLIC', 'LOW', 'MEDIUM', 'HIGH', 'SEALED'] as const;
@@ -72,6 +73,22 @@ export async function hydrateCardFace(
 
   // Transient unseal, exactly like recall — plaintext lives only for this response.
   const plain = await unsealAsWarden(warden, artefact.ciphertext);
+
+  // IMAGE face: an image artefact's payload is an asset REFERENCE (`{ assetDid, mediaType }`), not renderable
+  // content. Resolve it to real image BYTES so the Table renders a thumbnail — a keyless browser can't turn a
+  // Keymaster asset into bytes (decision #4). Only a GRANTED face carries bytes; a refusal above stays obsidian
+  // (G1). The bytes live only in this response (G2), same discipline as the text face.
+  if (artefact.kind === 'image') {
+    const img = await resolveImageBytes(warden, plain);
+    if (img) {
+      const mimeType = img.mediaType && img.mediaType.startsWith('image/') ? img.mediaType : 'image/png';
+      return { ...base, granted: true, face: img.bytesB64, mimeType };
+    }
+    // Unresolvable asset → prefer the on-device caption over the raw reference (still meaningful, never leaks bytes).
+    const caption = artefact.metadata?.description as string | undefined;
+    if (caption) return { ...base, granted: true, face: Buffer.from(caption, 'utf8').toString('base64'), mimeType: 'text/plain' };
+  }
+
   let face = plain;
   try {
     // Submissions seal JSON `{text}`; render the text. Anything else renders raw.
