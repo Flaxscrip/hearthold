@@ -11,12 +11,46 @@
  * unresolvable asset) so callers fail CLOSED — a missing image quarantines/obsidians, never leaks.
  */
 
+import { Jimp } from 'jimp';
+
 import type { KeymasterHandle } from '@hearthold/core';
 
 export interface ResolvedImage {
   bytesB64: string;
   mediaType?: string;
   assetDid?: string;
+}
+
+/** Longest-edge px for a card-face thumbnail. A face is a preview; full-res is a deliberate open/reveal. */
+const DEFAULT_THUMB_PX = 256;
+/** jimp can ENCODE these; a webp/other input is decoded then thumbed to png. */
+const ENCODABLE = new Set(['image/jpeg', 'image/png', 'image/bmp', 'image/gif', 'image/tiff']);
+
+/**
+ * Downscale resolved image bytes to a ~256px longest-edge THUMBNAIL for the card face, so a spread that
+ * hydrates every ≤LOW image face at once stays light. Preserves aspect ratio; only scales DOWN (a small
+ * image is returned untouched — no re-encode). Re-encodes to the same format when jimp can, else PNG. Pure-JS
+ * (jimp — no native deps, Pi-safe). On ANY decode/encode failure, returns the FULL bytes (graceful — the fix
+ * is "bytes render"; the thumbnail is an optimization, never a failure mode).
+ */
+export async function thumbnailImage(
+  bytesB64: string,
+  mediaType: string | undefined,
+  maxEdge = DEFAULT_THUMB_PX,
+): Promise<{ bytesB64: string; mediaType: string }> {
+  const inputMime = mediaType && mediaType.startsWith('image/') ? mediaType : 'image/png';
+  try {
+    const img = await Jimp.read(Buffer.from(bytesB64, 'base64'));
+    if (img.width <= maxEdge && img.height <= maxEdge) {
+      return { bytesB64, mediaType: inputMime }; // already ≤ a thumbnail — serve as-is (no re-encode cost)
+    }
+    img.scaleToFit({ w: maxEdge, h: maxEdge });
+    const outMime = ENCODABLE.has(inputMime) ? inputMime : 'image/png';
+    const out = await img.getBuffer(outMime as 'image/png');
+    return { bytesB64: Buffer.from(out).toString('base64'), mediaType: outMime };
+  } catch {
+    return { bytesB64, mediaType: inputMime }; // unsupported/corrupt → full-res still renders
+  }
 }
 
 export async function resolveImageBytes(
