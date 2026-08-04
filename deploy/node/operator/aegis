@@ -1,0 +1,578 @@
+#!/usr/bin/env bash
+# aegis — operator CLI for a secured (egress-isolated) Aegis node.
+#
+# ISOLATION MODEL (the load-bearing rule this whole tool enforces):
+#   The Archon node's containers live on an internal-only Docker network with no
+#   egress. Operator/client tools (the Table, the Signet TUI) MUST NOT join that
+#   network — doing so puts a client on the gatekeeper/IPFS plane it has no
+#   business on. Instead every command here reaches a daemon ONLY through its
+#   host-published loopback bridge (127.0.0.1:<port>), exactly like a browser.
+#   No command here ever passes `--network <node-network>`.
+#
+# v1 commands: table, signet. (status/login/cards are roadmap — see README.md.)
+set -euo pipefail
+
+AEGIS_VERSION="0.1.0"
+SELF="$(basename "$0")"
+
+# ---------------------------------------------------------------------------
+# Config: defaults, overridable by env or a config file. Per-node settings
+# (Sovereign DID, the built Table's location) belong in the config file.
+#   search order: $AEGIS_CONFIG  →  ./aegis.env  →  ~/.aegis.env
+# ---------------------------------------------------------------------------
+_load_config() {
+  local f
+  for f in "${AEGIS_CONFIG:-}" "$(dirname "$0")/aegis.env" "$HOME/.aegis.env"; do
+    if [[ -n "$f" && -f "$f" ]]; then
+      # shellcheck disable=SC1090
+      set -a; . "$f"; set +a
+      AEGIS_CONFIG_LOADED="$f"
+      return 0
+    fi
+  done
+  return 0
+}
+_load_config
+
+# Daemon loopback bridges (host-published; never the in-container ports).
+AEGIS_WARDEN_URL="${AEGIS_WARDEN_URL:-http://127.0.0.1:4310}"
+AEGIS_SIGNET_URL="${AEGIS_SIGNET_URL:-http://127.0.0.1:4311}"
+AEGIS_EMISSARY_URL="${AEGIS_EMISSARY_URL:-http://127.0.0.1:4312}"
+# Table (browser client → Warden). Built statically; served on loopback.
+AEGIS_TABLE_PORT="${AEGIS_TABLE_PORT:-5175}"
+AEGIS_TABLE_SRC="${AEGIS_TABLE_SRC:-}"      # Sevenfold apps/table dir (build side; may be absent on the node)
+AEGIS_TABLE_DIST="${AEGIS_TABLE_DIST:-}"    # prebuilt bundle to serve (defaults to $AEGIS_TABLE_SRC/dist)
+AEGIS_SOVEREIGN_DID="${AEGIS_SOVEREIGN_DID:-}"  # baked into the build as the pre-login fallback subject
+# Signet TUI: ships inside the hearthold image; run native if a host bundle+node exist.
+AEGIS_IMAGE="${AEGIS_IMAGE:-hearthold:sandbox}"
+AEGIS_SIGNET_TUI_JS="${AEGIS_SIGNET_TUI_JS:-}"  # optional path to a host-extracted signet-tui/dist/index.js
+
+# node-env agents + the agent-Sovereign MCP (surfaced in status/help; launched by the sibling `aegis-mcp`)
+AEGIS_NODE_ENV_DATA="${AEGIS_NODE_ENV_DATA:-$HOME/aegis-env/node/data}"
+AEGIS_AGENT_MCP_IMAGE="${AEGIS_AGENT_MCP_IMAGE:-hearthold:agent-mcp}"
+# State (pidfiles, logs, extracted bundles).
+AEGIS_STATE="${AEGIS_STATE:-$HOME/.aegis}"
+mkdir -p "$AEGIS_STATE"
+# status: optional gatekeeper URL for DID-resolution health; which containers count as "the stack".
+AEGIS_GATEKEEPER_URL="${AEGIS_GATEKEEPER_URL:-}"
+AEGIS_STACK_FILTER="${AEGIS_STACK_FILTER:-aegis-|hearthold|drawbridge|^tor$|ipfs|gatekeeper|didcomm|redis|sphere|table-gateway|ollama}"
+# config: the control overlay's env file + compose (edited/recreated by `aegis config`).
+AEGIS_CONTROL_ENV="${AEGIS_CONTROL_ENV:-}"          # e.g. ~/.control-gamer.env
+AEGIS_CONTROL_COMPOSE="${AEGIS_CONTROL_COMPOSE:-}"  # e.g. .../deploy/topology/docker-compose.control.yml
+AEGIS_CONTROL_PROJECT="${AEGIS_CONTROL_PROJECT:-aegis-control}"
+# model: the node's Ollama (on-device AI). Auto-detected if unset.
+AEGIS_OLLAMA_CONTAINER="${AEGIS_OLLAMA_CONTAINER:-}"
+AEGIS_OLLAMA_MODELS_DIR="${AEGIS_OLLAMA_MODELS_DIR:-}"
+AEGIS_OLLAMA_URL="${AEGIS_OLLAMA_URL:-http://ollama:11434}"
+
+# ---------------------------------------------------------------------------
+# helpers
+# ---------------------------------------------------------------------------
+_c() { printf '\033[%sm%s\033[0m' "$1" "$2"; }         # color
+info() { printf '  %s\n' "$*"; }
+ok()   { printf '  %s %s\n' "$(_c '1;32' '✓')" "$*"; }
+warn() { printf '  %s %s\n' "$(_c '1;33' '!')" "$*"; }
+die()  { printf '%s %s\n' "$(_c '1;31' 'error:')" "$*" >&2; exit 1; }
+have() { command -v "$1" >/dev/null 2>&1; }
+
+_http_code() { curl -s -o /dev/null -w '%{http_code}' --max-time 4 "$1" 2>/dev/null || echo 000; }
+# pull a top-level JSON string field without a json dep (first match): _json_field <body> <key>
+_json_field() { printf '%s' "$1" | grep -oE "\"$2\":\"[^\"]*\"" | head -1 | cut -d'"' -f4; }
+# find a running control daemon container by service name (excludes the loopback bridge)
+_daemon_container() { docker ps --format '{{.Names}}' 2>/dev/null | grep -iE "$1" | grep -viE 'bridge' | head -1; }
+# the node's Ollama container + its models bind-mount (for `aegis model`)
+_ollama_container() { echo "${AEGIS_OLLAMA_CONTAINER:-$(docker ps --format '{{.Names}}' 2>/dev/null | grep -iE 'ollama' | grep -viE 'sphere' | head -1)}"; }
+_ollama_models_dir() {
+  [[ -n "$AEGIS_OLLAMA_MODELS_DIR" ]] && { echo "$AEGIS_OLLAMA_MODELS_DIR"; return; }
+  local c; c="$(_ollama_container)"
+  [[ -n "$c" ]] && docker inspect "$c" --format '{{range .Mounts}}{{if eq .Destination "/root/.ollama/models"}}{{.Source}}{{end}}{{end}}' 2>/dev/null
+}
+
+# Confirm a loopback daemon answers before we launch a client against it.
+_require_daemon() { # <url> <name>
+  local code; code="$(_http_code "$1/api/status")"
+  # 200/401/403 all mean "answering"; 000 means nothing there.
+  [[ "$code" != "000" ]] || die "$2 not reachable at $1 (is the node up? \`docker ps\`)"
+}
+
+# ---------------------------------------------------------------------------
+# table — build (if source present) + serve the Sevenfold Table on loopback
+# ---------------------------------------------------------------------------
+_table_dist() { echo "${AEGIS_TABLE_DIST:-${AEGIS_TABLE_SRC:+$AEGIS_TABLE_SRC/dist}}"; }
+_table_pidfile() { echo "$AEGIS_STATE/table.pid"; }
+
+table_build() {
+  [[ -n "$AEGIS_TABLE_SRC" && -f "$AEGIS_TABLE_SRC/package.json" ]] \
+    || die "no Table source (set AEGIS_TABLE_SRC to Sevenfold's apps/table). On the node, use \`$SELF table serve\` with a copied AEGIS_TABLE_DIST."
+  have npm || die "npm not found (needed to build; build on a dev box, then copy the dist to the node)"
+  info "building Table → live datasource, Warden=$AEGIS_WARDEN_URL, Signet=$AEGIS_SIGNET_URL"
+  ( cd "$AEGIS_TABLE_SRC" && \
+    VITE_DATASOURCE=live \
+    VITE_CONTROL_URL="$AEGIS_WARDEN_URL" \
+    VITE_SIGNET_URL="$AEGIS_SIGNET_URL" \
+    VITE_EMISSARY_URL="$AEGIS_EMISSARY_URL" \
+    ${AEGIS_SOVEREIGN_DID:+VITE_SOVEREIGN_DID="$AEGIS_SOVEREIGN_DID"} \
+    npm run build >/dev/null )
+  ok "built $AEGIS_TABLE_SRC/dist"
+}
+
+table_serve() {
+  local dist; dist="$(_table_dist)"
+  [[ -n "$dist" && -f "$dist/index.html" ]] \
+    || die "no built Table to serve (set AEGIS_TABLE_DIST to a dir containing index.html, or run \`$SELF table build\` where the source lives)"
+  have python3 || die "python3 not found (needed to serve the static bundle)"
+  # stop any prior instance we own
+  table_down >/dev/null 2>&1 || true
+  info "serving $dist on loopback :$AEGIS_TABLE_PORT (browser client → $AEGIS_WARDEN_URL)"
+  nohup python3 -m http.server "$AEGIS_TABLE_PORT" --bind 127.0.0.1 -d "$dist" \
+    >"$AEGIS_STATE/table.log" 2>&1 &
+  echo $! >"$(_table_pidfile)"
+  sleep 1
+  [[ "$(_http_code "http://127.0.0.1:$AEGIS_TABLE_PORT/")" == "200" ]] \
+    || { warn "server didn't answer; see $AEGIS_STATE/table.log"; return 1; }
+  ok "Table live → $(_c '1;36' "http://localhost:$AEGIS_TABLE_PORT")   (browse ON this node; loopback only)"
+}
+
+table_down() {
+  local pf; pf="$(_table_pidfile)"
+  if [[ -f "$pf" ]] && kill -0 "$(cat "$pf")" 2>/dev/null; then
+    kill "$(cat "$pf")" 2>/dev/null && ok "Table stopped (pid $(cat "$pf"))"
+  else
+    info "no Table server running (that we own)"
+  fi
+  rm -f "$pf"
+}
+
+table_status() {
+  local pf; pf="$(_table_pidfile)"
+  if [[ -f "$pf" ]] && kill -0 "$(cat "$pf")" 2>/dev/null; then
+    ok "Table serving on :$AEGIS_TABLE_PORT (pid $(cat "$pf")) → http://localhost:$AEGIS_TABLE_PORT"
+  else
+    info "Table not running"
+  fi
+  local dist; dist="$(_table_dist)"
+  info "dist: ${dist:-<unset>}"
+  info "Warden target: $AEGIS_WARDEN_URL"
+}
+
+cmd_table() {
+  local sub="${1:-up}"; shift || true
+  case "$sub" in
+    up)     _require_daemon "$AEGIS_WARDEN_URL" "Warden"
+            [[ -n "$AEGIS_TABLE_SRC" && -f "$AEGIS_TABLE_SRC/package.json" ]] && table_build || true
+            table_serve ;;
+    build)  table_build ;;
+    serve)  _require_daemon "$AEGIS_WARDEN_URL" "Warden"; table_serve ;;
+    down|stop) table_down ;;
+    status) table_status ;;
+    *) die "usage: $SELF table [up|build|serve|down|status]" ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# signet — launch the Signet TUI against the loopback bridge (never the node net)
+# ---------------------------------------------------------------------------
+signet_extract() { # lift the built TUI + deps out of the image for the native path
+  have docker || die "docker not found"
+  local out="$AEGIS_STATE/hh-app"
+  info "extracting $AEGIS_IMAGE:/app → $out (one-time)"
+  local cid; cid="$(docker create "$AEGIS_IMAGE")"
+  rm -rf "$out"; docker cp "$cid:/app" "$out" >/dev/null; docker rm "$cid" >/dev/null
+  [[ -f "$out/packages/signet-tui/dist/index.js" ]] \
+    || die "signet-tui not found in image $AEGIS_IMAGE"
+  ok "extracted → set AEGIS_SIGNET_TUI_JS=$out/packages/signet-tui/dist/index.js to run natively"
+}
+
+cmd_signet() {
+  [[ "${1:-}" == "extract" ]] && { signet_extract; return; }
+  _require_daemon "$AEGIS_SIGNET_URL" "Signet"
+  local tui="$AEGIS_SIGNET_TUI_JS"
+  [[ -z "$tui" && -f "$AEGIS_STATE/hh-app/packages/signet-tui/dist/index.js" ]] \
+    && tui="$AEGIS_STATE/hh-app/packages/signet-tui/dist/index.js"
+
+  if [[ -n "$tui" && -f "$tui" ]] && have node; then
+    info "launching Signet TUI (native) → $AEGIS_SIGNET_URL"
+    exec env HEARTHOLD_CONTROL_URL="$AEGIS_SIGNET_URL" node "$tui"
+  fi
+
+  have docker || die "no native TUI bundle and docker not found. Run \`$SELF signet extract\` (needs docker) or install node + set AEGIS_SIGNET_TUI_JS."
+  info "launching Signet TUI (container, --network host → loopback bridge; NOT the node network) → $AEGIS_SIGNET_URL"
+  # --network host shares the host netns so the container reaches 127.0.0.1:<bridge>.
+  # It does NOT join the node's internal network. The PIN is entered interactively in the TUI.
+  exec docker run --rm -it --network host \
+    -e HEARTHOLD_CONTROL_URL="$AEGIS_SIGNET_URL" \
+    --entrypoint node "$AEGIS_IMAGE" packages/signet-tui/dist/index.js
+}
+
+# ---------------------------------------------------------------------------
+# status — health + isolation posture (the hackathon trust anchor)
+# ---------------------------------------------------------------------------
+# Pick a node container to run the egress proof from. Must be one on the node's
+# INTERNAL network — exclude the sphere gatekeeper (reaches the tailnet) and guards.
+_pick_proof_container() {
+  [[ -n "${AEGIS_PROOF_CONTAINER:-}" ]] && { echo "$AEGIS_PROOF_CONTAINER"; return 0; }
+  local c
+  for c in $(docker ps --format '{{.Names}}' 2>/dev/null | grep -iE 'gatekeeper|didcomm|keymaster' | grep -viE 'guard|sphere'); do
+    docker exec "$c" sh -c 'command -v node >/dev/null 2>&1' 2>/dev/null && { echo "$c"; return 0; }
+  done
+  return 1
+}
+
+cmd_status() {
+  have docker || die "docker not found (status inspects the node's containers)"
+  printf '\n%s\n' "$(_c '1;36' 'aegis status')"
+
+  printf '\n%s\n' "$(_c '1' 'Node containers')"
+  local running; running=$(docker ps --format '{{.Names}}\t{{.Status}}' 2>/dev/null | grep -iE "$AEGIS_STACK_FILTER" || true)
+  if [[ -n "$running" ]]; then
+    echo "$running" | while IFS=$'\t' read -r n s; do printf '  %s %s (%s)\n' "$(_c '1;32' '●')" "$n" "$s"; done
+  else warn "no matching node containers running"; fi
+
+  printf '\n%s\n' "$(_c '1' 'Control bridges (loopback)')"
+  local wc sc ic; wc=$(_http_code "$AEGIS_WARDEN_URL/api/status"); sc=$(_http_code "$AEGIS_SIGNET_URL/api/status")
+  [[ "$wc" != 000 ]] && ok "Warden  $AEGIS_WARDEN_URL (HTTP $wc)" || warn "Warden  $AEGIS_WARDEN_URL unreachable"
+  [[ "$sc" != 000 ]] && ok "Signet  $AEGIS_SIGNET_URL (HTTP $sc)" || warn "Signet  $AEGIS_SIGNET_URL unreachable"
+  local ec; ec=$(_http_code "$AEGIS_EMISSARY_URL/api/status")
+  [[ "$ec" != 000 ]] && ok "Emissary $AEGIS_EMISSARY_URL (HTTP $ec)" || info "Emissary $AEGIS_EMISSARY_URL not running (optional — needed for card creation)"
+  ic=$(_http_code "$AEGIS_WARDEN_URL/api/card/inbound")
+  case "$ic" in
+    401|403) ok   "require-session: ON  (unauth scoped read → $ic — login required)";;
+    200)     warn "require-session: OFF (unauth scoped read → 200 — any local caller can read/act)";;
+    *)       info "require-session: unknown (inbound → $ic)";;
+  esac
+
+  printf '\n%s\n' "$(_c '1' 'Roles & vault')"
+  # Warden — identity + vault stats + assurance ladder (CLI reads the wallet directly; no session needed)
+  local wctr; wctr="$(_daemon_container 'warden-console')"
+  if [[ -n "$wctr" ]]; then
+    local ws wdid art seal
+    ws="$(docker exec "$wctr" node packages/warden/dist/index.js status 2>/dev/null || true)"
+    wdid="$(printf '%s' "$ws" | grep -oE 'did:cid:[a-z0-9]+' | head -1)"
+    art="$(printf '%s' "$ws" | grep -oiE 'artefacts:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | head -1)"
+    seal="$(printf '%s' "$ws" | grep -oiE 'SEALED requires tier [0-9]+' | head -1)"
+    [[ -n "$wdid" ]] && ok "Warden …${wdid: -10}${art:+  · vault: $art artefacts}${seal:+  · $seal}" || info "Warden status unavailable"
+  fi
+  # Sovereign resolution (best-effort — needs a gatekeeper URL)
+  if [[ -n "$AEGIS_GATEKEEPER_URL" && -n "$AEGIS_SOVEREIGN_DID" ]]; then
+    local dc; dc=$(_http_code "$AEGIS_GATEKEEPER_URL/api/v1/did/$AEGIS_SOVEREIGN_DID")
+    [[ "$dc" == 200 ]] && ok "Sovereign …${AEGIS_SOVEREIGN_DID: -10} resolves (via $AEGIS_GATEKEEPER_URL)" \
+                        || warn "Sovereign resolve → HTTP $dc"
+  elif [[ -n "$AEGIS_SOVEREIGN_DID" ]]; then info "Sovereign …${AEGIS_SOVEREIGN_DID: -10} (set AEGIS_GATEKEEPER_URL to verify)"; fi
+  # Emissary (the witness) — identity + wired Warden, from its unauthenticated /api/status
+  local es; es="$(curl -s --max-time 4 "$AEGIS_EMISSARY_URL/api/status" 2>/dev/null || true)"
+  if [[ -n "$es" ]]; then
+    local edid ewar; edid="$(_json_field "$es" did)"; ewar="$(_json_field "$es" wardenDid)"
+    ok "Emissary …${edid: -10} → submits to Warden …${ewar: -10}"
+    info "delegation/authorization is session-scoped — verify logged in (Table Setup tab / a Warden session)"
+  else
+    info "Emissary not running — card creation needs it (aegis-control emissary-console → :4312)"
+  fi
+  # Ingestion gate posture — live from the Warden container (empty → code default SEALED = quarantine all)
+  if [[ -n "$wctr" ]]; then
+    local thr; thr="$(docker exec "$wctr" sh -c 'echo "$HEARTHOLD_CONFIRM_AT_OR_BELOW"' 2>/dev/null | tr -d '[:space:]')"
+    if [[ -z "$thr" || "$thr" == SEALED || "$thr" == 4 ]]; then
+      ok "ingestion gate: quarantine ≤ SEALED — every submission quarantines until confirmed (safe default)"
+    else
+      warn "ingestion gate: quarantine ≤ $thr — tiers above auto-file without review (relaxed from SEALED default)"
+    fi
+  fi
+
+  # Agents & MCP — the node-env AI agents + the agent-Sovereign MCP launcher (aegis-mcp, in-network sibling).
+  # Read-only: lists a local file + inspects a local image — no network join (that stays in `aegis-mcp`).
+  printf '\n%s\n' "$(_c '1' 'Agents & MCP')"
+  local agdir="$AEGIS_NODE_ENV_DATA/identities/agents"
+  if [[ -d "$agdir" ]]; then
+    local names pdid
+    names=$(find "$agdir" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; 2>/dev/null | sort | tr '\n' ' ')
+    pdid=$(grep -oE 'did:cid:[a-z0-9]+' "$agdir/roster.json" 2>/dev/null | head -1)
+    if [[ -n "$names" ]]; then ok "node-env agents: ${names}${pdid:+ (parent flaxscrip …${pdid: -10})}"
+    else info "no agents provisioned — deploy/family/provision-node-family.sh"; fi
+  else
+    info "node-env agent store not found ($agdir) — see ~/aegis-env/node/ENVIRONMENT.md"
+  fi
+  if docker image inspect "$AEGIS_AGENT_MCP_IMAGE" >/dev/null 2>&1; then
+    ok "agent-MCP image $AEGIS_AGENT_MCP_IMAGE present — bind: \`aegis-mcp <agent> check\` · wire: \`aegis-mcp <agent> config\`"
+  else
+    info "agent-MCP image $AEGIS_AGENT_MCP_IMAGE not built — \`aegis-mcp build\`, then \`aegis-mcp <agent>\`"
+  fi
+
+  printf '\n%s\n' "$(_c '1' 'Isolation proof — egress from inside the node must FAIL')"
+  local pc; if pc=$(_pick_proof_container); then
+    local out rc
+    out=$(docker exec "$pc" node -e 'const s=require("net").connect({host:"1.1.1.1",port:443});s.setTimeout(4000);s.on("connect",()=>{console.log("REACHED");process.exit(9)});s.on("timeout",()=>{console.log("timeout");process.exit(0)});s.on("error",e=>{console.log(e.code||"error");process.exit(0)})' 2>&1) && rc=0 || rc=$?
+    if [[ "$rc" -eq 0 ]]; then ok "egress BLOCKED from $pc → 1.1.1.1:443 ($out) — isolation intact"
+    elif [[ "$rc" -eq 9 ]]; then printf '  %s %s\n' "$(_c '1;31' '✗')" "egress REACHED from $pc → 1.1.1.1:443 — ISOLATION BROKEN"
+    else info "egress check inconclusive on $pc (rc=$rc: $out)"; fi
+  else warn "no internal node container found for the egress proof (set AEGIS_PROOF_CONTAINER)"; fi
+  local ipfsc; ipfsc=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -iE 'ipfs' | grep -viE 'guard|sphere' | head -1)
+  if [[ -n "$ipfsc" ]]; then
+    local peers; peers=$(docker exec "$ipfsc" ipfs swarm peers 2>/dev/null | grep -c . || true)
+    [[ "${peers:-x}" == 0 ]] && ok "IPFS swarm peers: 0 ($ipfsc) — no bulk gossip" || warn "IPFS swarm peers: ${peers:-?} ($ipfsc)"
+  fi
+  echo
+}
+
+# ---------------------------------------------------------------------------
+# config — flip the control-overlay knobs (edit env + recreate) without the dance
+# ---------------------------------------------------------------------------
+# Portable env-file edit (works with both GNU and BSD userland — no `sed -i`).
+_get_env_var() { grep -E "^$2=" "$1" 2>/dev/null | tail -1 | cut -d= -f2- || true; }
+_set_env_var() { # <file> <key> <value>  — replace-in-place or append
+  local f="$1" k="$2" v="$3" tmp
+  tmp="$(mktemp)"
+  if grep -qE "^$k=" "$f" 2>/dev/null; then grep -vE "^$k=" "$f" > "$tmp"; else cat "$f" > "$tmp" 2>/dev/null || true; fi
+  printf '%s=%s\n' "$k" "$v" >> "$tmp"
+  mv "$tmp" "$f"
+}
+_control_ready() {
+  have docker || die "docker not found"
+  [[ -n "$AEGIS_CONTROL_ENV"     && -f "$AEGIS_CONTROL_ENV" ]]     || die "set AEGIS_CONTROL_ENV to the control env file (e.g. ~/.control-gamer.env)"
+  [[ -n "$AEGIS_CONTROL_COMPOSE" && -f "$AEGIS_CONTROL_COMPOSE" ]] || die "set AEGIS_CONTROL_COMPOSE to the control overlay compose file"
+}
+_control_recreate() { # <services...>
+  info "recreating: $* (project $AEGIS_CONTROL_PROJECT)"
+  ( set -a; . "$AEGIS_CONTROL_ENV"; set +a
+    cd "$(dirname "$AEGIS_CONTROL_COMPOSE")"
+    docker compose -p "$AEGIS_CONTROL_PROJECT" -f "$AEGIS_CONTROL_COMPOSE" up -d --force-recreate "$@" >/dev/null 2>&1 )
+}
+
+config_require_session() {
+  local action="${1:-status}"
+  case "$action" in
+    status)
+      _control_ready
+      local v; v="$(_get_env_var "$AEGIS_CONTROL_ENV" HEARTHOLD_REQUIRE_SESSION)"
+      info "HEARTHOLD_REQUIRE_SESSION=${v:-<unset → default false>}"
+      local ic; ic=$(_http_code "$AEGIS_WARDEN_URL/api/card/inbound")
+      case "$ic" in 401|403) ok "live: ON (unauth scoped read → $ic)";; 200) warn "live: OFF (unauth → 200)";; *) info "live: inbound → $ic";; esac ;;
+    on|off)
+      _control_ready
+      local val; [[ "$action" == on ]] && val=true || val=false
+      grep -q HEARTHOLD_REQUIRE_SESSION "$AEGIS_CONTROL_COMPOSE" \
+        || warn "compose doesn't reference HEARTHOLD_REQUIRE_SESSION — add it to the daemon-env block or the env won't take effect"
+      _set_env_var "$AEGIS_CONTROL_ENV" HEARTHOLD_REQUIRE_SESSION "$val"
+      ok "set HEARTHOLD_REQUIRE_SESSION=$val in $(basename "$AEGIS_CONTROL_ENV")"
+      _control_recreate warden-console signet-console
+      sleep 3
+      local ic; ic=$(_http_code "$AEGIS_WARDEN_URL/api/card/inbound")
+      if [[ "$action" == on ]]; then
+        [[ "$ic" == 401 || "$ic" == 403 ]] && ok "verified: gate ON (unauth → $ic)" || warn "expected 401, got $ic"
+      else
+        [[ "$ic" == 200 ]] && ok "verified: gate OFF (unauth → 200)" || warn "expected 200, got $ic"
+      fi ;;
+    *) die "usage: $SELF config require-session <on|off|status>" ;;
+  esac
+}
+
+config_signet_pin() {
+  local action="${1:-show}"; shift || true
+  _control_ready
+  case "$action" in
+    show) # prints the PIN — this is the operator's own tool on their own node
+      local v; v="$(_get_env_var "$AEGIS_CONTROL_ENV" HEARTHOLD_SIGNET_PIN)"
+      [[ -n "$v" ]] && info "HEARTHOLD_SIGNET_PIN=$v" || warn "HEARTHOLD_SIGNET_PIN not set in $(basename "$AEGIS_CONTROL_ENV")" ;;
+    set)
+      local pin="${1:-}"; [[ -n "$pin" ]] || die "usage: $SELF config signet-pin set <pin>"
+      _set_env_var "$AEGIS_CONTROL_ENV" HEARTHOLD_SIGNET_PIN "$pin"
+      ok "set HEARTHOLD_SIGNET_PIN in $(basename "$AEGIS_CONTROL_ENV")"
+      _control_recreate signet-console
+      ok "Signet recreated — new PIN is live (enter it in \`$SELF signet\`)" ;;
+    *) die "usage: $SELF config signet-pin <show|set PIN>" ;;
+  esac
+}
+
+# Ingestion gate (Hearthold a30f214): a submission whose sensitivity is <= this threshold QUARANTINES into triage
+# (inert — not recall/KB-usable) until the Sovereign confirms. Default SEALED = quarantine everything (safe).
+# Lowering it auto-admits higher tiers, e.g. MEDIUM → only PUBLIC/LOW/MEDIUM quarantine, HIGH/SEALED auto-file.
+config_ingest_threshold() {
+  local action="${1:-show}"; shift || true
+  _control_ready
+  local KEY=HEARTHOLD_CONFIRM_AT_OR_BELOW
+  case "$action" in
+    show)
+      local v; v="$(_get_env_var "$AEGIS_CONTROL_ENV" $KEY)"
+      info "$KEY=${v:-<unset → default SEALED — quarantine everything until the Sovereign confirms>}" ;;
+    set)
+      local lvl; lvl="$(printf '%s' "${1:-}" | tr '[:lower:]' '[:upper:]')"
+      case "$lvl" in PUBLIC|LOW|MEDIUM|HIGH|SEALED|0|1|2|3|4) ;; *) die "usage: $SELF config ingest-threshold set <PUBLIC|LOW|MEDIUM|HIGH|SEALED> (SEALED = quarantine all)";; esac
+      grep -q "$KEY" "$AEGIS_CONTROL_COMPOSE" || warn "compose doesn't reference $KEY — add it to the daemon-env block or the env won't take effect"
+      _set_env_var "$AEGIS_CONTROL_ENV" $KEY "$lvl"
+      ok "set $KEY=$lvl in $(basename "$AEGIS_CONTROL_ENV")"
+      _control_recreate warden-console
+      ok "Warden recreated — submissions at/below $lvl quarantine into triage; higher tiers auto-admit" ;;
+    *) die "usage: $SELF config ingest-threshold <show|set LEVEL>  (LEVEL: PUBLIC|LOW|MEDIUM|HIGH|SEALED)" ;;
+  esac
+}
+
+cmd_config() {
+  local topic="${1:-show}"; shift || true
+  case "$topic" in
+    show)            _control_ready
+                     info "control env:     ${AEGIS_CONTROL_ENV:-<unset>}"
+                     info "control compose: ${AEGIS_CONTROL_COMPOSE:-<unset>}"
+                     config_require_session status
+                     local p; p="$(_get_env_var "$AEGIS_CONTROL_ENV" HEARTHOLD_SIGNET_PIN)"
+                     [[ -n "$p" ]] && ok "Signet PIN: set (\`$SELF config signet-pin show\` to reveal)" || warn "Signet PIN: not set"
+                     config_ingest_threshold show ;;
+    require-session)  config_require_session "$@" ;;
+    signet-pin)       config_signet_pin "$@" ;;
+    ingest-threshold) config_ingest_threshold "$@" ;;
+    *) die "usage: $SELF config [show|require-session <on|off|status>|signet-pin <show|set PIN>|ingest-threshold <show|set LEVEL>]" ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# model — the node's on-device Ollama models (list / roles / stage offline / verify)
+# ---------------------------------------------------------------------------
+model_list() {
+  local c; c="$(_ollama_container)"; [[ -n "$c" ]] || die "no ollama container running (set AEGIS_OLLAMA_CONTAINER)"
+  docker exec "$c" ollama list
+}
+
+# Show Hearthold's model ROLES and whether each configured model is actually present — the check that would
+# have caught the missing embedder in one command.
+model_roles() {
+  local c w have; c="$(_ollama_container)"; w="$(_daemon_container 'warden-console')"
+  [[ -n "$c" ]] || die "no ollama container running"
+  have="$(docker exec "$c" ollama list 2>/dev/null | awk 'NR>1{print $1}')"
+  local spec role env def val short line
+  for spec in "classify:HEARTHOLD_CLASSIFIER_MODEL:qwen2.5:3b" \
+              "embed:HEARTHOLD_EMBEDDING_MODEL:nomic-embed-text" \
+              "answer:HEARTHOLD_ANSWER_MODEL:" \
+              "vision:HEARTHOLD_VISION_MODEL:moondream"; do
+    role="${spec%%:*}"; env="$(printf '%s' "$spec" | cut -d: -f2)"; def="$(printf '%s' "$spec" | cut -d: -f3-)"
+    val=""; [[ -n "$w" ]] && val="$(docker exec "$w" sh -c "printf '%s' \"\$$env\"" 2>/dev/null)"
+    [[ -z "$val" ]] && val="$def"
+    if [[ -z "$val" ]]; then
+      [[ "$role" == answer ]] && info "answer     (inherits classify)" \
+                               || info "$role     <unset> — not configured (image support pending for vision)"
+      continue
+    fi
+    short="${val%%:*}"; line="$(printf '%-9s %s' "$role" "$val")"
+    if printf '%s\n' "$have" | grep -qiE "^${val}$|^${short}:"; then ok "$line — present"
+    else warn "$line — MISSING (stage: aegis model pack $val → import)"; fi
+  done
+}
+
+# CONNECTED-box side: pull a model + pack its manifest+blobs into a portable tarball for air-gap transfer.
+model_pack() {
+  local name="${1:-}" out="${2:-$PWD}"
+  [[ -n "$name" ]] || die "usage: $SELF model pack <name> [outdir]  (run on a CONNECTED box — pulls; the node can't)"
+  have ollama  || die "ollama not found (pack pulls on a connected machine with internet)"
+  have python3 || die "python3 required to read the model manifest"
+  info "pulling $name (needs internet)…"; ollama pull "$name" >/dev/null
+  local store nm tag rel tb blobs
+  store="${OLLAMA_MODELS:-$HOME/.ollama/models}"
+  nm="${name%%:*}"; [[ "$name" == *:* ]] && tag="${name#*:}" || tag=latest
+  rel="manifests/registry.ollama.ai/library/$nm/$tag"
+  [[ -f "$store/$rel" ]] || die "manifest not found: $store/$rel"
+  tb="$out/${nm}-${tag}.ollama.tgz"
+  blobs="$(python3 -c "import json;m=json.load(open('$store/$rel'));print('\n'.join('blobs/sha256-'+l['digest'].split(':')[1] for l in [m['config']]+m['layers']))")"
+  ( cd "$store" && tar czf "$tb" "$rel" $blobs )
+  ok "packed → $tb ($(du -h "$tb" | cut -f1))"
+  info "carry it to the node, then: $SELF model import $(basename "$tb")"
+}
+
+# NODE side: extract a packed model into the local Ollama store (bind mount; Ollama rescans, no restart).
+model_import() {
+  local tb="${1:-}"; [[ -f "$tb" ]] || die "usage: $SELF model import <tarball>"
+  local dir; dir="$(_ollama_models_dir)"; [[ -n "$dir" ]] || die "can't locate the Ollama models dir (set AEGIS_OLLAMA_MODELS_DIR)"
+  info "importing into $dir …"
+  tar xzf "$tb" -C "$dir" 2>/dev/null && ok "extracted into $dir"
+  local c; c="$(_ollama_container)"; [[ -n "$c" ]] && docker exec "$c" ollama list 2>/dev/null | sed 's/^/  /'
+}
+
+# Prove a model actually answers — from a node container (the Ollama image has no curl). Embedder → embeddings;
+# everything else → a tiny generate.
+model_verify() {
+  local name="${1:-}"; [[ -n "$name" ]] || die "usage: $SELF model verify <name>"
+  local w; w="$(_daemon_container 'warden-console')"; [[ -n "$w" ]] || die "need a node container to reach Ollama (warden not found)"
+  info "verifying $name via $w → $AEGIS_OLLAMA_URL …"
+  docker exec "$w" node -e "
+    const url='$AEGIS_OLLAMA_URL';
+    (async()=>{
+      const e=await fetch(url+'/api/embeddings',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({model:'$name',prompt:'x'})}).then(r=>r.json()).catch(()=>({}));
+      if(e.embedding&&e.embedding.length){console.log('  OK — embeddings, dims='+e.embedding.length);return}
+      const g=await fetch(url+'/api/generate',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({model:'$name',prompt:'hi',stream:false,options:{num_predict:8}})}).then(r=>r.json()).catch(x=>({error:x.message}));
+      if(g.response!=null){console.log('  OK — generate responds');return}
+      console.log('  FAILED: '+JSON.stringify(g).slice(0,160));
+    })()"
+}
+
+cmd_model() {
+  local sub="${1:-list}"; shift || true
+  case "$sub" in
+    list)   model_list ;;
+    roles)  model_roles ;;
+    pack)   model_pack "$@" ;;
+    import) model_import "$@" ;;
+    verify) model_verify "$@" ;;
+    *) die "usage: $SELF model [list|roles|pack <name> [outdir]|import <tarball>|verify <name>]" ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# help / dispatch
+# ---------------------------------------------------------------------------
+cmd_help() {
+  cat <<EOF
+$(_c '1;36' "aegis") $AEGIS_VERSION — operator CLI for a secured (egress-isolated) Archon node
+
+Usage: $SELF <command> [args]
+
+Commands:
+  status                               node health + isolation proof (egress must fail)
+  table [up|build|serve|down|status]   Sevenfold Table (browser client → Warden)
+      up      build (if source present) then serve on loopback :$AEGIS_TABLE_PORT
+      build   static build for the local Warden (needs AEGIS_TABLE_SRC + npm)
+      serve   serve a prebuilt bundle (AEGIS_TABLE_DIST) on loopback
+      down    stop the served Table
+  signet [extract]                     Signet approver TUI (→ Signet loopback bridge)
+      (no arg) launch the TUI (native if a bundle+node exist, else container/--network host)
+      extract  lift the TUI bundle out of $AEGIS_IMAGE for the native path
+  config [show|require-session <on|off|status>|signet-pin <show|set PIN>|ingest-threshold <show|set LEVEL>]
+                                       flip control-overlay knobs (edits env + recreates)
+      ingest-threshold  quarantine submissions at/below LEVEL (default SEALED = quarantine all)
+  model [list|roles|pack <name> [outdir]|import <tarball>|verify <name>]
+                                       on-device Ollama models (offline-stage for air-gapped nodes)
+      roles   Hearthold model roles (classify/embed/answer/vision) + present/MISSING
+      pack    (connected box) pull + package a model for air-gap transfer
+      import  (node) load a packed model into the local Ollama
+  help                                 this message
+  version                              print version
+
+In-network sibling tools (separate scripts; these DO join the sealed net, by design):
+  aegis-wallet <member> <km-command>        keymaster CLI against a node wallet (admin; needs the gatekeeper)
+  aegis-mcp <agent> [run|check|config]      launch a bound agent-Sovereign MCP  (image: \`aegis-mcp build\`)
+      run     the bound MCP server over stdio (what an MCP client spawns)
+      check   probe the binding → "✓ <agent> binds as did:cid:…"
+      config  emit an mcpServers snippet to paste into an MCP client
+
+Isolation: every \`aegis\` subcommand reaches a daemon ONLY via its host-published
+loopback bridge (127.0.0.1) and NEVER joins the node's Docker network. The two
+sibling tools above are the deliberate admin/agent exceptions — they run an
+ephemeral container on the sealed net (with an \`internal:true\` guard) so the
+gatekeeper is never published, exactly like \`docker compose exec\`.
+
+Config: ${AEGIS_CONFIG_LOADED:-<none loaded>}  (see aegis.env.example)
+  AEGIS_WARDEN_URL=$AEGIS_WARDEN_URL
+  AEGIS_SIGNET_URL=$AEGIS_SIGNET_URL
+  AEGIS_TABLE_DIST=${AEGIS_TABLE_DIST:-<unset>}
+  AEGIS_IMAGE=$AEGIS_IMAGE
+EOF
+}
+
+main() {
+  local cmd="${1:-help}"; shift || true
+  case "$cmd" in
+    status)  cmd_status "$@" ;;
+    config)  cmd_config "$@" ;;
+    model)   cmd_model "$@" ;;
+    table)   cmd_table "$@" ;;
+    signet)  cmd_signet "$@" ;;
+    version) echo "$AEGIS_VERSION" ;;
+    help|-h|--help) cmd_help ;;
+    *) die "unknown command '$cmd' (try \`$SELF help\`)" ;;
+  esac
+}
+main "$@"

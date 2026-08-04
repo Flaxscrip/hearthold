@@ -1,0 +1,69 @@
+# AEGIS DMZ Gatekeeper profile — ephemeral, mediator-less.
+#
+# The new topology category (coordinates with Hearthold's DMZ policy in
+# ~/hearthold/docs/DRAWBRIDGE-GROUNDING.md "The DMZ — verification without republication").
+# A Gatekeeper with NO hyperswarm mediator: it can hold, resolve, and cryptographically verify
+# imported operations, but has ZERO capability to push them onward — the mediator is the only
+# code path from "op in the DB" to "op left the box" (hyperswarm-mediator.ts:355-419). resolveDID
+# is pure DB read + local replay (gatekeeper.ts:682-728), no network.
+#
+# Ephemeral: state lives in NAMED volumes so `down -v` provably removes everything (no bind-mount
+# residue, no stray IPFS repo). Disk-backed is fine — no in-memory engine needed.
+# NOT internal:true — the DMZ still needs HTTP EGRESS to fetch a counterparty's /dids/export
+# (or /1.0/identifiers). That's independent of gossip: no mediator ≠ no network.
+#
+#   docker compose -p aegis-dmz -f deploy/topology/docker-compose.dmz.yml up -d      # spin up
+#   docker compose -p aegis-dmz -f deploy/topology/docker-compose.dmz.yml down -v    # destroy (removes volumes)
+name: aegis-dmz
+
+services:
+  redis-dmz:
+    image: redis:8.0.4-alpine
+    command: redis-server --appendonly yes            # disk-backed; the volume is wiped on `down -v`
+    volumes: [dmz-redis:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  ipfs-dmz:
+    image: ipfs/kubo:v0.40.1
+    volumes: [dmz-ipfs:/data/ipfs]
+    healthcheck:
+      test: ["CMD-SHELL", "wget --post-data='' -qO- http://127.0.0.1:5001/api/v0/version >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  gatekeeper-dmz:
+    image: ghcr.io/archetech/gatekeeper-typescript
+    environment:
+      - ARCHON_GATEKEEPER_PORT=4224
+      - ARCHON_BIND_ADDRESS=0.0.0.0
+      - ARCHON_GATEKEEPER_DB=redis
+      # NO hyperswarm in registries -> nothing is ever queued for a mediator. Local-only.
+      - ARCHON_GATEKEEPER_REGISTRIES=local
+      - ARCHON_DEFAULT_REGISTRY=local
+      - ARCHON_GATEKEEPER_DID_PREFIX=did:cid
+      - ARCHON_REDIS_URL=redis://redis-dmz:6379
+      - ARCHON_IPFS_URL=http://ipfs-dmz:5001/api/v0
+    # localhost-only publish: the open /1.0/identifiers read path (see CONTAINER-TOPOLOGY.md §3)
+    # is reachable only from this host, never the LAN/public — the per-node close for a DMZ.
+    ports: ["127.0.0.1:4260:4224"]
+    healthcheck:
+      test: ["CMD-SHELL", "test \"$(wget -qO- http://127.0.0.1:4224/api/v1/ready)\" = \"true\""]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+    depends_on:
+      redis-dmz:
+        condition: service_healthy
+      ipfs-dmz:
+        condition: service_healthy
+
+volumes:
+  dmz-redis:
+  dmz-ipfs:

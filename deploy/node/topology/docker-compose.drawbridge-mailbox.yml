@@ -1,0 +1,46 @@
+# Mailbox-only Drawbridge — the CANONICAL Hearthold-facing front door, without the payment rail.
+#
+# Principle (flaxscrip, 2026-07-27): "Drawbridge is the proper service name if we're going to expose a port
+# with Hearthold." The outward mailbox/resolve surface must be the Drawbridge — never the raw DIDComm relay
+# (:4236) or the raw gatekeeper (:4224), and never a bespoke gateway. This file lets a node run that canonical
+# front WITHOUT dragging in lightning-mediator + herald/naming (the stock `drawbridge` profile's hard deps,
+# which is why gamerflax had reached for the `table-gateway` bypass).
+#
+# What it fronts:  /api/v1/*  -> gatekeeper (resolve open; admin/import stay sealed BY DESIGN — a public
+#                                front must not inject an admin key)
+#                  /didcomm   -> the DIDComm relay (the mailbox)
+# Lightning is lazy in the drawbridge (LightningUnavailableError only on an L402 call), so omitting the
+# mediator is safe for the resolve + mailbox paths — it just means paid-naming/L402 isn't wired.
+#
+# NO host port publish: the Drawbridge stays reachable only on the internal archon_default net until the
+# tor "sword" is drawn (see docs — the onion fronts THIS 4222, giving reachability with no inbound port).
+#
+# Bring up (on the node host) under a DEDICATED project so it doesn't collide with a node project that
+# already declares its own `drawbridge` service; the container_name keeps it reachable as `drawbridge`:
+#   docker compose -p aegis-mailbox -f deploy/topology/docker-compose.drawbridge-mailbox.yml up -d drawbridge
+services:
+  drawbridge:
+    image: ghcr.io/archetech/drawbridge
+    container_name: drawbridge          # Hearthold + the onion reach http://drawbridge:4222 over archon_default
+    environment:
+      ARCHON_DRAWBRIDGE_PORT: "4222"
+      ARCHON_GATEKEEPER_URL: http://gatekeeper:4224
+      ARCHON_DIDCOMM_URL: http://didcomm:4236
+      ARCHON_REDIS_URL: ${ARCHON_REDIS_URL:-redis://redis:6379}   # else ioredis hammers localhost:6379
+      # Boot-required (32+ chars) even when L402 is unused — it signs L402 macaroons we never mint here.
+      # Dev-only placeholder; a node that actually sells paid-naming must set a real secret.
+      ARCHON_DRAWBRIDGE_MACAROON_SECRET: ${ARCHON_DRAWBRIDGE_MACAROON_SECRET:-aegis-mailbox-dev-macaroon-secret-not-for-l402-0123456789}
+      # deliberately NO ARCHON_LIGHTNING_MEDIATOR_URL and NO admin key — mailbox/resolve front only
+    networks: [default]
+    healthcheck:
+      test: ["CMD", "node", "-e", "const http=require('http');const r=http.get('http://127.0.0.1:4222/api/v1/ready',s=>{let b='';s.on('data',c=>b+=c);s.on('end',()=>process.exit(s.statusCode===200&&(b.trim()==='true'||b.includes('\"ready\":true'))?0:1));});r.on('error',()=>process.exit(1));"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 20s
+    restart: unless-stopped
+
+networks:
+  default:
+    name: aegis_internal              # the sealed (internal:true) node network — already up
+    external: true

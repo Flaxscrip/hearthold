@@ -1,0 +1,25 @@
+# Kernel 6.19+ hosts (e.g. Linux Mint 22.3) can't run Archon's bundled MongoDB — it hard-fails with
+# "Linux kernel versions 6.19 and newer has a known incompatibility" (MongoDB SERVER-121912). MongoDB
+# is OPTIONAL for the gatekeeper/keymaster (the measure-profile node runs mongo-free). This override
+# drops the mongodb dependency + URL so a node comes up without it — enough to back a Hearthold Table
+# (gatekeeper + keymaster + drawbridge + didcomm + ollama); no Lightning/chain mediators.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.ollama.yml \
+#     -f deploy/topology/docker-compose.nomongo.yml up -d gatekeeper keymaster drawbridge didcomm ollama
+services:
+  gatekeeper:
+    depends_on: !override
+      redis:
+        condition: service_healthy
+      ipfs:
+        condition: service_healthy
+    environment:
+      - ARCHON_MONGODB_URL=
+  keymaster:
+    depends_on: !override
+      gatekeeper:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - ARCHON_MONGODB_URL=

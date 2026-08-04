@@ -1,0 +1,33 @@
+# Seal a REACHABLE node's admin surface at the DEPLOYMENT layer. Layer LAST, on top of the
+# measure/sphere-tailnet files, on any node whose gatekeeper is published for a peer's fallback:
+#   ... -f docker-compose.measure.yml -f docker-compose.sphere-tailnet.yml -f docker-compose.sealed.yml up -d
+#
+# Effect: the raw gatekeeper is NO LONGER published; a resolution-only `gatekeeper-guard` takes the
+# :4324 port instead. Peer fallback resolution still works (GET /api/v1/did, /1.0/identifiers), but
+# the raw path the demo exploited — POST /dids/import — plus all admin/enumerate/bulk-export return
+# 403 from off-box, EVEN with a valid admin key. This shuts, at the network edge, what Hearthold's
+# PrivateGatekeeper type only forbids in Hearthold code (see AEGIS↔Hearthold coordination note).
+# Internal callers (this node's own keymaster/cli) still reach the gatekeeper by name on the Docker net.
+#
+# For a truly PRIVATE node (serves no peer): set GUARD_MODE=private (guard allows only /ready), or
+# simply don't publish the port at all — a private node needs no external surface.
+services:
+  gatekeeper:
+    ports: !override []          # unpublish the raw gatekeeper — internal-only now
+
+  gatekeeper-guard:
+    image: node:22-alpine        # public, multi-arch (native on arm64 + amd64) — no ghcr auth, no emulation
+    command: ["node", "/g/gatekeeper-guard.mjs"]
+    environment:
+      - GK=gatekeeper:4224
+      - GUARD_MODE=${GUARD_MODE:-resolver}
+      - PORT=4324
+    volumes:
+      # Relative to the Compose project dir, which is the FIRST -f file's dir (deploy/topology/) —
+      # so this resolves to deploy/topology/gatekeeper-guard.mjs. Keep measure.yml as the first -f.
+      - ./gatekeeper-guard.mjs:/g/gatekeeper-guard.mjs:ro
+    ports: ["4324:4324"]         # the guard is what the peer/host reaches
+    depends_on:
+      gatekeeper:
+        condition: service_healthy
+    restart: unless-stopped

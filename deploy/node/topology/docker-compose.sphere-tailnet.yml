@@ -1,0 +1,11 @@
+# Two-machine SPHERE over Tailscale — layer on docker-compose.measure.yml, ALWAYS WITH
+# docker-compose.sealed.yml. Sets the peer fallback so cross-node resolution works over the tailnet.
+# It does NOT publish the raw gatekeeper: the tailnet-facing :4324 is published ONLY by
+# docker-compose.sealed.yml (the resolution-only guard). So a raw admin surface can never be exposed to
+# the tailnet by construction — the seal is default-on, not an overlay to remember (Hearthold ask #3).
+#   SHARED topic on both machines: ARCHON_PROTOCOL=/aegis-sphere/<same-hex>
+#   PEER_GATEKEEPER_URL=http://<peer-tailnet-ip>:4324
+services:
+  gatekeeper:
+    environment:
+      - ARCHON_GATEKEEPER_FALLBACK_URL=${PEER_GATEKEEPER_URL:-}

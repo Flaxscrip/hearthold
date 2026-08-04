@@ -1,0 +1,100 @@
+# Per-agent Warden control planes — the substrate for the first REAL agent-to-agent pass_card
+# (HEARTHOLD-ASK-pass-card-provisioning.md). Two Wardens, each BOUND to a node-family AGENT identity,
+# each running a DIDComm serve loop on the sealed net, each bridged client-safe to host loopback.
+#
+# Same isolation shape as the node control plane: the daemons stay internal:true (no egress); only the
+# loopback bridges have a non-internal leg, and only to publish 127.0.0.1 ports. The agent Sovereign key is
+# NOT here — the daemon self-provisions its own Warden identity in the agent's data dir (agents/<name>/warden/)
+# and serves on behalf of the agent Sovereign DID. A plain card pass is within standing authority (no Signet).
+#
+#   docker compose -p aegis-agents --env-file <env> -f deploy/topology/docker-compose.agent-wardens.yml up -d
+name: aegis-agents
+
+networks:
+  default:
+    name: ${HEARTHOLD_DOCKER_NETWORK:-aegis_internal}   # the node's ISOLATED (internal:true) network
+    external: true
+  console-lan:
+    driver: bridge                                       # NON-internal; only the bridges join it
+
+x-agent-warden-env: &agent-warden-env
+  HEARTHOLD_DATA_ROOT: /data
+  HEARTHOLD_PASSPHRASE: ${HEARTHOLD_PASSPHRASE:?set HEARTHOLD_PASSPHRASE to the agent (family) passphrase}
+  # NODE_URL = the WRITE path (admin-injecting proxy) so a NEW Warden identity + its DIDComm endpoint anchor
+  # on the local registry; drawbridge alone is resolve-only (same reason the image-emissary uses it).
+  HEARTHOLD_NODE_URL: ${HEARTHOLD_NODE_URL:-http://table-gateway:4299}
+  HEARTHOLD_DIDCOMM_ENDPOINT: ${HEARTHOLD_DIDCOMM_ENDPOINT:-http://drawbridge:4222/didcomm}
+  HEARTHOLD_CONTROL_HOST: "0.0.0.0"
+  HEARTHOLD_REGISTRY: ${HEARTHOLD_REGISTRY:-local}
+  # single-member plane → requireSession derives false; the facade (pass/inbound/accept) needs no login.
+  HEARTHOLD_REQUIRE_SESSION: "false"
+  # PARENT (governor) DID turns ON the escalation ladder: a provenance pass self-approves at the agent's own
+  # Signet (within the parent-signed allowance, no human); an above-scope / readable pass escalates to the parent.
+  HEARTHOLD_PARENT_DID: ${AGENT_PARENT_DID:?set to the parent / node Sovereign DID (…ij3ufa)}
+
+services:
+  # ── Hearthold agent's Warden — ORIGINATES the pass (POST /api/card/pass) ──
+  hearthold-agent-warden:
+    image: ${AEGIS_IMAGE:-hearthold:sandbox}
+    networks: [default]
+    volumes:
+      - ${AGENT_HH_DATA_ROOT:?set AGENT_HH_DATA_ROOT to the hearthold agent dir}:/data
+    environment:
+      <<: *agent-warden-env
+      HEARTHOLD_SOVEREIGN_DID: ${AGENT_HH_SOVEREIGN_DID:?set to the hearthold agent DID}
+      # allow the in-network facade client (the agent-mcp server) to reach this Warden by service name;
+      # only reachable inside the sealed net (loopback host is always allowed for the bridge path).
+      HEARTHOLD_CONTROL_ALLOW_ORIGIN: http://hearthold-agent-warden:4310
+    command: ["node", "packages/warden/dist/index.js", "control", "4310"]
+    restart: unless-stopped
+
+  hearthold-agent-warden-bridge:
+    image: node:22-alpine
+    networks: [default, console-lan]
+    volumes: [./tcp-forward.mjs:/g/tcp-forward.mjs:ro]
+    environment: { LISTEN: "0.0.0.0:4310", TARGET: "hearthold-agent-warden:4310" }
+    command: ["node", "/g/tcp-forward.mjs"]
+    ports: ["127.0.0.1:4320:4310"]                       # host loopback ONLY
+    depends_on: [hearthold-agent-warden]
+    restart: unless-stopped
+
+  # ── Sevenfold agent's Warden — RECEIVES (DIDComm loop → inbound store) + serves inbound/accept/decline ──
+  sevenfold-agent-warden:
+    image: ${AEGIS_IMAGE:-hearthold:sandbox}
+    networks: [default]
+    volumes:
+      - ${AGENT_SEVEN_DATA_ROOT:?set AGENT_SEVEN_DATA_ROOT to the sevenfold agent dir}:/data
+    environment:
+      <<: *agent-warden-env
+      HEARTHOLD_SOVEREIGN_DID: ${AGENT_SEVEN_SOVEREIGN_DID:?set to the sevenfold agent DID}
+      HEARTHOLD_CONTROL_ALLOW_ORIGIN: http://sevenfold-agent-warden:4310
+    command: ["node", "packages/warden/dist/index.js", "control", "4310"]
+    restart: unless-stopped
+
+  sevenfold-agent-warden-bridge:
+    image: node:22-alpine
+    networks: [default, console-lan]
+    volumes: [./tcp-forward.mjs:/g/tcp-forward.mjs:ro]
+    environment: { LISTEN: "0.0.0.0:4310", TARGET: "sevenfold-agent-warden:4310" }
+    command: ["node", "/g/tcp-forward.mjs"]
+    ports: ["127.0.0.1:4321:4310"]                       # host loopback ONLY
+    depends_on: [sevenfold-agent-warden]
+    restart: unless-stopped
+
+  # ── Hearthold agent's Signet — the AgentGate (trinity's third member) ──
+  # Serves the Hearthold agent Sovereign DID's DIDComm mailbox; SELF-APPROVES a within-scope co-sign (proof-of-
+  # agent + a stderr receipt, NO PIN, no human). The Warden's ladder only routes within-scope acts here; above-scope
+  # goes to the parent. Internal daemon — no loopback bridge (reached over DIDComm by the Warden, not a host port).
+  hearthold-agent-signet:
+    image: ${AEGIS_IMAGE:-hearthold:sandbox}
+    networks: [default]
+    volumes:
+      - ${AGENT_HH_DATA_ROOT:?set AGENT_HH_DATA_ROOT to the hearthold agent dir}:/data
+    environment:
+      HEARTHOLD_DATA_ROOT: /data                         # opens /data/sovereign/wallet.json = the agent Sovereign
+      HEARTHOLD_PASSPHRASE: ${HEARTHOLD_PASSPHRASE:?set HEARTHOLD_PASSPHRASE to the agent (family) passphrase}
+      HEARTHOLD_NODE_URL: ${HEARTHOLD_SIGNET_NODE_URL:-http://gatekeeper:4224}
+      HEARTHOLD_DIDCOMM_ENDPOINT: ${HEARTHOLD_DIDCOMM_ENDPOINT:-http://drawbridge:4222/didcomm}
+      HEARTHOLD_REGISTRY: ${HEARTHOLD_REGISTRY:-local}
+    command: ["node", "packages/sovereign/dist/index.js", "agent-signet"]
+    restart: unless-stopped

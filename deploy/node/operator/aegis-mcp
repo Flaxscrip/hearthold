@@ -1,0 +1,159 @@
+#!/usr/bin/env bash
+# aegis-mcp — launch Hearthold's agent-as-Sovereign MCP bound to a node-env AGENT, in-network.
+#
+# THE POINT (same as aegis-wallet): the MCP server needs the gatekeeper, which lives on the sealed
+# (internal:true) node network and is NEVER published to the host. So the server runs in an EPHEMERAL
+# container that joins the sealed net for the session; an MCP client on the host drives it over
+# `docker run -i` stdio. Server-in-sealed-net, client-on-host — the gatekeeper's seal stays intact.
+#
+# This is an in-network tool (sibling to `aegis-wallet`), NOT part of the client-only `aegis` CLI.
+#
+#   aegis-mcp <agent>           run the bound MCP server over stdio (an MCP client spawns this)
+#   aegis-mcp <agent> check     binding probe — confirm the server binds as the agent's DID
+#   aegis-mcp <agent> config    print an MCP-client config snippet pointing here
+#   aegis-mcp build             (re)build the hearthold:agent-mcp image
+#     agent: aegis | sevenfold | hearthold   (a node-env agent; or a raw wallet path under the data root)
+set -euo pipefail
+SELF=$(basename "$0"); HERE=$(cd "$(dirname "$0")" && pwd)
+ABS="$HERE/$SELF"
+
+DATA="${AEGIS_NODE_ENV_DATA:-$HOME/aegis-env/node/data}"   # node-env identity store root (mounted → /node-data)
+NET="${AEGIS_NET:-aegis_internal}"                          # the sealed node network
+IMAGE="${AEGIS_AGENT_MCP_IMAGE:-hearthold:agent-mcp}"       # the linux-native agent-mcp image
+GK="${AEGIS_GATEKEEPER_URL:-http://gatekeeper:4224}"        # in-network gatekeeper (never a host port)
+REG="${ARCHON_DEFAULT_REGISTRY:-local}"
+FAMENV="$HERE/../family/family.env"
+MCP_SRC="${AEGIS_AGENT_MCP_SRC:-$HOME/hearthold/packages/agent-mcp}"  # source for `build`
+
+_err() { printf '%s: %s\n' "$SELF" "$*" >&2; }
+usage() { sed -n '10,17p' "$0" | sed 's/^# \{0,1\}//' >&2; exit "${1:-0}"; }
+
+# ---- build: (re)build the standalone linux-native image from the agent-mcp package ----
+do_build() {
+  [ -f "$MCP_SRC/package.json" ] && [ -d "$MCP_SRC/dist" ] \
+    || { _err "no built agent-mcp package at $MCP_SRC (set AEGIS_AGENT_MCP_SRC; run its build first)"; exit 1; }
+  local ctx; ctx=$(mktemp -d); trap 'rm -rf "$ctx"' RETURN
+  cp "$HERE/agent-mcp/Dockerfile" "$ctx/Dockerfile"
+  cp "$MCP_SRC/package.json" "$ctx/package.json"
+  cp -R "$MCP_SRC/dist" "$ctx/dist"
+  _err "building $IMAGE from $MCP_SRC"
+  docker build -t "$IMAGE" "$ctx" >&2
+  _err "built $IMAGE"
+}
+
+# ---- agent → wallet path resolution (mirrors aegis-wallet) ----
+resolve_agent() {
+  case "$1" in
+    aegis)     rel='identities/agents/aegis/sovereign/wallet.json' ;;
+    sevenfold) rel='identities/agents/sevenfold/sovereign/wallet.json' ;;
+    hearthold) rel='identities/agents/hearthold/sovereign/wallet.json' ;;
+    parent|flaxscrip|sovereign|warden)
+      _err "'$1' is a node-managed identity, not an agent — see ~/aegis-env/node/ENVIRONMENT.md"; exit 1 ;;
+    */*)       rel="$1" ;;
+    *) _err "unknown agent '$1' (aegis|sevenfold|hearthold or a path)"; exit 1 ;;
+  esac
+  [ -f "$DATA/$rel" ] || { _err "no wallet at $DATA/$rel"; exit 1; }
+  printf '%s' "$rel"
+}
+
+# ---- assemble the binding env-file (secret in a file, shredded by the caller's trap) ----
+write_envfile() { # <rel-wallet-path> <tmpenv>
+  {
+    echo "HEARTHOLD_GATEKEEPER_URL=$GK"
+    echo "HEARTHOLD_WALLET_TYPE=json"
+    echo "HEARTHOLD_WALLET_PATH=/node-data/$1"
+    echo "HEARTHOLD_REGISTRY=$REG"
+    # passphrase precedence: AEGIS_WALLET_PASS → family.env FAMILY_PASSPHRASE → ambient ARCHON_PASSPHRASE
+    if [ -n "${AEGIS_WALLET_PASS:-}" ]; then printf 'HEARTHOLD_PASSPHRASE=%s\n' "$AEGIS_WALLET_PASS"
+    elif [ -f "$FAMENV" ] && grep -qE '^FAMILY_PASSPHRASE=.' "$FAMENV"; then grep -E '^FAMILY_PASSPHRASE=' "$FAMENV" | sed 's/^FAMILY_PASSPHRASE=/HEARTHOLD_PASSPHRASE=/'
+    elif [ -n "${ARCHON_PASSPHRASE:-}" ]; then printf 'HEARTHOLD_PASSPHRASE=%s\n' "$ARCHON_PASSPHRASE"
+    else _err "no passphrase (set AEGIS_WALLET_PASS or FAMILY_PASSPHRASE in $FAMENV)"; exit 1; fi
+    # facade control planes await per-agent provisioning; read-ish slice (whoami/read_card) needs none.
+    [ -n "${AEGIS_MCP_WARDEN_URL:-}" ]   && echo "HEARTHOLD_WARDEN_CONTROL_URL=$AEGIS_MCP_WARDEN_URL"
+    [ -n "${AEGIS_MCP_SIGNET_URL:-}" ]   && echo "HEARTHOLD_SIGNET_CONTROL_URL=$AEGIS_MCP_SIGNET_URL"
+    [ -n "${AEGIS_MCP_EMISSARY_URL:-}" ] && echo "HEARTHOLD_EMISSARY_CONTROL_URL=$AEGIS_MCP_EMISSARY_URL"
+    :
+  } > "$2"
+  return 0   # never let the trailing optional-echo short-circuit trip `set -e` in the caller
+}
+
+guard_net() {
+  [ "$(docker network inspect "$NET" --format '{{.Internal}}' 2>/dev/null)" = true ] \
+    || { _err "REFUSING — network '$NET' is not internal:true"; exit 1; }
+}
+guard_image() {
+  docker image inspect "$IMAGE" >/dev/null 2>&1 || { _err "image '$IMAGE' not found — run \`$SELF build\`"; exit 1; }
+}
+
+# Auto-wire the agent's Warden control plane (facade verbs: pass_card / list_inbound / accept / recall …) when
+# its plane is up — so the MCP "just works" with no env. In-network service name (the MCP runs on the sealed net);
+# explicit AEGIS_MCP_WARDEN_URL always wins. Only hearthold/sevenfold have a Warden plane today.
+autowire_facade() { # <agent>
+  [ -n "${AEGIS_MCP_WARDEN_URL:-}" ] && return 0        # explicit override wins
+  local svc="$1-agent-warden"
+  if docker ps --format '{{.Names}}' 2>/dev/null | grep -q -- "-$svc-"; then
+    export AEGIS_MCP_WARDEN_URL="http://$svc:${AEGIS_MCP_WARDEN_PORT:-4310}"
+    _err "facade → $AEGIS_MCP_WARDEN_URL (agent Warden plane up)"
+  fi
+}
+
+# ---- run: the bound MCP server over stdio (STDOUT is the MCP channel — keep it clean) ----
+do_run() { # <rel>
+  tmpenv=$(mktemp)   # global (not local): the EXIT trap fires after this function returns
+  trap 'shred -u "${tmpenv:-}" 2>/dev/null || rm -f "${tmpenv:-}"' EXIT
+  write_envfile "$1" "$tmpenv"
+  # foreground (not exec) so the trap shreds after the client disconnects; stdio passes through transparently.
+  docker run --rm -i --network "$NET" --env-file "$tmpenv" -v "$DATA:/node-data:ro" "$IMAGE"
+}
+
+# ---- check: start the server, confirm it binds as a DID, then tear down ----
+do_check() { # <rel> <agent-label>
+  local tmpenv; tmpenv=$(mktemp)
+  trap 'shred -u "$tmpenv" 2>/dev/null || rm -f "$tmpenv"' RETURN
+  write_envfile "$1" "$tmpenv"
+  local cname="aegis-mcp-check-$$-${RANDOM}" errf; errf=$(mktemp)
+  docker run --rm -i --name "$cname" --network "$NET" --env-file "$tmpenv" \
+    -v "$DATA:/node-data:ro" "$IMAGE" </dev/null >/dev/null 2>"$errf" &
+  local dpid=$! did=""
+  for _ in $(seq 1 25); do
+    did=$(grep -oE 'bound as did:cid:[a-z0-9]+' "$errf" 2>/dev/null | grep -oE 'did:cid:[a-z0-9]+' | head -1 || true)
+    { [ -n "$did" ] || grep -q 'fatal' "$errf" 2>/dev/null; } && break
+    sleep 0.4
+  done
+  docker rm -f "$cname" >/dev/null 2>&1 || true
+  wait "$dpid" 2>/dev/null || true
+  local rc=0
+  if [ -n "$did" ]; then printf '  ✓ %s binds as %s\n' "$2" "$did" >&2
+  else printf '  ✗ %s bind FAILED:\n' "$2" >&2; sed 's/^/    /' "$errf" >&2; rc=1; fi
+  shred -u "$errf" 2>/dev/null || rm -f "$errf"
+  return $rc
+}
+
+# ---- config: emit an MCP-client config snippet pointing at this launcher ----
+do_config() { # <agent>
+  cat <<EOF
+{
+  "mcpServers": {
+    "hearthold-$1": {
+      "command": "$ABS",
+      "args": ["$1"]
+    }
+  }
+}
+EOF
+}
+
+# --------------------------------------------------------------------------
+[ $# -lt 1 ] && usage 1
+case "$1" in
+  -h|--help) usage 0 ;;
+  build)     do_build; exit 0 ;;
+esac
+agent="$1"; sub="${2:-run}"
+rel="$(resolve_agent "$agent")"
+case "$sub" in
+  run)    guard_net; guard_image; autowire_facade "$agent"; do_run "$rel" ;;
+  check)  guard_net; guard_image; do_check "$rel" "$agent" ;;
+  config) do_config "$agent" ;;
+  *) _err "unknown subcommand '$sub' (run|check|config)"; exit 1 ;;
+esac

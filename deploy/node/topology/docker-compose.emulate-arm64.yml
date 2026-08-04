@@ -1,0 +1,18 @@
+# amd64 host running the arm64-only ghcr.io/archetech/* images under qemu emulation.
+# The archetech images are published linux/arm64 only (built on Apple Silicon); an x86-64 host
+# must either emulate or build from source. This overlay forces the three Node services onto the
+# arm64 platform so qemu-user emulation handles them (redis/ipfs stay native — they're multi-arch).
+#
+# One-time on the amd64 host — register qemu arm64 emulation:
+#   docker run --privileged --rm tonistiigi/binfmt --install arm64
+# Then add this file to the compose command (LAST):
+#   ... -f deploy/topology/docker-compose.measure.yml \
+#       -f deploy/topology/docker-compose.sphere-tailnet.yml \
+#       -f deploy/topology/docker-compose.emulate-arm64.yml up -d
+#
+# NOTE: emulation is slower (fine for validating the tailnet sphere link, not for load). For a
+# permanent amd64 deployment, build native images from ~/archon instead (see CONTAINER-TOPOLOGY.md).
+services:
+  gatekeeper:          { platform: linux/arm64 }
+  keymaster:           { platform: linux/arm64 }
+  hyperswarm-mediator: { platform: linux/arm64 }

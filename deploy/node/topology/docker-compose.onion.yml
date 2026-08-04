@@ -1,0 +1,46 @@
+# The tor "sword" — draw it to publish an onion that fronts the Drawbridge.
+#
+# Sealed-by-default is the sheath (every node net is internal:true). THIS overlay gives EXACTLY ONE container
+# — `tor` — a scoped egress leg (the `tor-egress` bridge, NOT internal). Nothing else egresses; no inbound
+# port opens. The onion maps 4222 -> drawbridge:4222 (v3), so the DIDComm mailbox is reachable at
+# http://<onion>:4222/didcomm/api/v1/messages with no inbound port and no tailnet.
+#
+# Draw (on a node that already runs the mailbox-only Drawbridge, deploy/topology/docker-compose.drawbridge-mailbox.yml):
+#   docker compose -p aegis-mailbox -f deploy/topology/docker-compose.onion.yml up -d tor
+# Sheathe (re-seal — onion goes dark, no data change):
+#   docker compose -p aegis-mailbox -f deploy/topology/docker-compose.onion.yml down tor && docker network rm tor-egress
+#
+# Onion identity persists in ../../data/tor-drawbridge (gitignored). A fresh node generates its own onion here.
+services:
+  tor:
+    image: goldy/tor-hidden-service:latest
+    container_name: tor                     # siblings dial tor:9050 SOCKS for outbound .onion delivery
+    environment:
+      DRAWBRIDGE_TOR_SERVICE_HOSTS: '4222:drawbridge:4222'
+      DRAWBRIDGE_TOR_SERVICE_VERSION: '3'
+      TOR_SOCKS_PORT: '0.0.0.0:9050'
+    volumes:
+      - ../../data/tor-drawbridge:/var/lib/tor/hidden_service
+      - tor-hostname:/tor-hostname
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        pyentrypoint tor &
+        while [ ! -f /var/lib/tor/hidden_service/drawbridge/hostname ]; do sleep 1; done
+        cp /var/lib/tor/hidden_service/drawbridge/hostname /tor-hostname/hostname
+        chmod 644 /tor-hostname/hostname
+        echo "[tor] onion: $(cat /tor-hostname/hostname)"
+        wait
+    networks: [default, egress]
+    restart: unless-stopped
+
+networks:
+  default:
+    name: aegis_internal          # sealed (internal:true) node net — tor reaches `drawbridge` here
+    external: true
+  egress:
+    name: tor-egress              # the DRAWN SWORD: a non-internal bridge, ONLY tor attaches → Tor network
+                                  # (compose creates it; `docker network rm tor-egress` re-seals)
+volumes:
+  tor-hostname:

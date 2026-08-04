@@ -1,0 +1,41 @@
+# DEMO environment for Table screenshots — a fresh Sovereign's Warden control plane, single-member,
+# require-session OFF (no login), loopback-bridged to 127.0.0.1:4315. Throwaway; seed its inbound with
+# demo cards and point a live Table at it. Same isolation shape as the node control plane.
+#
+#   docker compose -p aegis-demo --env-file <env> -f deploy/topology/docker-compose.demo-table.yml up -d
+name: aegis-demo
+
+networks:
+  default:
+    name: ${HEARTHOLD_DOCKER_NETWORK:-aegis_internal}
+    external: true
+  console-lan:
+    driver: bridge
+
+services:
+  demo-warden:
+    image: ${AEGIS_IMAGE:-hearthold:sandbox}
+    networks: [default]
+    volumes:
+      - ${DEMO_DATA_ROOT:?set DEMO_DATA_ROOT}:/data
+    environment:
+      HEARTHOLD_DATA_ROOT: /data
+      HEARTHOLD_PASSPHRASE: ${HEARTHOLD_PASSPHRASE:?set HEARTHOLD_PASSPHRASE}
+      HEARTHOLD_SOVEREIGN_DID: ${DEMO_SOVEREIGN_DID:?set DEMO_SOVEREIGN_DID}
+      HEARTHOLD_NODE_URL: ${HEARTHOLD_NODE_URL:-http://table-gateway:4299}
+      HEARTHOLD_DIDCOMM_ENDPOINT: ${HEARTHOLD_DIDCOMM_ENDPOINT:-http://drawbridge:4222/didcomm}
+      HEARTHOLD_CONTROL_HOST: "0.0.0.0"
+      HEARTHOLD_REGISTRY: ${HEARTHOLD_REGISTRY:-local}
+      HEARTHOLD_REQUIRE_SESSION: "false"
+    command: ["node", "packages/warden/dist/index.js", "control", "4310"]
+    restart: unless-stopped
+
+  demo-warden-bridge:
+    image: node:22-alpine
+    networks: [default, console-lan]
+    volumes: [./tcp-forward.mjs:/g/tcp-forward.mjs:ro]
+    environment: { LISTEN: "0.0.0.0:4310", TARGET: "demo-warden:4310" }
+    command: ["node", "/g/tcp-forward.mjs"]
+    ports: ["127.0.0.1:4315:4310"]
+    depends_on: [demo-warden]
+    restart: unless-stopped

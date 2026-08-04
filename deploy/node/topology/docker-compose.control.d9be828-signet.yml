@@ -1,0 +1,11 @@
+# Overlay: bump ONLY the node signet-console to d9be828, so flaxscrip's (parent) Signet has the
+# escalation-RECEIVING code for the readable / parent-co-signed card path (HEARTHOLD-PING-card-landed.md).
+# Everything else in aegis-control stays on its current image — the warden/emissary consoles (flaxscrip's
+# Table command plane) are untouched.
+#
+#   docker compose -p aegis-control --env-file ~/.control-mega.env \
+#     -f docker-compose.control.yml -f docker-compose.control.d9be828-signet.yml \
+#     up -d signet-console signet-console-bridge
+services:
+  signet-console:
+    image: hearthold:d9be828

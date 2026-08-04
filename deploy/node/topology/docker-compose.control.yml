@@ -1,0 +1,135 @@
+# Sevenfold Table control plane on an isolated node — the Warden (:4310) + Signet (:4311) control
+# daemons, each published to the LOCAL browser at 127.0.0.1, node stays internal:true (no egress).
+# Answers AEGIS-ASK-table-on-isolated-node.md §1+§2; login/sign delivered by Hearthold (067af4c).
+#
+#   WARDEN_DATA_ROOT=/you/hearthold/data HEARTHOLD_PASSPHRASE=… HEARTHOLD_SIGNET_PIN=1379 \
+#     docker compose -p aegis-control -f deploy/topology/docker-compose.control.yml up -d
+#
+# Both daemons bind 0.0.0.0 INSIDE the container (HEARTHOLD_CONTROL_HOST) so a bridge reaches them; the
+# bridge publishes 127.0.0.1 on the HOST — loopback only. The command plane never touches LAN/Tailnet
+# (cross-laptop card-passing is DIDComm over aegis-peer). The Signet holds signing keys → loopback ALWAYS.
+name: aegis-control
+
+networks:
+  default:
+    # Deliberate network name (Hearthold ask #2) — the node's ISOLATED (internal:true) network; reaches
+    # drawbridge, ollama. Defaults to archon_default; override per node. deploy/hearthold-up.sh enforces internal:true.
+    name: ${HEARTHOLD_DOCKER_NETWORK:-aegis_internal}
+    external: true
+  console-lan:
+    driver: bridge                 # NON-internal; only the bridges join it, only to publish the loopback ports
+
+x-daemon-env: &daemon-env
+  HEARTHOLD_DATA_ROOT: /data
+  HEARTHOLD_PASSPHRASE: ${HEARTHOLD_PASSPHRASE:?set HEARTHOLD_PASSPHRASE}
+  HEARTHOLD_NODE_URL: ${HEARTHOLD_NODE_URL:-http://drawbridge:4222}
+  # Isolated node: publish the IN-NETWORK DIDComm endpoint, not the advertised external/dummy host
+  # (sandbox.archon.local is non-resolving -> submission delivery 502s). Per AEGIS-HANDOFF.md.
+  HEARTHOLD_DIDCOMM_ENDPOINT: ${HEARTHOLD_DIDCOMM_ENDPOINT:-http://drawbridge:4222/didcomm}
+  HEARTHOLD_CONTROL_HOST: "0.0.0.0"                          # bind the container interface (Hearthold 067af4c)
+  HEARTHOLD_REGISTRY: ${HEARTHOLD_REGISTRY:-local}           # isolated node: challenge+response anchor on local
+  HEARTHOLD_OLLAMA_URL: ${HEARTHOLD_OLLAMA_URL:-http://ollama:11434}
+  HEARTHOLD_CLASSIFIER_MODEL: ${HEARTHOLD_CLASSIFIER_MODEL:-qwen2.5:3b}
+  # The node's Sovereign — the DID the member's Signet logs in as. The Warden serves THIS identity's
+  # vault; unowned artefacts belong to it. Without this the Warden defaults to its OWN DID, so a
+  # logged-in member sees an empty Table (Sevenfold AEGIS-NOTE-member-owns-no-artefacts.md).
+  HEARTHOLD_SOVEREIGN_DID: ${HEARTHOLD_SOVEREIGN_DID:?set to the node Sovereign DID the Signet logs in as}
+  HEARTHOLD_REQUIRE_SESSION: ${HEARTHOLD_REQUIRE_SESSION:-false}
+  HEARTHOLD_CONFIRM_AT_OR_BELOW: ${HEARTHOLD_CONFIRM_AT_OR_BELOW:-}
+
+services:
+  # WARDEN control daemon — the Table's command plane. No non-internal leg -> no egress.
+  warden-console:
+    image: hearthold:sandbox
+    networks: [default]
+    volumes:
+      - ${WARDEN_DATA_ROOT:?set WARDEN_DATA_ROOT to the member wallet dir}:/data
+    environment: *daemon-env
+    command: ["node", "packages/warden/dist/index.js", "control", "4310"]
+    restart: unless-stopped
+
+  # SIGNET control daemon — the member's second factor; brokers login/sign (createResponse), PIN-gated.
+  signet-console:
+    image: hearthold:sandbox
+    networks: [default]
+    volumes:
+      - ${WARDEN_DATA_ROOT:?set WARDEN_DATA_ROOT}:/data
+    environment:
+      <<: *daemon-env
+      HEARTHOLD_SIGNET_PIN: ${HEARTHOLD_SIGNET_PIN:?set HEARTHOLD_SIGNET_PIN — gates each Signet approval}
+    command: ["node", "packages/sovereign/dist/index.js", "control", "4311"]
+    restart: unless-stopped
+
+  # Loopback bridges — the ONLY containers with a non-internal leg, and only to publish the loopback port.
+  warden-console-bridge:
+    image: node:22-alpine
+    networks: [default, console-lan]
+    volumes: [./tcp-forward.mjs:/g/tcp-forward.mjs:ro]
+    environment: { LISTEN: "0.0.0.0:4310", TARGET: "warden-console:4310" }
+    command: ["node", "/g/tcp-forward.mjs"]
+    ports: ["127.0.0.1:4310:4310"]                            # host loopback ONLY
+    depends_on: [warden-console]
+    restart: unless-stopped
+
+  signet-console-bridge:
+    image: node:22-alpine
+    networks: [default, console-lan]
+    volumes: [./tcp-forward.mjs:/g/tcp-forward.mjs:ro]
+    environment: { LISTEN: "0.0.0.0:4311", TARGET: "signet-console:4311" }
+    command: ["node", "/g/tcp-forward.mjs"]
+    ports: ["127.0.0.1:4311:4311"]                            # host loopback ONLY — Signet never leaves the machine
+    depends_on: [signet-console]
+    restart: unless-stopped
+
+  # EMISSARY control daemon — the witness in the triad; signs + submits observations to the Warden.
+  # PVM: the Warden accepts a submission only if this Emissary holds a Sovereign-co-signed delegation.
+  # Submit is same-node, so DIDComm stays in-network (drawbridge), no Tor.
+  emissary-console:
+    image: hearthold:sandbox
+    networks: [default]
+    volumes:
+      - ${WARDEN_DATA_ROOT:?set WARDEN_DATA_ROOT}:/data
+    environment:
+      <<: *daemon-env
+      HEARTHOLD_DIDCOMM_ENDPOINT: http://drawbridge:4222/didcomm
+      HEARTHOLD_WARDEN_DID: ${HEARTHOLD_WARDEN_DID:?set to the node Warden DID the Emissary submits to}
+    command: ["node", "packages/emissary/dist/index.js", "control", "4312"]
+    restart: unless-stopped
+
+  emissary-console-bridge:
+    image: node:22-alpine
+    networks: [default, console-lan]
+    volumes: [./tcp-forward.mjs:/g/tcp-forward.mjs:ro]
+    environment: { LISTEN: "0.0.0.0:4312", TARGET: "emissary-console:4312" }
+    command: ["node", "/g/tcp-forward.mjs"]
+    ports: ["127.0.0.1:4312:4312"]                            # host loopback ONLY — Emissary holds a signing key
+    depends_on: [emissary-console]
+    restart: unless-stopped
+
+  # IMAGE Emissary — per-path witness for image submissions (own identity + delegation, local registry).
+  # A separate exposed surface from the text Emissary: a compromise here can't reach the text path or the Warden.
+  # NODE_URL = table-gateway:4299 (write path — the raw gatekeeper via the admin-injecting proxy) so the
+  # image asset (createImage → IPFS) and the Emissary's own DID confirm; drawbridge alone is resolve-only.
+  image-emissary-console:
+    image: hearthold:sandbox
+    networks: [default]
+    volumes:
+      - ${IMAGE_EMISSARY_DATA_ROOT:?set IMAGE_EMISSARY_DATA_ROOT to the image-emissary wallet dir}:/data
+    environment:
+      <<: *daemon-env
+      HEARTHOLD_DIDCOMM_ENDPOINT: http://drawbridge:4222/didcomm
+      HEARTHOLD_NODE_URL: http://table-gateway:4299
+      HEARTHOLD_REGISTRY: local
+      HEARTHOLD_WARDEN_DID: ${HEARTHOLD_WARDEN_DID:?set to the node Warden DID the Emissary submits to}
+    command: ["node", "packages/emissary/dist/index.js", "control", "4313"]
+    restart: unless-stopped
+
+  image-emissary-console-bridge:
+    image: node:22-alpine
+    networks: [default, console-lan]
+    volumes: [./tcp-forward.mjs:/g/tcp-forward.mjs:ro]
+    environment: { LISTEN: "0.0.0.0:4313", TARGET: "image-emissary-console:4313" }
+    command: ["node", "/g/tcp-forward.mjs"]
+    ports: ["127.0.0.1:4313:4313"]                            # host loopback ONLY
+    depends_on: [image-emissary-console]
+    restart: unless-stopped
