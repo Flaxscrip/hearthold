@@ -130,13 +130,16 @@ install_deps() {
   sudo apt-get update -qq
   sudo apt-get install -y -qq git curl ca-certificates build-essential python3 openssl
   ok "git · curl · build-essential · python3 · openssl"
-  if ! command -v node >/dev/null || [ "$(node -v | tr -dc '0-9.' | cut -d. -f1)" -lt 20 ]; then
-    # Prefer Debian's own node if it's ≥20 (validated on trixie: 20.19.2) — avoids the NodeSource-trixie gap.
+  # hearthold REQUIRES node >=22 (package.json engines + 102 e2e scripts use --experimental-strip-types).
+  # Debian trixie apt ships node 20 — TOO OLD (the host build's native deps + any host-run tooling break under 22).
+  if ! command -v node >/dev/null || [ "$(node -v | tr -dc '0-9.' | cut -d. -f1)" -lt 22 ]; then
+    # Prefer Debian's own node ONLY if it already provides >=22 (future Debian); else NodeSource node 22.
     aptmaj=$(apt-cache policy nodejs 2>/dev/null | awk '/Candidate/{print $2}' | grep -oE '^[0-9]+')
-    if [ "${aptmaj:-0}" -ge 20 ]; then
+    if [ "${aptmaj:-0}" -ge 22 ]; then
       info "installing Node.js ${aptmaj}.x from Debian apt…"; sudo apt-get install -y -qq nodejs
     else
-      info "installing Node.js LTS (NodeSource)…"; curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash - >/dev/null; sudo apt-get install -y -qq nodejs
+      info "installing Node.js 22 (NodeSource)…"; curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - >/dev/null; sudo apt-get install -y -qq nodejs \
+        || warn "NodeSource install failed (may not support this distro yet) — install node >=22 manually before the build."
     fi
   fi
   command -v npm >/dev/null || sudo apt-get install -y -qq npm   # Debian ships npm separately from the nodejs package
