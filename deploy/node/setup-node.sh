@@ -18,7 +18,7 @@
 #   deploy/setup-node.sh            # create .env (refuses to clobber an existing one)
 #   deploy/setup-node.sh --force    # overwrite an existing .env (regenerates all secrets!)
 set -euo pipefail
-cd "$(dirname "$0")/.."   # repo root
+cd "${ARCHON_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"   # archon repo root — sample.env + docker-compose.yml live here (honor ARCHON_DIR when the tooling is a sibling repo, e.g. hearthold/deploy/node)
 ENV=.env
 
 if [ -e "$ENV" ] && [ "${1:-}" != "--force" ]; then

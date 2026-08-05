@@ -219,7 +219,7 @@ launch() {
   info "creating the sealed network…"; bash "$DEPLOY_DIR/create-internal-network.sh" 2>/dev/null || warn "create-internal-network.sh failed — check \$DEPLOY_DIR ($DEPLOY_DIR)."
   # 2) archon node .env: mint per-install secrets + isolation defaults; then YOUR passphrase + the chosen profile.
   cd "$ARCHON_DIR"
-  info "minting node secrets…"; bash "$DEPLOY_DIR/setup-node.sh" 2>/dev/null || warn "setup-node.sh failed."
+  info "minting node secrets…"; ARCHON_DIR="$ARCHON_DIR" bash "$DEPLOY_DIR/setup-node.sh" || warn "setup-node.sh failed (see above)."
   if [ -f .env ]; then
     _set_env .env ARCHON_ENCRYPTED_PASSPHRASE "$SOV_PASS"       # your choice, never echoed
     _set_env .env ARCHON_NODE_NAME "$NODE_NAME"
