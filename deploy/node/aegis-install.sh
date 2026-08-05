@@ -230,7 +230,12 @@ launch() {
     fi
     # 'full' keeps setup-node's default (cli,didcomm,drawbridge → lightning+tor) — the opt-in value/onion rail.
   fi
-  # 3) bring up the archon node on the resolved profiles (from .env COMPOSE_PROFILES).
+  # 3) SEAL: attach every service to the internal-only network so egress is blocked (the isolation IS the test).
+  #    create-internal-network.sh only makes aegis_internal; this override remaps Compose's default net onto it.
+  #    Without this the node comes up on a normal bridge WITH egress. Compose auto-loads docker-compose.override.yml.
+  info "sealing the node onto the internal network…"
+  printf 'networks:\n  default:\n    name: aegis_internal\n    external: true\n' > "$ARCHON_DIR/docker-compose.override.yml"
+  # 4) bring up the archon node on the resolved profiles (from .env COMPOSE_PROFILES).
   info "bringing up the archon node ($PROFILE)…"; docker compose --env-file .env up -d
   # 4) custodian control plane (Warden/Signet/Emissary command surface).
   info "bringing up the control plane…"; bash "$DEPLOY_DIR/hearthold-up.sh" 2>/dev/null || warn "hearthold-up.sh failed — bring the control plane up manually."
