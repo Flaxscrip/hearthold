@@ -53,6 +53,21 @@ export interface InvocationDecision {
   needsDischarge?: { by: string; predicate: string }[];
 }
 
+/**
+ * What the Warden sends a DESIGNATED Signet to obtain a consent discharge. The Warden authors this text (the
+ * requester's words are never shown to the human); the discharge that comes back is bound to `txn`.
+ */
+export interface DischargeRequest {
+  /** The act's txn the discharge must be bound to (anti-replay across acts). */
+  txn: string;
+  /** The party expected to sign — equals the caveat's `by` (the owner's Signet). */
+  by: string;
+  predicate: string;
+  claim?: string;
+  reason?: string;
+  sensitivity?: Sensitivity;
+}
+
 const deny = (reason: string): InvocationDecision => ({ allow: false, reason });
 
 /**

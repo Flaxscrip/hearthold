@@ -89,6 +89,7 @@
     "e2e:capability-chain": "npm run build && node --experimental-strip-types scripts/e2e-capability-chain.ts",
     "e2e:invocation": "npm run build && node --experimental-strip-types scripts/e2e-invocation.ts",
     "e2e:invocation-evidence": "npm run build && node --experimental-strip-types scripts/e2e-invocation-evidence.ts",
+    "e2e:invocation-discharge": "npm run build && node --experimental-strip-types scripts/e2e-invocation-discharge.ts",
     "smoke:attenuation": "npm run build && node --experimental-strip-types scripts/smoke-attenuation-api.ts",
     "e2e:disclosure": "npm run build && node --experimental-strip-types scripts/e2e-disclosure.ts",
     "e2e:mesh": "npm run build && node --experimental-strip-types scripts/e2e-mesh.ts",

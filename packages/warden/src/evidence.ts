@@ -28,6 +28,8 @@ import {
   type EvidenceRequest,
   type EvidenceClaimSpec,
   type CapabilityInvocation,
+  type Discharge,
+  type DischargeRequest,
   type EvidenceResponse,
   type ApprovalRequestMessage,
   type ApprovalResponseMessage,
@@ -47,6 +49,15 @@ export interface SovereignApprover {
   requestApproval(req: ApprovalRequestMessage): Promise<ApprovalResponseMessage>;
 }
 
+/**
+ * The Warden's channel to a DESIGNATED Signet to obtain a consent discharge (the Phase-3 capability step-up).
+ * Implemented over DIDComm in the daemon (`transport.request(cav.by, …)`); in-process in tests. The Emissary
+ * is never involved — consent routes to the owner's own device, and the discharge is bound to the act's txn.
+ */
+export interface DischargeRequester {
+  requestDischarge(req: DischargeRequest): Promise<Discharge | null>;
+}
+
 const toMeta = (a: Artefact): ArtefactMeta => ({
   id: a.id,
   kind: a.kind,
@@ -63,6 +74,9 @@ export class EvidenceService {
     private readonly config: HearthholdConfig,
     /** Direct channel to the Sovereign for a step-up. When absent, sensitive claims are denied. */
     private readonly approver?: SovereignApprover,
+    /** Channel to a designated Signet for a consent discharge (the capability step-up). When absent, a
+     *  capability that requires a discharge is denied. */
+    private readonly dischargeRequester?: DischargeRequester,
   ) {
     this.store = new VaultStore(warden.dataFolder);
   }
@@ -242,7 +256,7 @@ export class EvidenceService {
 
     // The reference monitor — the point-of-use check: binds the presented capability to its on-chain
     // commitments, checks the act ⊆ authority, the ceiling, replay (single-use txn), and consent discharges.
-    const decision = await verifyInvocation(inv, {
+    const ctx = {
       keymaster: this.warden,
       fromDid,
       expectedRootIssuer: this.config.sovereignDid ?? owner,
@@ -250,13 +264,30 @@ export class EvidenceService {
       orderedCaveats: inv.orderedCaveats ?? [],
       spent: new FileSpentTxnStore(this.warden.dataFolder),
       sensitivity,
-    });
-    if (!decision.allow) {
-      if (decision.needsDischarge && decision.needsDischarge.length > 0) {
-        return deny('this disclosure needs a consent discharge (the owner’s Signet co-sign) — Phase 3 wires the round-trip');
+    };
+    let decision = await verifyInvocation(inv, ctx);
+
+    // Consent step-up (MEDIUM+): the Warden obtains a discharge from the DESIGNATED Signet — never via the
+    // Emissary — bound to this act's txn, then retries. The macaroon third-party caveat made real; this is
+    // what replaces the requester-chosen approver at high sensitivity.
+    if (!decision.allow && decision.needsDischarge && decision.needsDischarge.length > 0) {
+      if (!this.dischargeRequester) return deny('this disclosure needs a consent discharge but no discharge channel is wired');
+      const discharges: Discharge[] = [...(inv.discharges ?? [])];
+      for (const need of decision.needsDischarge) {
+        const d = await this.dischargeRequester.requestDischarge({
+          txn: inv.act.txn,
+          by: need.by,
+          predicate: need.predicate,
+          claim: args.claim,
+          reason: `Disclose “${args.claim}” — ${spec.kind}`,
+          sensitivity,
+        });
+        if (!d) return deny('consent declined at the Signet');
+        discharges.push(d);
       }
-      return deny(`invocation refused: ${decision.reason}`);
+      decision = await verifyInvocation({ ...inv, discharges }, ctx);
     }
+    if (!decision.allow) return deny(`invocation refused: ${decision.reason}`);
 
     // Bind the scroll to the capability's audience (forge-for-a-recipient), else to the holder — NEVER a
     // requester-chosen recipient (the other half of finding A).
