@@ -2,9 +2,9 @@
 
 *Capability-based authority for the Emissary — turning a recognized identity into a held, attenuated, invocable capability.*
 
-**Status:** design, adopted direction (fork A — app-layer). Fork B (upstream keymaster) is deferred to a
-future discussion with macterra/David. **Audience:** Hearthold engineering; also the reference we bring to
-the Archon architect and the DIF Trusted AI Agents WG.
+**Status:** design, adopted and built — **entirely at the app layer.** The capability/invocation layer lives
+in Hearthold on Archon's existing primitives, with no upstream dependency. **Audience:** Hearthold engineering;
+also the reference we bring to the Archon architect and the DIF Trusted AI Agents WG.
 
 ---
 
@@ -76,7 +76,7 @@ authority* — which means holding capabilities and invoking them, not presentin
 Archon has **no capability layer** — authorization is ownership-proof + group-ACL + credential-challenge, and
 there is no ZCAP-LD, no `capabilityInvocation`/`capabilityDelegation` proof purpose, no attenuation. The one
 macaroon implementation (Drawbridge L402) is a payment paywall — first-party caveats only, single-issuer,
-non-delegable. So the capability/invocation layer **is ours to build** (fork A). But we build on solid
+non-delegable. So the capability/invocation layer **is ours to build** at the app layer. But we build on solid
 primitives:
 
 - **authcrypt sender-authentication is cryptographically real.** `keymaster.unpackDidComm` sets
@@ -108,9 +108,9 @@ artifact the moment it verifies a real invocation.
 
 ### 5.1 The capability object
 
-A Hearthold capability is a VC, **explicitly typed as authorization** (never an overloaded credential). Under
-fork A the delegation/invocation *purpose* is carried in the credential body and enforced by Hearthold, since
-Archon proofs only use `proofPurpose: authentication` today. The `credentialSubject`:
+A Hearthold capability is a VC, **explicitly typed as authorization** (never an overloaded credential). The
+delegation/invocation *purpose* is carried in the credential body and enforced by Hearthold, since Archon
+proofs only use `proofPurpose: authentication` today. The `credentialSubject`:
 
 ```jsonc
 {
@@ -132,7 +132,7 @@ Archon proofs only use `proofPurpose: authentication` today. The `credentialSubj
       { "by": "did:cid:<owner-signet>", "predicate": "cosign(act)", "location": "<signet-endpoint>" }
     ]
   },
-  "proof": { /* keymaster VC proof; capabilityDelegation purpose under fork B */ }
+  "proof": { /* keymaster VC proof; the delegation purpose is carried in the credential body */ }
 }
 ```
 
@@ -155,7 +155,7 @@ and a signed act bound to a Warden-minted nonce:
     "nonce": "<warden-minted>",               // act-binding (mirrors SignedKbRequest)
     "txn": "<uuid>"
   },
-  "invocationProof": { /* Emissary signs act+nonce; capabilityInvocation purpose under fork B; JWS under A */ },
+  "invocationProof": { /* Emissary signs act+nonce (a carried JWS); the invocation purpose is in the body */ },
   "discharges": [ /* Signet discharge(s), bound to this txn, when a requiresDischarge caveat is present */ ]
 }
 ```
@@ -221,8 +221,8 @@ owner, and cannot supply the discharge. **The step-up cannot be bypassed and cro
 
 **Residuals, named honestly (Karp's register):**
 - **Ambient authority remains** in `config.sovereignDid` fallbacks and the localhost control plane (a local
-  process is treated as the Sovereign on a default node). Full "no ambient authority" is out of scope for
-  fork A; the control-plane session work (the family-model plan) narrows it.
+  process is treated as the Sovereign on a default node). Full "no ambient authority" is out of scope here;
+  the control-plane session work (the family-model plan) narrows it.
 - **Repudiable authcrypt** is sufficient for Emissary→Warden invocation; third-party-auditable acts must add
   JWS. This is a per-path decision, documented, not a silent gap.
 - **Single-box governor with root** over a live session is not absolutely preventable in software; it is made
@@ -230,7 +230,7 @@ owner, and cannot supply the discharge. **The step-up cannot be bypassed and cro
 
 ---
 
-## 8. Fork A build plan (app-layer, landable)
+## 8. Build plan (app-layer, landable)
 
 Each phase lands with an e2e against the live node (`HEARTHOLD_REGISTRY=local`, isolated data root), and a
 red test `e2e-invocation-confused-deputy.ts` that proves the finding-A attack fails the **capability** way,
@@ -255,19 +255,6 @@ not merely an ACL patch.
 
 **Invariant (registry hygiene):** every capability VC, root, and discharge is minted on `registry:
 config.registry` (= `local` in dev); e2e asserts it. Never default to hyperswarm.
-
----
-
-## 9. Fork B (deferred — the upstream ask for macterra/David)
-
-Fork A carries the delegation/invocation *purpose* in the credential body and enforces it in Hearthold. Fork
-B would make **Archon itself** capability-native: a minimal keymaster change adding the two proof purposes
-`capabilityDelegation` and `capabilityInvocation` (today DID documents only ever use `authentication`), so the
-capability chain and the invocation proof are first-class Archon primitives rather than Hearthold conventions.
-
-This is a strong thing to bring to the architect *with running fork-A code behind it*: "here is invocation
-working on `did:cid`, and here is the minimal upstream that would make it first-class for every third-party
-agent." **Not started; a future agenda item, not a dependency.**
 
 ---
 
