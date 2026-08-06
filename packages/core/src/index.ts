@@ -28,6 +28,7 @@ export * from './ruleset.js';
 export * from './pairwise.js';
 export * from './attenuation.js';
 export * from './capability.js';
+export * from './capability-chain.js';
 export * from './selective-disclosure.js';
 export * from './allocation.js';
 export * from './status-list.js';

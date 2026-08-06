@@ -38,6 +38,8 @@ export interface AuthoritySet {
 export interface AuthoritySetPayload {
   authoritySet: AuthoritySet;
   salt: string;
+  /** Opaque capability-layer caveats bound into the commitment (attenuation.ts never interprets them). */
+  caveats?: unknown;
 }
 
 /** Set-normalize: dedupe + sort each dimension, so a commitment is order- and multiplicity-independent. */
@@ -90,8 +92,10 @@ export function freshSalt(): string {
  * commitment alone (no salt), the authority set is NOT recoverable by enumeration — the salt dominates the
  * preimage. Recompute-and-compare on disclosure binds the revealed set to the committed one.
  */
-export function commit(authoritySet: AuthoritySet, salt: string): string {
-  return sha256Hex(canonicalize({ authoritySet: normalizeAuthoritySet(authoritySet), salt }));
+export function commit(authoritySet: AuthoritySet, salt: string, caveats?: unknown): string {
+  const preimage: Record<string, unknown> = { authoritySet: normalizeAuthoritySet(authoritySet), salt };
+  if (caveats !== undefined) preimage.caveats = caveats; // absent ⇒ byte-identical to the 2-arg commitment
+  return sha256Hex(canonicalize(preimage));
 }
 
 // ── The pic block (cleartext, resolvable) ────────────────────────────────────────────────────────────
@@ -137,6 +141,8 @@ export interface IssuedVc {
   counter: number;
   authoritySet: AuthoritySet;
   salt: string;
+  /** The capability-layer caveats committed with this hop (opaque here; see capability-chain.ts). */
+  caveats?: unknown;
   authorityCommitment: string;
   /** THIS credential pinned at the version that carries its pic — what a child embeds as prevCredential. */
   pin: PrevPin;
@@ -150,6 +156,8 @@ export interface IssueVcArgs {
   /** DID the authoritySet payload is pairwise-encrypted to. */
   holder: string;
   authoritySet: AuthoritySet;
+  /** Opaque caveats to bind into the commitment (the capability layer supplies and interprets these). */
+  caveats?: unknown;
   registry: string;
   /** Omit for the origin (counter 0, lineageId := the origin's own DID). */
   parent?: IssuedVc;
@@ -182,7 +190,7 @@ export async function issueVc(args: IssueVcArgs): Promise<IssuedVc> {
 
   const authoritySet = normalizeAuthoritySet(args.authoritySet);
   const salt = freshSalt();
-  const authorityCommitment = commit(authoritySet, salt);
+  const authorityCommitment = commit(authoritySet, salt, args.caveats);
 
   if (args.parent && !args.skipSubsetGuard && !isSubset(authoritySet, args.parent.authoritySet)) {
     throw new Error(
@@ -201,7 +209,11 @@ export async function issueVc(args: IssueVcArgs): Promise<IssuedVc> {
   const prevCredential = args.overridePrev !== undefined ? args.overridePrev : args.parent ? args.parent.pin : null;
 
   // 1. Encrypt the payload → the VC's Asset DID. Its didDocumentData is the cipher; controller = issuer.
-  const vcDid = await km.encryptJSON({ authoritySet, salt }, args.holder, { registry: args.registry });
+  const vcDid = await km.encryptJSON(
+    { authoritySet, salt, ...(args.caveats !== undefined ? { caveats: args.caveats } : {}) },
+    args.holder,
+    { registry: args.registry },
+  );
   const lineageId = args.overrideLineageId ?? (args.parent ? args.parent.lineageId : vcDid);
 
   // 2. Sign the attenuation assertion (forgeable: signed by forgeAssertionWith if the test asks).
@@ -224,7 +236,17 @@ export async function issueVc(args: IssueVcArgs): Promise<IssuedVc> {
   const meta = doc.didDocumentMetadata as { versionId?: string; versionSequence?: string };
   const pin: PrevPin = { did: vcDid, versionId: meta.versionId ?? '', versionSequence: Number(meta.versionSequence ?? 0) };
 
-  return { vcDid, lineageId, counter, authoritySet, salt, authorityCommitment, pin, holder: args.holder };
+  return {
+    vcDid,
+    lineageId,
+    counter,
+    authoritySet,
+    salt,
+    ...(args.caveats !== undefined ? { caveats: args.caveats } : {}),
+    authorityCommitment,
+    pin,
+    holder: args.holder,
+  };
 }
 
 // ── Verifier (standalone; public resolution + signature verification only) ───────────────────────────────
@@ -311,7 +333,7 @@ export async function verifyAttenuationChain(leafVcDid: string, opts: VerifyOpti
 
     // disclosure binding for THIS hop: the revealed set must hash to the committed value.
     const reveal = disclosed[did];
-    if (reveal && commit(reveal.authoritySet, reveal.salt) !== pic.authorityCommitment) {
+    if (reveal && commit(reveal.authoritySet, reveal.salt, reveal.caveats) !== pic.authorityCommitment) {
       return reject('disclosed authoritySet+salt does not match the authorityCommitment', '(commit)', did, pic.counter);
     }
 

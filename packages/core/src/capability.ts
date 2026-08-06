@@ -196,3 +196,22 @@ export function capabilityNarrows(child: HearthholdCapability, parent: Hearthhol
   if (!isSubset(child.authority, parent.authority)) return false;
   return caveatsNarrow(child.caveats, parent.caveats);
 }
+
+/**
+ * Canonical caveats for the commitment: drop `undefined` optionals and sort discharge caveats
+ * deterministically, so the committed blob (attenuation.ts binds it into the salted commitment) and its
+ * later disclosure recompute to the same hash regardless of field order. Pure.
+ */
+export function normalizeCaveats(c: Caveats): Record<string, unknown> {
+  const out: Record<string, unknown> = { ceiling: c.ceiling };
+  if (c.owner !== undefined) out.owner = c.owner;
+  if (c.audience !== undefined) out.audience = c.audience;
+  if (c.expires !== undefined) out.expires = c.expires;
+  if (c.singleUse !== undefined) out.singleUse = c.singleUse;
+  if (c.requiresDischarge && c.requiresDischarge.length > 0) {
+    out.requiresDischarge = [...c.requiresDischarge]
+      .map((d) => ({ by: d.by, predicate: d.predicate, ...(d.location !== undefined ? { location: d.location } : {}) }))
+      .sort((a, b) => `${a.by}::${a.predicate}`.localeCompare(`${b.by}::${b.predicate}`));
+  }
+  return out;
+}
