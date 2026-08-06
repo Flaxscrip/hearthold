@@ -43,6 +43,16 @@ export interface KbConfig {
   memberPartitions?: boolean;
   /** Where a scope-less contribution lands. Default 'shared'. Personal-profile spaces set 'private'. */
   defaultScope?: 'shared' | 'private';
+  /**
+   * Open enrollment (docs/kb-spaces.md, HATPro): a proven-DID's FIRST authenticated action auto-joins the KB —
+   * granted read+write and (if `memberPartitions`) a private partition — instead of requiring a Sovereign's
+   * `kb-grant`. Zero-barrier onboarding for a public self-service KB. Deliberately off by default; only an
+   * AUTHENTICATED DID (it proved key control before `execute`) is admitted, so no spoofed DID gets in. Cap it
+   * with `maxMembers` — an unbounded open KB is a partition-flood surface.
+   */
+  openEnrollment?: boolean;
+  /** Open-enrollment ceiling: refuse a NEW member once the KB has this many (existing members still act). */
+  maxMembers?: number;
 }
 
 const sha16 = (s: string): string => createHash('sha256').update(s).digest('hex').slice(0, 16);
@@ -222,6 +232,37 @@ export class KbConfigStore {
   }
 }
 
+/**
+ * Open enrollment (`KbConfig.openEnrollment`): admit an already-AUTHENTICATED DID as a member of `kb` on its
+ * first action — grant read + write and (if `memberPartitions`) provision a private partition — instead of a
+ * Sovereign's `kb-grant`. Zero-barrier self-service onboarding (HATPro). **Idempotent** (an existing member is
+ * a no-op) and **capped** (`maxMembers` — a NEW member over the cap is refused; existing members keep acting).
+ * Only reached from `KbService.execute`, which runs AFTER authentication, so only a proven key-holder enrolls —
+ * never a spoofed DID. Returns whether an enrollment happened + a reason to surface when the cap is hit.
+ */
+export async function openEnroll(
+  handle: KeymasterHandle,
+  config: HearthholdConfig,
+  kb: KbConfig,
+  did: string,
+): Promise<{ enrolled: boolean; reason?: string }> {
+  if (!kb.openEnrollment) return { enrolled: false };
+  const already =
+    (await handle.keymaster.testGroup(kb.writeGroup, did).catch(() => false)) ||
+    (await handle.keymaster.testGroup(kb.readGroup, did).catch(() => false));
+  if (already) return { enrolled: false };
+  if (kb.maxMembers !== undefined) {
+    const g = (await handle.keymaster.getGroup(kb.writeGroup).catch(() => null)) as { members?: string[] } | null;
+    if ((g?.members?.length ?? 0) >= kb.maxMembers) {
+      return { enrolled: false, reason: 'this KB is not accepting new members (enrollment is full)' };
+    }
+  }
+  await grantAuthorization(handle, kb.readGroup, did);
+  await grantAuthorization(handle, kb.writeGroup, did);
+  if (kb.memberPartitions) await provisionMemberPartition(handle, config, kb.kbId, did);
+  return { enrolled: true };
+}
+
 /** Build a live `KbService` from one KB config. */
 function serviceFor(
   handle: KeymasterHandle,
@@ -251,6 +292,7 @@ function serviceFor(
     approver,
     memberPartitions: kb.memberPartitions,
     defaultScope: kb.defaultScope,
+    openEnroll: kb.openEnrollment ? (did: string) => openEnroll(handle, config, kb, did) : undefined,
     partitions: kb.memberPartitions ? new PartitionStore(handle.dataFolder) : undefined,
     sessionKeys: readGuest?.sessionKeys,
     rewrapChannel: readGuest?.rewrapChannel,
