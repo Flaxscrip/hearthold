@@ -106,6 +106,31 @@ artifact the moment it verifies a real invocation.
 
 ## 5. The design
 
+### 5.0 Shipped mechanism — capabilities as VCs (read this first)
+
+The implementation represents a capability as a **Sovereign-issued Verifiable Credential** and presents it
+through Archon's native **credential-request challenge/response** — the same primitive `prove.ts` uses for
+evidence, applied to authorization. This is simpler and *sound by construction*, and it is what the code and
+tests actually do:
+
+1. **Issue.** The Sovereign issues the Emissary a `HearthholdAuthorization` VC whose `credentialSubject` **is**
+   the capability — `{ invocationTarget, authority: {operations, resources}, caveats: {ceiling, owner,
+   audience, expires, singleUse, requiresDischarge, status} }` (`issueScopeCapability`). The schema is
+   content-addressed, so every wallet derives the same schema DID (`ensureAuthorizationSchema`).
+2. **Request.** The Warden's invocation challenge *requests that credential*, constrained to the Sovereign as
+   issuer: `createChallenge({ credentials: [{ schema, issuers: [Sovereign] }] })` (via `requestProof`).
+3. **Present.** The Emissary answers with a presentation (`createResponse`) — the invocation carries only that
+   `presentation` DID plus the `act` (and any discharges). There is **no capability body on the wire**.
+4. **Verify + enforce.** `verifyResponse`/`verifyProof` returns the disclosed scope, the **responder** (proven
+   holder control), and issuer-trust in one step. The monitor enforces the act against that **verified** scope
+   — owner, ceiling, audience, revocation status and consent obligations all come from the issuer-signed VC.
+   An attacker cannot forge the Sovereign's signature over a scope, cannot present a VC it does not hold, and
+   cannot invoke as a holder it cannot control. The confused deputy is unrepresentable.
+
+The subsections below describe the general capability model; the **attenuation chain** (`attenuation.ts`) is
+retained for **multi-hop delegation** (Phase 4 — Emissary → third party, attenuated), which the single-hop VC
+ceremony above does not cover. For single-hop grants (all of today's paths) the VC ceremony is the mechanism.
+
 ### 5.1 The capability object
 
 A Hearthold capability is a VC, **explicitly typed as authorization** (never an overloaded credential). The
