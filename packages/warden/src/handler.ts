@@ -5,6 +5,7 @@ import {
   type WitnessSubmission,
   type SubmissionReceipt,
   type EvidenceRequest,
+  type CapabilityInvocation,
   type KbRequestMessage,
   type KbLoginStartMessage,
   type KbLoginCompleteMessage,
@@ -103,6 +104,15 @@ export function makeWardenHandler(
         }
         const delegationValid = await delegations.isAuthorized(fromDid);
         return evidence.handle(message as EvidenceRequest, fromDid, delegationValid);
+      }
+
+      // Phase 2 capability path: a presented capability, verified at the point of use (finding-A cure). The
+      // legacy `evidence-request` case above stays for back-compat until the apps migrate.
+      case 'hearthold/invocation': {
+        if (!evidence) {
+          return { type: 'hearthold/evidence-response', version: PROTOCOL_VERSION, status: 'denied', reason: 'evidence service not configured' };
+        }
+        return evidence.handleInvocation(message as CapabilityInvocation, fromDid);
       }
 
       // Knowledge Base — the KB service authenticates + authorizes end-to-end (the requester's own

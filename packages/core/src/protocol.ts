@@ -8,6 +8,7 @@
 import type { Sensitivity, DisclosureMode } from './security.js';
 import type { SpendApprovalDetail } from './escalation.js';
 import type { CipherPublicJwk } from './payload.js';
+import type { CapabilityInvocation } from './capability.js';
 import type { GatekeeperEvent } from '@didcid/gatekeeper/types';
 
 export const PROTOCOL_VERSION = '0.4.0' as const;
@@ -545,6 +546,7 @@ export type HearthholdMessage =
   | SubmissionReceipt
   | EvidenceRequest
   | EvidenceResponse
+  | CapabilityInvocation
   | ProofRequestMessage
   | ProofPresentationMessage
   | ApprovalRequestMessage

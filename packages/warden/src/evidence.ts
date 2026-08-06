@@ -18,12 +18,16 @@ import {
   verifyEvidenceApproval,
   requiredLevelFor,
   decideRelease,
+  verifyInvocation,
+  FileSpentTxnStore,
   IssuedStore,
   AuthzTier,
   PROTOCOL_VERSION,
   type ArtefactMeta,
   type IssuedLeafRef,
   type EvidenceRequest,
+  type EvidenceClaimSpec,
+  type CapabilityInvocation,
   type EvidenceResponse,
   type ApprovalRequestMessage,
   type ApprovalResponseMessage,
@@ -202,5 +206,96 @@ export class EvidenceService {
 
     // No direct channel to the Sovereign wired → this sensitive disclosure can't be co-signed here.
     return deny('sensitive claim needs a Sovereign approval channel — set HEARTHOLD_SOVEREIGN_DID on the Warden');
+  }
+
+  /**
+   * Phase 2 capability path: authorize a disclosure by a presented CAPABILITY, verified at the point of use,
+   * instead of the requester-supplied `subjectDid` + a delegation boolean. The owner scope AND the recipient
+   * come from the capability — never from the request — which closes the confused-deputy step-up (finding A)
+   * and the whole-vault `store.list()` leak. The legacy `handle()` path above is untouched (back-compat).
+   */
+  async handleInvocation(inv: CapabilityInvocation, fromDid: string): Promise<EvidenceResponse> {
+    const deny = (reason: string): EvidenceResponse => ({
+      type: 'hearthold/evidence-response',
+      version: PROTOCOL_VERSION,
+      status: 'denied',
+      reason,
+    });
+    const leaf = inv.capability.credentialSubject;
+    const args = (inv.act.args ?? {}) as { claim?: string; spec?: EvidenceClaimSpec; reveal?: number[] };
+    if (!args.claim) return deny('invocation act.args is missing the claim');
+    if (!args.spec) return deny('invocation act.args is missing the claim spec');
+    const spec = args.spec;
+
+    const owner = leaf.caveats.owner ?? this.config.sovereignDid;
+    if (!owner) return deny('capability names no owner scope');
+
+    // OWNER-SCOPED assembly — only this owner's artefacts (closes the whole-vault store.list() leak).
+    const scoped = (await this.store.list()).filter((a) => (a.owner ?? this.config.sovereignDid) === owner);
+    const assembled = assembleEvidence(scoped.map(toMeta), spec);
+    if (!assembled) return deny(`no supporting ${spec.kind} artefacts (owned by the capability's subject) back that claim`);
+    if (args.reveal && args.reveal.length > 0) {
+      assembled.group.revealed = revealLeaves(assembled, args.reveal);
+      assembled.group.disclosure = 'selective';
+    }
+    const sensitivity = assembled.sensitivity as Sensitivity;
+
+    // The reference monitor — the point-of-use check: binds the presented capability to its on-chain
+    // commitments, checks the act ⊆ authority, the ceiling, replay (single-use txn), and consent discharges.
+    const decision = await verifyInvocation(inv, {
+      keymaster: this.warden,
+      fromDid,
+      expectedRootIssuer: this.config.sovereignDid ?? owner,
+      disclosed: inv.disclosed ?? {},
+      orderedCaveats: inv.orderedCaveats ?? [],
+      spent: new FileSpentTxnStore(this.warden.dataFolder),
+      sensitivity,
+    });
+    if (!decision.allow) {
+      if (decision.needsDischarge && decision.needsDischarge.length > 0) {
+        return deny('this disclosure needs a consent discharge (the owner’s Signet co-sign) — Phase 3 wires the round-trip');
+      }
+      return deny(`invocation refused: ${decision.reason}`);
+    }
+
+    // Bind the scroll to the capability's audience (forge-for-a-recipient), else to the holder — NEVER a
+    // requester-chosen recipient (the other half of finding A).
+    const bindSubject = leaf.caveats.audience ?? fromDid;
+    const validUntil = new Date(Date.now() + 10 * 60_000).toISOString();
+    const { credentialDid, schemaDid } = await mintEvidenceGraph(this.warden, {
+      subjectDid: bindSubject,
+      claim: args.claim,
+      structured: spec.structured,
+      evidence: [assembled.group],
+      issuedLeaves: [],
+      txn: inv.act.txn,
+      validUntil,
+    });
+    const g = assembled.group;
+    return {
+      type: 'hearthold/evidence-response',
+      version: PROTOCOL_VERSION,
+      status: 'granted',
+      credentialDid,
+      schemaDid,
+      graph: {
+        claim: args.claim,
+        structured: spec.structured,
+        evidence: [
+          {
+            kind: g.kind,
+            observedFrom: g.observedFrom,
+            observedTo: g.observedTo,
+            count: g.count,
+            witnessedBy: g.witnessedBy,
+            merkleRoot: g.commitment.merkleRoot,
+          },
+        ],
+        approved: false,
+        validUntil,
+        trustClass: 'witnessed',
+        issued: [],
+      },
+    };
   }
 }

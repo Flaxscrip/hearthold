@@ -22,7 +22,7 @@
  */
 
 import type { Sensitivity } from './security.js';
-import type { AuthoritySet } from './attenuation.js';
+import type { AuthoritySet, AuthoritySetPayload } from './attenuation.js';
 import { isSubset } from './attenuation.js';
 import { PROTOCOL_VERSION } from './protocol.js';
 
@@ -143,6 +143,14 @@ export interface CapabilityInvocation {
   invocationProof?: unknown;
   /** Discharges for any `requiresDischarge` caveats on the capability. */
   discharges?: Discharge[];
+  /**
+   * The holder-presented chain disclosure — {authoritySet, salt, caveats} per hop DID — binding the
+   * presented capability to its on-chain commitments. Self-contained on the wire; the Warden can add its
+   * own root anchor. Absent ⇒ the verifier resolves the chain structurally only.
+   */
+  disclosed?: Record<string, AuthoritySetPayload>;
+  /** The disclosed caveats, ordered leaf→root, for the verifier's caveat-narrowing pass. */
+  orderedCaveats?: Caveats[];
 }
 
 // ── Pure attenuation predicates (types-only phase: no I/O) ──────────────────────────────────────────────
