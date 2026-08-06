@@ -20,6 +20,7 @@ import {
   decideRelease,
   verifyInvocation,
   FileSpentTxnStore,
+  StatusListResolver,
   IssuedStore,
   AuthzTier,
   PROTOCOL_VERSION,
@@ -256,6 +257,12 @@ export class EvidenceService {
 
     // The reference monitor — the point-of-use check: binds the presented capability to its on-chain
     // commitments, checks the act ⊆ authority, the ceiling, replay (single-use txn), and consent discharges.
+    // Revocation: the capability's committed status pointer → a fail-closed StatusList check (fresh resolve
+    // per invocation). Bound into the caveats, so a holder cannot strip it to dodge the check.
+    const st = leaf.caveats.status;
+    const status = st
+      ? { resolver: new StatusListResolver(this.warden, { statusListCredential: st.statusListCredential, expectedIssuer: this.config.sovereignDid ?? owner, maxAgeMs: 30_000 }), index: st.statusListIndex }
+      : undefined;
     const ctx = {
       keymaster: this.warden,
       fromDid,
@@ -264,6 +271,7 @@ export class EvidenceService {
       orderedCaveats: inv.orderedCaveats ?? [],
       spent: new FileSpentTxnStore(this.warden.dataFolder),
       sensitivity,
+      ...(status ? { status } : {}),
     };
     let decision = await verifyInvocation(inv, ctx);
 

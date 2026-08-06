@@ -52,6 +52,12 @@ export interface ThirdPartyCaveat {
   location?: string;
 }
 
+/** A W3C-style revocation pointer for a capability — the Sovereign's status list + this cap's own index. */
+export interface CapabilityStatus {
+  statusListCredential: string;
+  statusListIndex: number;
+}
+
 /** Hearthold-specific constraints layered on the `AuthoritySet` — the caveats of a capability. */
 export interface Caveats {
   /** Max artefact sensitivity this capability may disclose (≤ parent). Numeric, per `Sensitivity`. */
@@ -69,6 +75,8 @@ export interface Caveats {
   singleUse?: boolean;
   /** Consent caveats — each discharged by the party it designates, bound to the invocation `txn`. */
   requiresDischarge?: ThirdPartyCaveat[];
+  /** Revocation pointer, bound into the commitment (so a holder cannot strip it to dodge the status check). */
+  status?: CapabilityStatus;
 }
 
 /**
@@ -220,6 +228,9 @@ export function normalizeCaveats(c: Caveats): Record<string, unknown> {
     out.requiresDischarge = [...c.requiresDischarge]
       .map((d) => ({ by: d.by, predicate: d.predicate, ...(d.location !== undefined ? { location: d.location } : {}) }))
       .sort((a, b) => `${a.by}::${a.predicate}`.localeCompare(`${b.by}::${b.predicate}`));
+  }
+  if (c.status !== undefined) {
+    out.status = { statusListCredential: c.status.statusListCredential, statusListIndex: c.status.statusListIndex };
   }
   return out;
 }

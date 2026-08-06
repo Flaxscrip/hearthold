@@ -103,6 +103,36 @@ export async function createStatusList(
  * the asset. The caller does NOT track indices. Idempotent: setting an already-set bit mints no new version.
  * Returns the pin (+ the resolved index) of the resulting (or existing) list version.
  */
+/**
+ * Revoke the credential at a KNOWN `statusListIndex` — for credentials that carry their own index in their
+ * `credentialStatus` (e.g. capabilities), as opposed to the privacy-preserving allocation-record path
+ * (`publishRevocation`) used for mesh recognitions. Sets the bit + mints a new signed version. Idempotent.
+ */
+export async function revokeStatusIndex(
+  issuer: KeymasterHandle,
+  issuerName: string,
+  statusListCredential: string,
+  statusListIndex: number,
+): Promise<{ pin: StatusListPin; listVersion: number; alreadyRevoked: boolean }> {
+  const km = issuer.keymaster;
+  if (statusListIndex < 0 || statusListIndex >= STATUS_LIST_LENGTH) throw new Error(`status index ${statusListIndex} out of range`);
+  await km.setCurrentId(issuerName);
+  const issuerDid = (await km.resolveDID(issuerName)).didDocument?.id ?? '';
+  const doc = await km.resolveDID(statusListCredential);
+  const cur = (doc.didDocumentData ?? {}) as SignedStatusList;
+  const bytes = decodeBitstring(cur.encodedList);
+
+  if (getBit(bytes, statusListIndex)) {
+    return { pin: pinOf(statusListCredential, doc), listVersion: cur.listVersion ?? 0, alreadyRevoked: true };
+  }
+  setBit(bytes, statusListIndex);
+  const listVersion = (cur.listVersion ?? 0) + 1;
+  const body: StatusListBody = { issuer: issuerDid, statusPurpose: 'revocation', encodedList: encodeBitstring(bytes), listVersion, updatedAt: new Date().toISOString() };
+  const signed = (await km.addProof(body, issuerName)) as unknown as Record<string, unknown>;
+  await km.mergeData(statusListCredential, signed); // controller-signed update → new version
+  return { pin: pinOf(statusListCredential, await km.resolveDID(statusListCredential)), listVersion, alreadyRevoked: false };
+}
+
 export async function publishRevocation(
   issuer: KeymasterHandle,
   issuerName: string,
@@ -111,24 +141,11 @@ export async function publishRevocation(
   allocationRecord: string,
   config: HearthholdConfig,
 ): Promise<{ pin: StatusListPin; listVersion: number; alreadyRevoked: boolean; statusListIndex: number }> {
-  const km = issuer.keymaster;
+  void config;
   const statusListIndex = await lookupIndex(issuer, issuerName, allocationRecord, recognitionId);
   if (statusListIndex === null) throw new Error(`recognition ${recognitionId} has no allocated index in the record`);
-  await km.setCurrentId(issuerName);
-  const issuerDid = (await km.resolveDID(issuerName)).didDocument?.id ?? '';
-  const doc = await km.resolveDID(statusListCredential);
-  const cur = (doc.didDocumentData ?? {}) as SignedStatusList;
-  const bytes = decodeBitstring(cur.encodedList);
-
-  if (getBit(bytes, statusListIndex)) {
-    return { pin: pinOf(statusListCredential, doc), listVersion: cur.listVersion ?? 0, alreadyRevoked: true, statusListIndex };
-  }
-  setBit(bytes, statusListIndex);
-  const listVersion = (cur.listVersion ?? 0) + 1;
-  const body: StatusListBody = { issuer: issuerDid, statusPurpose: 'revocation', encodedList: encodeBitstring(bytes), listVersion, updatedAt: new Date().toISOString() };
-  const signed = (await km.addProof(body, issuerName)) as unknown as Record<string, unknown>;
-  await km.mergeData(statusListCredential, signed); // controller-signed update → new version
-  return { pin: pinOf(statusListCredential, await km.resolveDID(statusListCredential)), listVersion, alreadyRevoked: false, statusListIndex };
+  const r = await revokeStatusIndex(issuer, issuerName, statusListCredential, statusListIndex);
+  return { ...r, statusListIndex };
 }
 
 // ── Checker side (resolver with max-age cache + fail-closed + version pin) ──────────────────────────────
