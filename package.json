@@ -87,6 +87,7 @@
     "e2e:sovereign-refresh-retry": "npm run build && node --experimental-strip-types scripts/e2e-sovereign-refresh-retry.ts",
     "e2e:attenuation": "npm run build && node --experimental-strip-types scripts/e2e-attenuation.ts",
     "e2e:capability-chain": "npm run build && node --experimental-strip-types scripts/e2e-capability-chain.ts",
+    "e2e:invocation": "npm run build && node --experimental-strip-types scripts/e2e-invocation.ts",
     "smoke:attenuation": "npm run build && node --experimental-strip-types scripts/smoke-attenuation-api.ts",
     "e2e:disclosure": "npm run build && node --experimental-strip-types scripts/e2e-disclosure.ts",
     "e2e:mesh": "npm run build && node --experimental-strip-types scripts/e2e-mesh.ts",
