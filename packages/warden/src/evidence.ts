@@ -18,9 +18,9 @@ import {
   verifyEvidenceApproval,
   requiredLevelFor,
   decideRelease,
-  verifyInvocation,
+  resolveInvocation,
+  authorizeInvocation,
   FileSpentTxnStore,
-  StatusListResolver,
   IssuedStore,
   AuthzTier,
   PROTOCOL_VERSION,
@@ -236,16 +236,28 @@ export class EvidenceService {
       status: 'denied',
       reason,
     });
-    const leaf = inv.capability.credentialSubject;
     const args = (inv.act.args ?? {}) as { claim?: string; spec?: EvidenceClaimSpec; reveal?: number[] };
     if (!args.claim) return deny('invocation act.args is missing the claim');
     if (!args.spec) return deny('invocation act.args is missing the claim spec');
     const spec = args.spec;
 
+    // Resolve + AUTHENTICATE the capability FIRST. The enforced owner/ceiling/audience come from the
+    // verified, commitment-bound chain, and the caller is bound to the holder by challenge/response — nothing
+    // below trusts inv.capability.credentialSubject.
+    const ctx = {
+      keymaster: this.warden,
+      fromDid,
+      expectedRootIssuer: this.config.sovereignDid ?? '',
+      disclosed: inv.disclosed ?? {},
+      spent: new FileSpentTxnStore(this.warden.dataFolder),
+    };
+    const resolved = await resolveInvocation(inv, ctx);
+    if (!resolved.ok) return deny(`invocation refused: ${resolved.reason}`);
+    const leaf = resolved.leaf;
     const owner = leaf.caveats.owner ?? this.config.sovereignDid;
     if (!owner) return deny('capability names no owner scope');
 
-    // OWNER-SCOPED assembly — only this owner's artefacts (closes the whole-vault store.list() leak).
+    // OWNER-SCOPED assembly — only the VERIFIED owner's artefacts (closes the whole-vault store.list() leak).
     const scoped = (await this.store.list()).filter((a) => (a.owner ?? this.config.sovereignDid) === owner);
     const assembled = assembleEvidence(scoped.map(toMeta), spec);
     if (!assembled) return deny(`no supporting ${spec.kind} artefacts (owned by the capability's subject) back that claim`);
@@ -255,25 +267,8 @@ export class EvidenceService {
     }
     const sensitivity = assembled.sensitivity as Sensitivity;
 
-    // The reference monitor — the point-of-use check: binds the presented capability to its on-chain
-    // commitments, checks the act ⊆ authority, the ceiling, replay (single-use txn), and consent discharges.
-    // Revocation: the capability's committed status pointer → a fail-closed StatusList check (fresh resolve
-    // per invocation). Bound into the caveats, so a holder cannot strip it to dodge the check.
-    const st = leaf.caveats.status;
-    const status = st
-      ? { resolver: new StatusListResolver(this.warden, { statusListCredential: st.statusListCredential, expectedIssuer: this.config.sovereignDid ?? owner, maxAgeMs: 30_000 }), index: st.statusListIndex }
-      : undefined;
-    const ctx = {
-      keymaster: this.warden,
-      fromDid,
-      expectedRootIssuer: this.config.sovereignDid ?? owner,
-      disclosed: inv.disclosed ?? {},
-      orderedCaveats: inv.orderedCaveats ?? [],
-      spent: new FileSpentTxnStore(this.warden.dataFolder),
-      sensitivity,
-      ...(status ? { status } : {}),
-    };
-    let decision = await verifyInvocation(inv, ctx);
+    // Authorize the act against the verified leaf: replay, ceiling, consent discharge.
+    let decision = await authorizeInvocation(inv, { ...ctx, sensitivity }, leaf);
 
     // Consent step-up (MEDIUM+): the Warden obtains a discharge from the DESIGNATED Signet — never via the
     // Emissary — bound to this act's txn, then retries. The macaroon third-party caveat made real; this is
@@ -293,13 +288,13 @@ export class EvidenceService {
         if (!d) return deny('consent declined at the Signet');
         discharges.push(d);
       }
-      decision = await verifyInvocation({ ...inv, discharges }, ctx);
+      decision = await authorizeInvocation({ ...inv, discharges }, { ...ctx, sensitivity }, leaf);
     }
     if (!decision.allow) return deny(`invocation refused: ${decision.reason}`);
 
-    // Bind the scroll to the capability's audience (forge-for-a-recipient), else to the holder — NEVER a
-    // requester-chosen recipient (the other half of finding A).
-    const bindSubject = leaf.caveats.audience ?? fromDid;
+    // Bind the scroll to the capability's audience (forge-for-a-recipient), else to the VERIFIED holder —
+    // NEVER a requester-chosen recipient (the other half of finding A).
+    const bindSubject = leaf.caveats.audience ?? leaf.holder;
     const validUntil = new Date(Date.now() + 10 * 60_000).toISOString();
     const { credentialDid, schemaDid } = await mintEvidenceGraph(this.warden, {
       subjectDid: bindSubject,

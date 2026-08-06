@@ -41,6 +41,13 @@ const cred = (h: CapabilityHandle): CapabilityInvocation['capability'] => ({
   credentialSubject: h.capability,
 });
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function proveHolder(challenger: any, holder: any, holderName: string, reg: string): Promise<string> {
+  const challenge = await challenger.keymaster.createChallenge({ purpose: 'hearthold-invocation' }, { registry: reg });
+  await holder.keymaster.setCurrentId(holderName);
+  return holder.keymaster.createResponse(challenge, { registry: reg });
+}
+
 async function main(): Promise<void> {
   const config = loadConfig();
   const pass = 'hearthold-invocation-e2e';
@@ -72,11 +79,11 @@ async function main(): Promise<void> {
   });
 
   const spent = new MemorySpentTxnStore();
+  const emiProof = await proveHolder(verifierNode, emissary, emiId.name, reg);
   const base: Omit<InvocationContext, 'fromDid' | 'sensitivity'> = {
     keymaster: verifierNode as KeymasterHandle,
     expectedRootIssuer: sovId.did,
     disclosed: discloseChain(emi, root),
-    orderedCaveats: [emi.capability.caveats, root.capability.caveats],
     spent,
   };
   const invoke = (action: string, txn: string): CapabilityInvocation => ({
@@ -84,6 +91,7 @@ async function main(): Promise<void> {
     version: PROTOCOL_VERSION,
     capability: cred(emi),
     act: { action, target: VAULT, nonce: randomUUID(), txn },
+    holderProof: emiProof,
   });
 
   line('\n════ the monitor ════');
@@ -116,16 +124,16 @@ async function main(): Promise<void> {
     },
     registry: reg,
   });
-  const baseD = { ...base, disclosed: discloseChain(emiD, root), orderedCaveats: [emiD.capability.caveats, root.capability.caveats] };
+  const baseD = { ...base, disclosed: discloseChain(emiD, root) };
   const tD = randomUUID();
-  const invD: CapabilityInvocation = { type: 'hearthold/invocation', version: PROTOCOL_VERSION, capability: cred(emiD), act: { action: 'prove', target: VAULT, nonce: randomUUID(), txn: tD } };
+  const invD: CapabilityInvocation = { type: 'hearthold/invocation', version: PROTOCOL_VERSION, capability: cred(emiD), act: { action: 'prove', target: VAULT, nonce: randomUUID(), txn: tD }, holderProof: emiProof };
 
   const undischarged = await verifyInvocation(invD, { ...baseD, fromDid: emiId.did, sensitivity: Sensitivity.MEDIUM });
   check('a required consent is a needsDischarge gap, not a denial', !undischarged.allow && (undischarged.needsDischarge?.length ?? 0) === 1, undischarged.reason);
 
   // The DESIGNATED party (the Sovereign) signs a discharge BOUND to this act's txn.
   await sovereign.keymaster.setCurrentId(sovId.name);
-  const discharge = (await sovereign.keymaster.addProof({ by: sovId.did, txn: tD, level: 3 }, sovId.name)) as Discharge;
+  const discharge = (await sovereign.keymaster.addProof({ by: sovId.did, txn: tD, predicate: 'cosign(act)', level: 3 }, sovId.name)) as Discharge;
   const dischargedInv: CapabilityInvocation = { ...invD, discharges: [discharge] };
   const discharged = await verifyInvocation(dischargedInv, { ...baseD, fromDid: emiId.did, sensitivity: Sensitivity.MEDIUM });
   check('AUTHORIZES once a bound discharge from the designated Signet is present', discharged.allow, discharged.reason);

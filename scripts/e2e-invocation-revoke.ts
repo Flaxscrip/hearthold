@@ -37,6 +37,13 @@ const cred = (h: CapabilityHandle): CapabilityInvocation['capability'] => ({
   credentialSubject: h.capability,
 });
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function proveHolder(challenger: any, holder: any, holderName: string, reg: string): Promise<string> {
+  const challenge = await challenger.keymaster.createChallenge({ purpose: 'hearthold-invocation' }, { registry: reg });
+  await holder.keymaster.setCurrentId(holderName);
+  return holder.keymaster.createResponse(challenge, { registry: reg });
+}
+
 async function main(): Promise<void> {
   const config = loadConfig();
   const pass = 'hearthold-invocation-revoke-e2e';
@@ -70,10 +77,11 @@ async function main(): Promise<void> {
     child: { invocationTarget: VAULT, authority: { operations: ['prove'], resources: [VAULT] }, caveats: { ceiling: Sensitivity.MEDIUM, owner: sovId.did, status: { statusListCredential, statusListIndex: IDX } } },
     registry: reg,
   });
+  const emiProof = await proveHolder(warden, emissary, emiId.name, reg);
   const invoke = (h: CapabilityHandle): CapabilityInvocation => ({
     type: 'hearthold/invocation', version: PROTOCOL_VERSION, capability: cred(h),
     act: { action: 'prove', target: 'hearthold:vault:location', nonce: randomUUID(), txn: randomUUID(), args: { claim: 'resided in FR', spec: { kind: 'location' } } },
-    disclosed: discloseChain(h, root), orderedCaveats: [h.capability.caveats, root.capability.caveats],
+    disclosed: discloseChain(h, root), holderProof: emiProof,
   });
 
   line('\n════ before revocation ════');

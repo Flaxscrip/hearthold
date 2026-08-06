@@ -1,56 +1,168 @@
 /**
  * The invocation reference monitor — the check EVERY capability invocation crosses at the point of use.
- * Generalizes the mesh admit monitor (mesh.ts) to arbitrary acts: mandatory, per-request, fail-closed.
- * See docs/invocation.md §5.3.
+ * Generalizes the mesh admit monitor (mesh.ts): mandatory, per-request, fail-closed. See docs/invocation.md.
  *
- * It composes verifyCapabilityChain (attenuation + caveat narrowing), single-use (txn burn), and the
- * StatusList resolver (revocation), and enforces that the ACT sits within the leaf capability's authority
- * and caveats. Designation is authority: the owner scope and the approver are read from the CAPABILITY,
- * never from the request — which is what structurally closes the confused-deputy step-up (finding A).
+ * THE BINDING RULE (the fix for the second audit's central defect): every enforced value is read from the
+ * VERIFIED, commitment-bound chain — never from `inv.capability.credentialSubject`, which is an
+ * unauthenticated wire object. `verifyCapabilityChain(requireFullDisclosure)` returns the leaf's holder
+ * (issuer-attested) and its commitment-bound authority + caveats; the monitor enforces THOSE. The caller is
+ * bound to the leaf's holder by Archon challenge/response (`verifyResponse`), not by a self-asserted
+ * `controller`. Owner, ceiling, audience, revocation status and consent obligations all come from the bound
+ * caveats, so none is forgeable and none is skippable by omission.
  *
  * Prior art (docs/attributions.md): Karp (reference monitor / designation ≡ authority), Macaroons (the
- * discharge bound to the request — `PrepareForRequest`), ZCAP-LD (invocation checked against the capability).
+ * discharge bound to the request), ZCAP-LD (invocation checked against the capability).
  */
 
 import type { KeymasterHandle } from './keymaster.js';
-import type { AuthoritySetPayload } from './attenuation.js';
+import type { AuthoritySet, AuthoritySetPayload } from './attenuation.js';
 import type { CapabilityInvocation, Caveats, ThirdPartyCaveat } from './capability.js';
-import { targetWithin } from './capability.js';
+import { isAuthorizationCredential, targetWithin } from './capability.js';
 import { verifyCapabilityChain } from './capability-chain.js';
 import type { SpentTxnStore } from './single-use.js';
-import type { StatusListResolver } from './status-list.js';
+import { StatusListResolver } from './status-list.js';
 import type { Sensitivity } from './security.js';
 
 export interface InvocationContext {
   /** Any keymaster bound to the Gatekeeper the Warden trusts (resolves + verifies the capability chain). */
   keymaster: KeymasterHandle;
-  /** The DID the transport authenticated as the caller (authcrypt sender). MUST equal the leaf controller. */
-  fromDid: string;
-  /** Pin the root of trust — the Sovereign whose root capability anchors the chain. */
+  /** Pin the root of trust — the Sovereign whose root capability anchors the chain, and the status-list issuer. */
   expectedRootIssuer: string;
-  /**
-   * Disclosed {authoritySet, salt, caveats} per hop DID — the leaf revealed by the holder, ancestors known
-   * to the Warden (the root is its own anchor) or threaded at delegation. Binds the chain to its commitments
-   * and enables the ⊆ + caveat-narrowing checks.
-   */
+  /** The presented chain disclosure ({authoritySet, salt, caveats} per hop DID). MUST cover every hop —
+   *  it is what binds the chain to its commitments and reveals what the leaf actually grants. */
   disclosed: Record<string, AuthoritySetPayload>;
-  /** The disclosed caveats, ordered leaf→root, for the caveat-narrowing pass. */
-  orderedCaveats: Caveats[];
   /** Single-use ledger — the act's txn is burned on success so the invocation cannot be replayed. */
   spent: SpentTxnStore;
-  /** Sensitivity of what the act would disclose (the Warden computes it; must be ≤ the caveat ceiling). */
+  /** Sensitivity of what the act would disclose (the Warden computes it post-assembly; ≤ the bound ceiling). */
   sensitivity?: Sensitivity;
-  /** Optional revocation check: a resolver plus the leaf capability's status-list index. */
-  status?: { resolver: StatusListResolver; index: number };
+  /** Transport-authenticated caller (authcrypt sender), when available — an additional binding to the holder. */
+  fromDid?: string;
+  /** Max-age for the StatusList cache (default: fresh resolve every invocation). */
+  statusMaxAgeMs?: number;
+}
+
+/** The leaf as VERIFIED from the chain — the only thing the monitor enforces against. */
+export interface VerifiedLeaf {
+  id: string;
+  holder: string;
+  authority: AuthoritySet;
+  caveats: Caveats;
 }
 
 export interface InvocationDecision {
   allow: boolean;
   reason: string;
-  /** On allow: the owner scope the caller MUST enforce downstream (from the capability, not the request). */
+  /** On allow: the owner scope the caller MUST enforce (from the bound caveats, not the request). */
   owner?: string;
-  /** allow:false WITH this set ⇒ not a policy denial but a consent gap: obtain these discharges and retry. */
+  /** On allow: the recipient the scroll binds to (bound caveats' audience, else the holder). */
+  audience?: string;
+  /** The bound ceiling, so the caller can check an assembled sensitivity against it. */
+  ceiling?: Sensitivity;
+  /** allow:false WITH this set ⇒ a consent gap, not a denial: obtain these discharges and retry. */
   needsDischarge?: { by: string; predicate: string }[];
+}
+
+const deny = (reason: string): InvocationDecision => ({ allow: false, reason });
+
+/**
+ * Resolve + AUTHENTICATE a capability invocation, returning the VERIFIED leaf. Does everything that does not
+ * need the assembled sensitivity: the well-typed check, the full commitment-bound chain, the holder proof,
+ * the act ⊆ bound-authority check, and the fail-closed revocation check. Deny on the first failure.
+ */
+export async function resolveInvocation(
+  inv: CapabilityInvocation,
+  ctx: InvocationContext,
+): Promise<{ ok: true; leaf: VerifiedLeaf } | { ok: false; reason: string }> {
+  // 0. Karp's type guard — an authorization is not a credential.
+  if (!isAuthorizationCredential(inv.capability)) return { ok: false, reason: 'capability is not typed as an authorization' };
+  const claimedId = inv.capability.credentialSubject?.id;
+  if (typeof claimedId !== 'string' || !claimedId) return { ok: false, reason: 'capability has no id' };
+
+  // 1. The chain — commitment-bound, every hop disclosed, caveats narrowing enforced in-chain. Returns the
+  //    issuer-attested holder and the leaf's bound authority + caveats. Nothing here trusts the wire body.
+  const chain = await verifyCapabilityChain(claimedId, {
+    keymaster: ctx.keymaster,
+    expectedRootIssuer: ctx.expectedRootIssuer,
+    disclosed: ctx.disclosed,
+    requireFullDisclosure: true,
+  });
+  if (!chain.ok) return { ok: false, reason: `capability chain invalid: ${[chain.check, chain.reason].filter(Boolean).join(' ')}`.trim() };
+  if (!chain.holder || !chain.leafAuthoritySet || chain.leafCaveats === undefined) {
+    return { ok: false, reason: 'chain did not yield a bound leaf (holder / authority / caveats)' };
+  }
+  const leaf: VerifiedLeaf = { id: claimedId, holder: chain.holder, authority: chain.leafAuthoritySet, caveats: chain.leafCaveats as Caveats };
+
+  // 2. Holder binding — the caller must PROVE control of the chain's holder DID (Archon challenge/response),
+  //    not self-assert `controller`. Optionally cross-check the authenticated transport sender.
+  if (!inv.holderProof) return { ok: false, reason: 'missing holder proof (challenge/response over the holder DID)' };
+  const verifyResponse = ctx.keymaster.keymaster.verifyResponse.bind(ctx.keymaster.keymaster) as (r: string) => Promise<{ match?: boolean; responder?: string }>;
+  const vr = await verifyResponse(inv.holderProof).catch(() => ({ match: false } as { match?: boolean; responder?: string }));
+  if (!vr.match || vr.responder !== leaf.holder) return { ok: false, reason: 'holder control not proven for this capability' };
+  if (ctx.fromDid && ctx.fromDid !== leaf.holder) return { ok: false, reason: 'transport sender is not the capability holder' };
+
+  // 3. The ACT must sit within the BOUND authority (designation is authority — no ambient lookup, no wire).
+  if (!leaf.authority.operations.includes(inv.act.action)) return { ok: false, reason: `action '${inv.act.action}' is not in the capability's operations` };
+  const targetOk = leaf.authority.resources.some((r) => inv.act.target === r || targetWithin(inv.act.target, r));
+  if (!targetOk) return { ok: false, reason: `target '${inv.act.target}' is outside the capability's resources` };
+
+  // 4. Revocation — from the BOUND status pointer (cannot be stripped). Fail-closed.
+  const status = leaf.caveats.status;
+  if (status) {
+    const resolver = new StatusListResolver(ctx.keymaster, {
+      statusListCredential: status.statusListCredential,
+      expectedIssuer: ctx.expectedRootIssuer,
+      maxAgeMs: ctx.statusMaxAgeMs ?? 30_000,
+    });
+    const s = await resolver.check(status.statusListIndex);
+    if (!s.available) return { ok: false, reason: `revocation status unavailable — ${s.reason ?? 'fail-closed'}` };
+    if (s.revoked) return { ok: false, reason: 'capability is revoked' };
+  }
+
+  return { ok: true, leaf };
+}
+
+/**
+ * Authorize the act against an already-resolved leaf: replay, ceiling, consent discharge. Burns the txn on
+ * success. Split from resolve so the caller can assemble the owner-scoped evidence (→ sensitivity) in between.
+ */
+export async function authorizeInvocation(inv: CapabilityInvocation, ctx: InvocationContext, leaf: VerifiedLeaf): Promise<InvocationDecision> {
+  if (await ctx.spent.isSpent(inv.act.txn)) return deny('invocation txn already spent (replay)');
+
+  if (ctx.sensitivity !== undefined && ctx.sensitivity > leaf.caveats.ceiling) {
+    return deny(`sensitivity ${ctx.sensitivity} exceeds the capability ceiling ${leaf.caveats.ceiling}`);
+  }
+
+  const unmet: { by: string; predicate: string }[] = [];
+  for (const cav of leaf.caveats.requiresDischarge ?? []) {
+    if (!(await hasValidDischarge(inv, cav, ctx))) unmet.push({ by: cav.by, predicate: cav.predicate });
+  }
+  if (unmet.length > 0) return { allow: false, reason: 'discharge required', needsDischarge: unmet, owner: leaf.caveats.owner, ceiling: leaf.caveats.ceiling };
+
+  await ctx.spent.markSpent(inv.act.txn);
+  return { allow: true, reason: 'invocation authorized', owner: leaf.caveats.owner, audience: leaf.caveats.audience, ceiling: leaf.caveats.ceiling };
+}
+
+/** Convenience: resolve + authorize in one call (for direct callers / tests). */
+export async function verifyInvocation(inv: CapabilityInvocation, ctx: InvocationContext): Promise<InvocationDecision> {
+  const r = await resolveInvocation(inv, ctx);
+  if (!r.ok) return deny(r.reason);
+  return authorizeInvocation(inv, ctx, r.leaf);
+}
+
+/**
+ * A discharge satisfies a third-party caveat iff it is signed by the DESIGNATED party (`cav.by`), covers the
+ * same `predicate`, and is bound to THIS invocation's `txn` (the macaroon PrepareForRequest binding — so a
+ * discharge for one act/predicate cannot be replayed against another). The approver is named by the caveat.
+ */
+async function hasValidDischarge(inv: CapabilityInvocation, cav: ThirdPartyCaveat, ctx: InvocationContext): Promise<boolean> {
+  const verifyProof = ctx.keymaster.keymaster.verifyProof.bind(ctx.keymaster.keymaster) as (o: unknown) => Promise<boolean>;
+  for (const d of inv.discharges ?? []) {
+    if (d.by !== cav.by || d.txn !== inv.act.txn || d.predicate !== cav.predicate || !d.proof) continue;
+    if (!(await verifyProof(d).catch(() => false))) continue;
+    const signer = ((d.proof as { verificationMethod?: string }).verificationMethod ?? '').split('#')[0];
+    if (signer === cav.by) return true;
+  }
+  return false;
 }
 
 /**
@@ -66,80 +178,4 @@ export interface DischargeRequest {
   claim?: string;
   reason?: string;
   sensitivity?: Sensitivity;
-}
-
-const deny = (reason: string): InvocationDecision => ({ allow: false, reason });
-
-/**
- * Verify an invocation. Deny on the FIRST failure. On success the txn is burned and the owner scope is
- * returned. When a caveat requires consent that isn't yet discharged, returns allow:false with
- * `needsDischarge` (the caller escalates to the designated Signet, then retries) — distinct from a denial.
- */
-export async function verifyInvocation(inv: CapabilityInvocation, ctx: InvocationContext): Promise<InvocationDecision> {
-  const leaf = inv.capability.credentialSubject;
-
-  // 1. Holder binding: the authenticated caller must be the leaf capability's controller.
-  if (leaf.controller !== ctx.fromDid) {
-    return deny(`caller ${ctx.fromDid.slice(0, 24)}… is not the capability holder`);
-  }
-
-  // 2. Replay: the act's txn must not already be spent.
-  if (await ctx.spent.isSpent(inv.act.txn)) return deny('invocation txn already spent (replay)');
-
-  // 3. The capability chain: attenuation (authority ⊆), caveat narrowing, signatures, lineage, pinning.
-  const chain = await verifyCapabilityChain(leaf.id, {
-    keymaster: ctx.keymaster,
-    expectedRootIssuer: ctx.expectedRootIssuer,
-    disclosed: ctx.disclosed,
-    orderedCaveats: ctx.orderedCaveats,
-  });
-  if (!chain.ok) return deny(`capability chain invalid: ${[chain.check, chain.reason].filter(Boolean).join(' ')}`.trim());
-
-  // 4. The ACT must sit within the leaf's authority (designation is authority — no ambient lookup).
-  if (!leaf.authority.operations.includes(inv.act.action)) {
-    return deny(`action '${inv.act.action}' is not in the capability's operations`);
-  }
-  const targetOk = leaf.authority.resources.includes(inv.act.target) || targetWithin(inv.act.target, leaf.invocationTarget);
-  if (!targetOk) return deny(`target '${inv.act.target}' is outside the capability's resources/invocationTarget`);
-
-  // 5. Sensitivity ceiling: what the act discloses must clear the caveat ceiling (numeric Sensitivity).
-  if (ctx.sensitivity !== undefined && ctx.sensitivity > leaf.caveats.ceiling) {
-    return deny(`sensitivity ${ctx.sensitivity} exceeds the capability ceiling ${leaf.caveats.ceiling}`);
-  }
-
-  // 6. Revocation: fail-closed when a status list is configured for this capability.
-  if (ctx.status) {
-    const s = await ctx.status.resolver.check(ctx.status.index);
-    if (!s.available) return deny(`revocation status unavailable — ${s.reason ?? 'fail-closed'}`);
-    if (s.revoked) return deny('capability is revoked');
-  }
-
-  // 7. Consent obligations: every requiresDischarge caveat must be met by a bound, valid discharge.
-  const unmet: { by: string; predicate: string }[] = [];
-  for (const cav of leaf.caveats.requiresDischarge ?? []) {
-    if (!(await hasValidDischarge(inv, cav, ctx))) unmet.push({ by: cav.by, predicate: cav.predicate });
-  }
-  if (unmet.length > 0) {
-    return { allow: false, reason: 'discharge required', needsDischarge: unmet, owner: leaf.caveats.owner };
-  }
-
-  // Success — burn the txn (single-use) and hand back the owner scope the caller must enforce.
-  await ctx.spent.markSpent(inv.act.txn);
-  return { allow: true, reason: 'invocation authorized', owner: leaf.caveats.owner };
-}
-
-/**
- * A discharge satisfies a third-party caveat iff it is signed by the DESIGNATED party (`cav.by`), and is
- * bound to THIS invocation's `txn` (the macaroon PrepareForRequest binding — so a discharge captured for one
- * act cannot be replayed against another). The approver is named by the caveat, never by the requester.
- */
-async function hasValidDischarge(inv: CapabilityInvocation, cav: ThirdPartyCaveat, ctx: InvocationContext): Promise<boolean> {
-  const verifyProof = ctx.keymaster.keymaster.verifyProof.bind(ctx.keymaster.keymaster) as (o: unknown) => Promise<boolean>;
-  for (const d of inv.discharges ?? []) {
-    if (d.by !== cav.by || d.txn !== inv.act.txn || !d.proof) continue;
-    if (!(await verifyProof(d).catch(() => false))) continue;
-    const signer = ((d.proof as { verificationMethod?: string }).verificationMethod ?? '').split('#')[0];
-    if (signer === cav.by) return true;
-  }
-  return false;
 }

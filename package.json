@@ -91,6 +91,7 @@
     "e2e:invocation-evidence": "npm run build && node --experimental-strip-types scripts/e2e-invocation-evidence.ts",
     "e2e:invocation-discharge": "npm run build && node --experimental-strip-types scripts/e2e-invocation-discharge.ts",
     "e2e:invocation-revoke": "npm run build && node --experimental-strip-types scripts/e2e-invocation-revoke.ts",
+    "e2e:invocation-confused-deputy": "npm run build && node --experimental-strip-types scripts/e2e-invocation-confused-deputy.ts",
     "smoke:attenuation": "npm run build && node --experimental-strip-types scripts/smoke-attenuation-api.ts",
     "e2e:disclosure": "npm run build && node --experimental-strip-types scripts/e2e-disclosure.ts",
     "e2e:mesh": "npm run build && node --experimental-strip-types scripts/e2e-mesh.ts",

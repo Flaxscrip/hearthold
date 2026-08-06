@@ -52,6 +52,11 @@ export function makeWardenHandler(
   // Resolve the KbService for a request's kbId (or deny if unknown / none provisioned).
   const kbFor = (kbId: string | undefined): KbService | undefined => (kbId ? kbs?.get(kbId) : undefined);
 
+  // The legacy `evidence-request` path is the confused-deputy door (second audit): it trusts a requester-
+  // supplied subjectDid. OFF by default over DIDComm; set HEARTHOLD_ALLOW_LEGACY_EVIDENCE=1 only to stage the
+  // app migration to `hearthold/invocation`, and it logs loudly when used.
+  const allowLegacyEvidence = process.env.HEARTHOLD_ALLOW_LEGACY_EVIDENCE === '1' || process.env.HEARTHOLD_ALLOW_LEGACY_EVIDENCE === 'true';
+
   return async (message, fromDid) => {
     switch (message.type) {
       case 'hearthold/witness-submission': {
@@ -94,6 +99,10 @@ export function makeWardenHandler(
       }
 
       case 'hearthold/evidence-request': {
+        if (!allowLegacyEvidence) {
+          process.stderr.write('[warden] REFUSED a legacy hearthold/evidence-request — the capability path (hearthold/invocation) is required; set HEARTHOLD_ALLOW_LEGACY_EVIDENCE=1 to re-enable during migration.\n');
+          return deny('legacy evidence-request path is disabled — send hearthold/invocation');
+        }
         if (!evidence) {
           return {
             type: 'hearthold/evidence-response',

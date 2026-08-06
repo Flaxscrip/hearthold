@@ -130,19 +130,28 @@ export async function verifyCapabilityChain(
     expectedRootIssuer?: string;
     disclosed?: Record<string, AuthoritySetPayload>;
     maxHops?: number;
-    /** Ordered leaf→root caveats for verifier-side narrowing (matches the disclosed hops). */
-    orderedCaveats?: Caveats[];
+    /**
+     * Require every hop disclosed and enforce caveat narrowing IN-CHAIN. Use this whenever the result will be
+     * ENFORCED (the invocation monitor): it makes authority + caveats commitment-bound, so nothing is read
+     * from an unauthenticated wire body. On success the result carries the bound leaf (`holder`,
+     * `leafAuthoritySet`, `leafCaveats`) — enforce those, not `credentialSubject`.
+     */
+    requireFullDisclosure?: boolean;
   },
 ): Promise<VerifyResult> {
-  const base = await verifyAttenuationChain(leafVcDid, {
+  return verifyAttenuationChain(leafVcDid, {
     keymaster: opts.keymaster,
     ...(opts.expectedRootIssuer !== undefined ? { expectedRootIssuer: opts.expectedRootIssuer } : {}),
     ...(opts.disclosed !== undefined ? { disclosed: opts.disclosed } : {}),
     ...(opts.maxHops !== undefined ? { maxHops: opts.maxHops } : {}),
+    ...(opts.requireFullDisclosure ? { requireDisclosure: true } : {}),
+    // Attenuation stays generic; the capability layer injects its caveat semantics. Fail-closed on error.
+    caveatNarrows: (child, parent) => {
+      try {
+        return caveatsNarrow(child as Caveats, parent as Caveats);
+      } catch {
+        return false;
+      }
+    },
   });
-  if (!base.ok) return base;
-  if (opts.orderedCaveats && !caveatsChainNarrows(opts.orderedCaveats)) {
-    return { ok: false, reason: 'a hop widens caveats over its parent', check: '(caveats)' };
-  }
-  return base;
 }

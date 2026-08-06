@@ -40,6 +40,14 @@ const cred = (h: CapabilityHandle): CapabilityInvocation['capability'] => ({
   credentialSubject: h.capability,
 });
 
+/** Prove control of the holder DID via Archon challenge/response — the binding the monitor requires. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function proveHolder(warden: any, holder: any, holderName: string, reg: string): Promise<string> {
+  const challenge = await warden.keymaster.createChallenge({ purpose: 'hearthold-invocation' }, { registry: reg });
+  await holder.keymaster.setCurrentId(holderName);
+  return holder.keymaster.createResponse(challenge, { registry: reg });
+}
+
 async function main(): Promise<void> {
   const config = loadConfig();
   const pass = 'hearthold-invocation-evidence-e2e';
@@ -77,10 +85,11 @@ async function main(): Promise<void> {
     registry: reg,
   });
 
+  const emiProof = await proveHolder(warden, emissary, emiId.name, reg);
   const invocation = (txn: string): CapabilityInvocation => ({
     type: 'hearthold/invocation', version: PROTOCOL_VERSION, capability: cred(emi),
     act: { action: 'prove', target: 'hearthold:vault:location', nonce: randomUUID(), txn, args: { claim: 'resided in FR', spec: { kind: 'location' } } },
-    disclosed: discloseChain(emi, root), orderedCaveats: [emi.capability.caveats, root.capability.caveats],
+    disclosed: discloseChain(emi, root), holderProof: emiProof,
   });
 
   line('\n════ the capability path ════');

@@ -132,6 +132,9 @@ export interface InvocationAct {
 export interface Discharge {
   /** Which caveat this discharges (matches a `ThirdPartyCaveat.by` on the capability). */
   by: string;
+  /** The predicate the human approved (must match the caveat's `predicate` — so a discharge for one
+   *  predicate cannot satisfy a caveat requiring another). */
+  predicate?: string;
   /** The `txn` this discharge is bound to (the macaroon `PrepareForRequest` binding). */
   txn: string;
   /** The achieved proof-of-human level, attested by the discharging Signet (not the requester). */
@@ -147,8 +150,14 @@ export interface CapabilityInvocation {
   capability: HearthholdCapabilityCredential;
   /** The act being authorized. */
   act: InvocationAct;
-  /** The holder's signature over `act` (`capabilityInvocation` purpose under fork B; a carried JWS under A). */
+  /** The holder's signature over `act` (a carried JWS; the invocation purpose is in the credential body). */
   invocationProof?: unknown;
+  /**
+   * A `createResponse` DID answering the Warden's challenge — proves the caller controls the chain-bound
+   * holder DID (Archon challenge/response). This is what binds the invoker to the capability; the wire
+   * `credentialSubject.controller` is never trusted.
+   */
+  holderProof?: string;
   /** Discharges for any `requiresDischarge` caveats on the capability. */
   discharges?: Discharge[];
   /**
