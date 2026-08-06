@@ -142,7 +142,8 @@ Attenuation is **monotonic**: a delegated capability may only narrow — actions
 ### 5.2 The invocation act
 
 The Emissary invokes over an **authcrypt** envelope (sender already proven), presenting the capability chain
-and a signed act bound to a Warden-minted nonce:
+and an act carried under a single-use `txn`, with a challenge/response holder proof (a per-act signature is a
+further hardening):
 
 ```jsonc
 {
@@ -189,6 +190,15 @@ the specific act** — so a captured/relayed approval can't be reused, and no re
 approver. The **owner scoping** comes from `caveats.owner`, not `req.subjectDid`. Designation and authority
 are fused in the capability. The confused deputy has nowhere to stand.
 
+**The binding rule (what makes this enforcing, not advisory).** Everything the Warden enforces is read from the
+*verified, commitment-bound chain* — never from `inv.capability.credentialSubject`, which is an unauthenticated
+wire object. The invocation must present the disclosure for **every** hop (the 256-bit salt that binds each
+commitment can only be produced by decrypting the hop — i.e. by holding it), and the caller is bound to the
+leaf's **issuer-signed holder DID** by Archon **challenge/response** (`verifyResponse`), not by a self-asserted
+`controller`. Omitting the disclosure, forging the body, stripping the status pointer, deleting a
+`requiresDischarge` caveat, or proving control of the *wrong* DID all fail closed — the red test
+`scripts/e2e-invocation-confused-deputy.ts` exercises each.
+
 ---
 
 ## 6. Worked example — evidence disclosure, before and after
@@ -214,7 +224,7 @@ owner, and cannot supply the discharge. **The step-up cannot be bypassed and cro
 
 | Criterion | Before | After |
 |---|---|---|
-| **1. The act is the signed object** | Request unsigned; approval portable across audience/recipient/TTL/mode. | The invocation is a signed act over a Warden-minted nonce; the discharge is bound to the `txn`. |
+| **1. The act is the signed object** | Request unsigned; approval portable across audience/recipient/TTL/mode. | The caller is bound to the chain's holder by challenge/response, the disclosure is commitment-bound, and each act is single-use by `txn`; the discharge is bound to that `txn`. *(A per-act signature over a Warden nonce is a further hardening.)* |
 | **2. Something has to ask permission** | `decideRelease` a pure probe; no revocation; no reference monitor on the disclosure path. | `verifyInvocation` is a mandatory reference monitor; `credentialStatus` fail-closed; consent via bound discharge. |
 | **3. Attenuation with teeth** | `attenuation.ts` unused; evidence path passed a boolean; whole-vault `list()`. | Chain verified at invocation; act ⊆ caveats; owner+kind scoping enforced Warden-side. |
 | **4. Designation is authority** | Every subject/recipient/approver named by string → confused deputy. | Authority is an unforgeable capability chained to a Sovereign root; the approver/owner are *designated by the capability*. |
