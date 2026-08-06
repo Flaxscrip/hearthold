@@ -22,7 +22,7 @@
  */
 
 import type { Sensitivity } from './security.js';
-import type { AuthoritySet, AuthoritySetPayload } from './attenuation.js';
+import type { AuthoritySet } from './attenuation.js';
 import { isSubset } from './attenuation.js';
 import { PROTOCOL_VERSION } from './protocol.js';
 
@@ -146,28 +146,17 @@ export interface Discharge {
 export interface CapabilityInvocation {
   type: 'hearthold/invocation';
   version: typeof PROTOCOL_VERSION;
-  /** The capability being exercised, presented whole (the chain is resolved to a Sovereign root Warden-side). */
-  capability: HearthholdCapabilityCredential;
+  /**
+   * The capability presentation — a `createResponse` DID answering the Warden's credential-requesting
+   * challenge. In one Archon ceremony it presents the Sovereign-issued scope VC AND proves the caller
+   * controls its subject (holder). There is no separate, forgeable capability body: the Warden reads the
+   * scope from the VERIFIED presentation (`verifyResponse`), issuer-trusted and holder-controlled.
+   */
+  presentation: string;
   /** The act being authorized. */
   act: InvocationAct;
-  /** The holder's signature over `act` (a carried JWS; the invocation purpose is in the credential body). */
-  invocationProof?: unknown;
-  /**
-   * A `createResponse` DID answering the Warden's challenge — proves the caller controls the chain-bound
-   * holder DID (Archon challenge/response). This is what binds the invoker to the capability; the wire
-   * `credentialSubject.controller` is never trusted.
-   */
-  holderProof?: string;
-  /** Discharges for any `requiresDischarge` caveats on the capability. */
+  /** Discharges for any `requiresDischarge` caveats on the presented capability. */
   discharges?: Discharge[];
-  /**
-   * The holder-presented chain disclosure — {authoritySet, salt, caveats} per hop DID — binding the
-   * presented capability to its on-chain commitments. Self-contained on the wire; the Warden can add its
-   * own root anchor. Absent ⇒ the verifier resolves the chain structurally only.
-   */
-  disclosed?: Record<string, AuthoritySetPayload>;
-  /** The disclosed caveats, ordered leaf→root, for the verifier's caveat-narrowing pass. */
-  orderedCaveats?: Caveats[];
 }
 
 // ── Pure attenuation predicates (types-only phase: no I/O) ──────────────────────────────────────────────

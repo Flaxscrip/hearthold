@@ -29,6 +29,7 @@ export * from './pairwise.js';
 export * from './attenuation.js';
 export * from './capability.js';
 export * from './capability-chain.js';
+export * from './capability-vc.js';
 export * from './invocation-monitor.js';
 export * from './selective-disclosure.js';
 export * from './allocation.js';

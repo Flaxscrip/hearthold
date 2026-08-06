@@ -20,6 +20,7 @@ import {
   decideRelease,
   resolveInvocation,
   authorizeInvocation,
+  ensureAuthorizationSchema,
   FileSpentTxnStore,
   IssuedStore,
   AuthzTier,
@@ -244,11 +245,12 @@ export class EvidenceService {
     // Resolve + AUTHENTICATE the capability FIRST. The enforced owner/ceiling/audience come from the
     // verified, commitment-bound chain, and the caller is bound to the holder by challenge/response — nothing
     // below trusts inv.capability.credentialSubject.
+    const authorizationSchema = await ensureAuthorizationSchema(this.warden);
     const ctx = {
       keymaster: this.warden,
       fromDid,
       expectedRootIssuer: this.config.sovereignDid ?? '',
-      disclosed: inv.disclosed ?? {},
+      authorizationSchema,
       spent: new FileSpentTxnStore(this.warden.dataFolder),
     };
     const resolved = await resolveInvocation(inv, ctx);
