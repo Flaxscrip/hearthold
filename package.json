@@ -103,6 +103,8 @@
     "demo:cgpr": "npm run build && node --experimental-strip-types scripts/demo-cgpr.ts",
     "e2e:cgpr-relay": "npm run build && node --experimental-strip-types scripts/e2e-cgpr-relay.ts",
     "e2e:kb-spaces": "npm run build && HEARTHOLD_CLASSIFIER=quarantine node --experimental-strip-types scripts/e2e-kb-spaces.ts",
+    "e2e:kb-open-enroll": "npm run build && HEARTHOLD_CLASSIFIER=quarantine node --experimental-strip-types scripts/e2e-kb-open-enroll.ts",
+    "provision:hatpro": "npm run build && node --experimental-strip-types scripts/provision-hatpro-kb.ts",
     "e2e:kb-member-key": "npm run build && node --experimental-strip-types scripts/e2e-kb-member-key.ts",
     "e2e:kb-spaces-enable": "npm run build && HEARTHOLD_CLASSIFIER=quarantine node --experimental-strip-types scripts/e2e-kb-spaces-enable.ts",
     "e2e:partition-rewrap": "npm run build && node --experimental-strip-types scripts/e2e-partition-rewrap.ts",

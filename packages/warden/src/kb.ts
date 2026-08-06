@@ -67,6 +67,11 @@ interface KbServiceOptions {
   memberPartitions?: boolean;
   /** Where a scope-less contribution lands. Default 'shared'. */
   defaultScope?: 'shared' | 'private';
+  /**
+   * Open enrollment: auto-join a proven DID on its first action (grant read+write + a private partition),
+   * capped. Called at the top of `execute` (after auth). Absent ⇒ off (a DID must be granted by a Sovereign).
+   */
+  openEnroll?: (did: string) => Promise<{ enrolled: boolean; reason?: string }>;
   /** The Warden-side store of per-member private partitions (present when `memberPartitions`). */
   partitions?: PartitionStore;
   /**
@@ -346,6 +351,13 @@ export class KbService {
     req: { action: 'query' | 'update'; query?: string; k?: number; kind?: string; text?: string; scope?: 'shared' | 'private' },
     sessionToken?: string,
   ): Promise<KbResultMessage> {
+    // Open enrollment: a proven DID's first authenticated action auto-joins (grant + partition), capped. This
+    // runs AFTER authentication (execute is only reached with a verified DID), so no spoofed DID is admitted;
+    // off ⇒ no-op. A cap hit returns a clear refusal, not a generic "not authorized".
+    if (this.opts.openEnroll) {
+      const enrolled = await this.opts.openEnroll(did);
+      if (enrolled.reason) return kbErr(enrolled.reason);
+    }
     const own = await this.ownPartition(did);
 
     if (req.action === 'query') {
