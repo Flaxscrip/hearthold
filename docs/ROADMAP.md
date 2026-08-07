@@ -1,0 +1,60 @@
+# Roadmap — the invocation / capability workstream
+
+Supersedes the stale build plan in `docs/invocation.md §8` (the old attenuation-chain phases, pre-VC-rearchitecture).
+
+## The user model
+
+Invocation makes the Emissary a **borne, scoped, revocable delegate** rather than an ambient session cookie.
+Lifecycle: **grant → invoke → step-up → revoke.** Posture: a *standing capability* for routine facts (the
+Emissary acts autonomously), with an *automatic Signet step-up* for anything at or above `requiresHumanAt`.
+
+## Phases
+
+- **Phase 1 — grant + invoke spine.** ✅ `sovereign capability:grant`, `emissary invoke`, the reusable
+  `invokeEvidence` helper, and a third party verifying the Warden-issued graph. (`e2e-invocation-spine`)
+- **Phase 1.5 — keyless invoke-shim.** ✅ Emissary `POST /api/invoke` + `/api/accept-capability`, Sovereign
+  `POST /api/authorize-capability` (Signet-gated grant); the `Invoke*`/`Authorize*` contract published in
+  `@hearthold/control-types`. Unblocks Sevenfold's keyless Table. (`e2e-invoke-shim`)
+- **Phase 2 — CGPR threshold.** ◀ next. CGPR becomes an *invocation at the edge*: the A2A gateway / CgprService
+  invokes the standing CGPR capability; autonomous when the disclosure is ≤ `cgprAutonomousAtOrBelow` (new
+  config, default **LOW**, deliberately stricter than the internal `requiresHumanAt`), Signet step-up above.
+- **Phase 3 — per-actor MCP servers.** See below (added at flaxscrip's direction, 2026-08-07, sequenced after Phase 2).
+- **Phase 4 — permissions center.** Capability inventory + revoke at the Signet; read-only mirror in the Table.
+- **Phase 5 — onboarding + Emissary-as-delegator.** Baseline grant wired into device setup alongside
+  `warden delegate`; multi-hop attenuation (the retained `attenuation.ts` / `capability-chain.ts` primitive) so
+  the Emissary can attenuate-and-hand-off a further-narrowed capability to a third party.
+
+## Phase 3 — per-actor MCP servers (detail)
+
+**Goal.** Everything is now clean per-actor capabilities behind APIs and CLI verbs. Expose each actor's surface
+as MCP tools so **AI agents can drive Hearthold actors directly** — the agent-facing realization of the
+agent-family model (human-parented AI-agent Sovereigns, agents coordinating over Archon instead of a human
+relaying notes).
+
+**Shape.** Generalize the existing `@hearthold/agent-mcp` (today one custodian augment over Archon's
+`@didcid/mcp-server`, bound to a single identity) into a **role-configured server** — `--role
+warden|sovereign|emissary|verifier` binds that actor's identity and exposes its verb set. Every tool is a
+**façade over the control-plane routes + the reusable helpers** (`invokeEvidence`, `issueScopeCapability`, …),
+never a reimplementation, so the security invariants come for free.
+
+| Actor | Role | Representative verbs (wrapping existing paths) |
+|---|---|---|
+| **Warden** | custodian / enforcer | status, vault-list (owner-scoped), `delegate`, `recall`, triage/admit, revoke |
+| **Sovereign / Signet** | authorizer | `grant-capability`, `sign-ruleset`, `revoke-capability`; **approve/deny step-ups only for AI-agent Sovereigns** |
+| **Emissary** | invoker / companion | `submit`, `invoke` (forge), `accept-capability`, `project` |
+| **Verifier** | checker | `request-proof`, `verify` |
+
+**The load-bearing invariant — MCP is a façade, not a bypass.** Every tool routes through the same reference
+monitor and the same human gate:
+
+- An Emissary `invoke` still triggers the owner's Signet consent for a sensitive claim — the human (or an
+  AI-agent Sovereign's AgentGate) approves, never the MCP caller.
+- A Sovereign `approve` tool is meaningful **only for an AI-agent Sovereign** (AgentGate self-approval within a
+  parent-signed allowance). A **human** Sovereign's approval never routes through an MCP tool — it stays at the
+  Signet. PVM separation intact: the MCP exposes the *ask*, never the authority to self-grant.
+- Grants/invocations remain revocable, ceiling/kind-bound, and consent-gated exactly as they are today; the MCP
+  cannot widen any of it.
+
+This is the same principle as the invoke-shim (Phase 1.5): a lower-trust caller submits an *intent*; the
+wallet-holding, capability-bound actor runs the ceremony. The MCP layer is that pattern, generalized to every
+actor and pointed at AI agents.
