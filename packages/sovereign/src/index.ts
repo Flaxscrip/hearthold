@@ -15,9 +15,13 @@ import {
   ensureSchema,
   openSchema,
   issueClaim,
+  issueScopeCapability,
+  ensureAuthorizationSchema,
+  Sensitivity,
   signKbRequest,
   PROTOCOL_VERSION,
   type KbRequestStatement,
+  type WitnessKind,
 } from '@hearthold/core';
 
 import { makeSovereignHandler } from './handler.js';
@@ -33,6 +37,8 @@ Usage:
   sovereign issued           List the issued (third-party) credentials in the vault
   sovereign issue <subjectDid> <type> [key=value ...]
                              Issue a credential to a subject (act as an issuer, e.g. a sphere manager)
+  sovereign capability:grant <emissaryDid> [ceiling=LOW] [kinds=location,activity] [target=hearthold:vault] [days=90]
+                             Grant the Emissary a revocable scope capability to PROVE facts (the invocation grant)
   sovereign serve            Serve over DIDComm: present proofs on request (terminal PIN)
   sovereign control [port]   Serve DIDComm + a control API for the Signet Approver app (default 4311)
   sovereign agent-signet     Serve as an AGENT's Signet (AgentGate: self-approve within the parent-signed
@@ -185,6 +191,54 @@ async function main(): Promise<void> {
           `  schema:     ${schemaDid}\n` +
           `  → subject runs:  sovereign accept ${credDid}\n` +
           `  → verifier uses: <schema>=${schemaDid} <issuer>=${id.did}\n`,
+      );
+      break;
+    }
+    case 'capability:grant': {
+      const emissaryDid = process.argv[3];
+      if (!emissaryDid) {
+        throw new Error('usage: sovereign capability:grant <emissaryDid> [ceiling=LOW] [kinds=location,activity] [target=hearthold:vault] [days=90]');
+      }
+      const opts: Record<string, string> = {};
+      for (const kv of process.argv.slice(4)) {
+        const eq = kv.indexOf('=');
+        if (eq > 0) opts[kv.slice(0, eq)] = kv.slice(eq + 1);
+      }
+      const CEIL: Record<string, Sensitivity> = { PUBLIC: Sensitivity.PUBLIC, LOW: Sensitivity.LOW, MEDIUM: Sensitivity.MEDIUM, HIGH: Sensitivity.HIGH, SEALED: Sensitivity.SEALED };
+      const ceilingLabel = (opts.ceiling ?? 'LOW').toUpperCase();
+      const ceiling = CEIL[ceilingLabel];
+      if (ceiling === undefined) throw new Error(`unknown ceiling '${opts.ceiling}' — use PUBLIC|LOW|MEDIUM|HIGH|SEALED`);
+      const target = opts.target ?? 'hearthold:vault';
+      const kinds = opts.kinds ? (opts.kinds.split(',').map((s) => s.trim()).filter(Boolean) as WitnessKind[]) : undefined;
+      const days = Number(opts.days ?? '90');
+      const validUntil = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+
+      // The Sovereign is the issuer — running this command IS the authorizing act. (The Signet co-sign gate is
+      // the productionization; here the wallet passphrase gates issuance.) Revocable by default via `config`.
+      const schemaDid = await ensureAuthorizationSchema(handle);
+      const credDid = await issueScopeCapability({
+        issuer: handle,
+        issuerName: id.name,
+        holder: emissaryDid,
+        schemaDid,
+        config,
+        scope: {
+          invocationTarget: target,
+          authority: { operations: ['prove'], resources: [target] },
+          caveats: { ceiling, owner: id.did, expires: validUntil, ...(kinds ? { kinds } : {}) },
+        },
+        validUntil,
+      });
+      process.stdout.write(
+        `Granted a scope capability to ${emissaryDid.slice(0, 28)}…\n` +
+          `  target:     ${target}\n` +
+          `  operations: prove\n` +
+          `  ceiling:    ${ceilingLabel}\n` +
+          `  kinds:      ${kinds ? kinds.join(', ') : '(any)'}\n` +
+          `  expires:    ${validUntil}\n` +
+          `  revocable:  yes (carries a status pointer)\n` +
+          `  capability: ${credDid}\n` +
+          `  → emissary runs: emissary accept ${credDid}\n`,
       );
       break;
     }

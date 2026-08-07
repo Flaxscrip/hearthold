@@ -19,6 +19,7 @@ import { makeEmissaryProjectorHandler } from './handler.js';
 import { makeKbRelayHandler } from './kb-relay.js';
 import { startKbPortalServer } from './kb-portal-server.js';
 import { runEmissaryControl } from './control.js';
+import { invokeEvidence } from './invoke.js';
 
 const HELP = `Hearthold Emissary — Companion
 
@@ -28,6 +29,9 @@ Usage:
   emissary accept <credDid>     Accept a delegation credential from the Warden
   emissary submit <kind> <text> Seal an observation and submit it to the Warden over DIDComm
   emissary submit-image <path>  Submit an image; the Warden captions it on-device, then classifies
+  emissary invoke <claim...> [kind=location] [target=…]
+                                Present the scope capability to PROVE a fact — the Warden mints a signed
+                                evidence graph (sensitive claims step up to the Signet)
   emissary serve                Project to the world: relay proof-requests to the Sovereign (Signet)
   emissary kb-portal            Emissary: relay Knowledge Base traffic to the Warden (carries only)
   emissary kb-web [port]        Emissary web portal: HTTP→DIDComm bridge for the browser (default 4313)
@@ -165,6 +169,42 @@ async function main(): Promise<void> {
         process.exitCode = 1;
       } else {
         process.stderr.write(`Unexpected reply: ${reply.type}\n`);
+        process.exitCode = 1;
+      }
+      break;
+    }
+    case 'invoke': {
+      const claim = process.argv.slice(3).filter((a) => !a.includes('=')).join(' ');
+      const opts: Record<string, string> = {};
+      for (const kv of process.argv.slice(3).filter((a) => a.includes('='))) {
+        const eq = kv.indexOf('=');
+        if (eq > 0) opts[kv.slice(0, eq)] = kv.slice(eq + 1);
+      }
+      if (!claim) throw new Error('usage: emissary invoke <claim...> [kind=location] [target=hearthold:vault:location]');
+      const kind = opts.kind ?? 'location';
+      const wardenDid = config.wardenDid;
+      if (!wardenDid) throw new Error('HEARTHOLD_WARDEN_DID is required for invoke');
+
+      const transport = new DidCommTransport(handle, IDENTITY_NAME.emissary, config.nodeUrl);
+      await transport.ready();
+      const reply = await invokeEvidence(handle, transport, wardenDid, { claim, kind, ...(opts.target ? { target: opts.target } : {}) });
+
+      if (reply.type === 'hearthold/evidence-response' && reply.status === 'granted') {
+        // Accept the minted evidence graph so the Emissary can present it to a verifier.
+        if (reply.credentialDid) await handle.keymaster.acceptCredential(reply.credentialDid).catch(() => undefined);
+        process.stdout.write(
+          `✓ Invocation GRANTED — the Warden minted a signed evidence graph\n` +
+            `  claim:      ${reply.graph?.claim ?? claim}\n` +
+            `  trustClass: ${reply.graph?.trustClass ?? 'witnessed'}\n` +
+            `  credential: ${reply.credentialDid}\n` +
+            `  schema:     ${reply.schemaDid}\n` +
+            `  → a verifier checks it: verifier verify ${id.did} ${reply.schemaDid} ${wardenDid}\n`,
+        );
+      } else if (reply.type === 'hearthold/evidence-response') {
+        process.stderr.write(`✗ Invocation denied: ${reply.reason}\n`);
+        process.exitCode = 1;
+      } else {
+        process.stderr.write(`✗ ${reply.reason}\n`);
         process.exitCode = 1;
       }
       break;
