@@ -97,7 +97,7 @@ async function main(): Promise<void> {
       const gate = new PromptGate(config.signetPin);
       const transport = new DidCommTransport(handle, IDENTITY_NAME.sovereign, config.nodeUrl);
       await transport.ready();
-      const stop = await transport.serve(makeSovereignHandler(handle, gate, reopenSovereign));
+      const stop = await transport.serve(makeSovereignHandler(handle, gate, reopenSovereign, config.wardenDid));
       process.stdout.write(
         `Sovereign serving over DIDComm (Signet PIN approval on each disclosure)\n  did: ${id.did}\n  (Ctrl-C to stop)\n`,
       );
@@ -129,7 +129,7 @@ async function main(): Promise<void> {
             `${ctx.action?.summary ? ` — ${ctx.action.summary}` : ''}\n`,
         );
       });
-      const stop = await transport.serve(makeSovereignHandler(handle, gate, reopenSovereign));
+      const stop = await transport.serve(makeSovereignHandler(handle, gate, reopenSovereign, config.wardenDid));
       process.stdout.write(
         `Agent Signet serving over DIDComm (AgentGate — self-approves within the parent-signed allowance;\n` +
           `above-scope escalates to the parent). No PIN; proof-of-agent + receipts.\n  did: ${id.did}\n  (Ctrl-C to stop)\n`,

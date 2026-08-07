@@ -10,7 +10,7 @@
  * and the gate is where the proof-of-human level scales with sensitivity.
  */
 
-import type { HumanPresenceAssertion, SpendApprovalDetail, KeymasterHandle, Discharge, DischargeRequest } from '@hearthold/core';
+import { dischargeDigest, type HumanPresenceAssertion, type SpendApprovalDetail, type KeymasterHandle, type Discharge, type DischargeRequest } from '@hearthold/core';
 
 export interface ApprovalContext {
   /** The party the disclosure would go to (a verifier, or the Warden for an evidence approval). */
@@ -186,16 +186,28 @@ export async function signDischarge(
   const assertion = await gate.approve({
     requester: 'the Warden',
     disclosure: {
-      claim: req.claim ?? req.predicate,
+      claim: req.claim,
       evidenceRoot: '',
-      requiredLevel: (req.sensitivity ?? 1) >= 2 ? 2 : 1,
-      reason: req.reason ?? `co-sign ${req.predicate}`,
+      requiredLevel: req.sensitivity >= 2 ? 2 : 1,
+      // Surface WHO receives the data and at what tier — the two most decision-relevant facts (audit-4 §5).
+      reason: `${req.reason ?? `co-sign ${req.predicate}`} — recipient ${req.audience}, sensitivity ${req.sensitivity}`,
     },
   });
   if (!assertion) return null;
+  // Bind the discharge to the exact disclosure the human just saw (claim/kind/owner/audience/sensitivity), so
+  // it cannot be transplanted onto a different act under the same txn (audit-4 §1). Signed OVER the digest.
+  const digest = dischargeDigest({
+    txn: req.txn,
+    predicate: req.predicate,
+    claim: req.claim,
+    kind: req.kind,
+    owner: req.owner,
+    audience: req.audience,
+    sensitivity: req.sensitivity,
+  });
   await handle.keymaster.setCurrentId(idName);
   return (await handle.keymaster.addProof(
-    { by: req.by, txn: req.txn, predicate: req.predicate, level: assertion.level },
+    { by: req.by, txn: req.txn, predicate: req.predicate, digest, level: assertion.level },
     idName,
   )) as Discharge;
 }

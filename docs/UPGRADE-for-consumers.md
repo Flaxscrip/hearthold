@@ -20,7 +20,7 @@ invocation layer adds).
 The branch is not a pure code merge. Two defaults change how already-issued state and existing flows behave:
 
 - **`requireRevocableCapabilities` defaults `true`** → a capability already issued *without* a
-  `credentialStatus` pointer is now **denied at invocation**. `issueScopeCapability` auto-allocates a
+  `caveats.status` revocation pointer is now **denied at invocation**. `issueScopeCapability` auto-allocates a
   status when passed `config`, so newly-minted capabilities are fine; anything minted the old way is not.
 - **`requiresHumanAt` defaults `MEDIUM`** → an existing MEDIUM+ evidence disclosure now **requires a
   reachable Signet** to obtain a signed consent discharge, or it fails closed (denied).
@@ -122,7 +122,7 @@ NEW UI STATES TO HANDLE
    submit yet — no Warden-issued delegation is available." Surface this as a first-run
    "delegate this device" step rather than a raw error.
 3. Capabilities/grants now carry a revocation status; if you render capability or grant details,
-   expect and (optionally) display a credentialStatus pointer.
+   expect and (optionally) display the `caveats.status` revocation pointer.
 
 DO
 - Remove/replace calls to the three deleted routes; re-point the prove UI to the invocation flow.

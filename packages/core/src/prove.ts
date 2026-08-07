@@ -122,13 +122,17 @@ export async function verifyProof(
     issuer?: string;
     credentialSubject?: Record<string, unknown>;
   }>;
+  // `credentialDid` pairs `credentials[i]` with `vps[i]` positionally — two separate arrays. If they ever
+  // desync, a mispaired DID becomes the single-use ledger's key (`cap:<id>`). Only trust the pairing when the
+  // arrays are the same length; otherwise leave the id empty and let the caller refuse it (fail closed).
+  const aligned = creds.length === vps.length;
   const disclosed: DisclosedCredential[] = vps.map((vp, i) => {
     const claims = { ...(vp.credentialSubject ?? {}) };
     const subject = String((claims as { id?: unknown }).id ?? ''); // the DID the issuer granted this to
     delete (claims as { id?: unknown }).id;
     const tc = (claims as { trustClass?: string }).trustClass;
     return {
-      credentialDid: creds[i]?.vc ?? '',
+      credentialDid: aligned ? creds[i]?.vc ?? '' : '',
       issuer: String(vp.issuer ?? ''),
       subject,
       trustClass: tc === 'witnessed' || tc === 'composite' ? tc : 'issued',
