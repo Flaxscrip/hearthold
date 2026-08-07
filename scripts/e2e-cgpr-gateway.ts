@@ -27,7 +27,7 @@ import {
 import { VaultStore } from '@hearthold/warden/store';
 import { FilePairwiseStore } from '@hearthold/warden/pairwise-store';
 import { CgprService } from '@hearthold/warden/cgpr';
-import { startA2aGateway, AGENT_CARD_PATH, A2A_RPC_PATH, A2A_VERSION, type CgprBackend } from '@hearthold/a2a-gateway';
+import { startA2aGateway, signTicket, makeTicketVerifier, AGENT_CARD_PATH, A2A_RPC_PATH, A2A_VERSION, type CgprBackend } from '@hearthold/a2a-gateway';
 import { CGPR_EXTENSION_URI } from '@hearthold/cgpr-types';
 
 const hex = (s: string): string => createHash('sha256').update(s).digest('hex');
@@ -53,9 +53,11 @@ async function main(): Promise<void> {
   const warden = await openKeymaster('warden', config, pass);
   const sovereign = await openKeymaster('sovereign', config, pass);
   const c = await openKeymaster('verifier', config, pass); // the counterparty C (its own DID)
+  const broker = await openKeymaster('emissary', config, pass); // broker B — vouches for C by signing the ticket
   const wardenId = await ensureIdentity(warden, config);
   const sovId = await ensureIdentity(sovereign, config);
   const cId = await ensureIdentity(c, config);
+  const bId = await ensureIdentity(broker, config);
 
   // Seed one LOW 'document' artefact standing in for a HATPro dietary-preference profile.
   await new VaultStore(warden.dataFolder).put({
@@ -98,8 +100,11 @@ async function main(): Promise<void> {
     },
   };
 
+  // Wire the ticket verifier into the gateway (audit-3 §10): the ticket is broker B's vouch for C, so the
+  // gateway verifies B's signature + broker-trust before honoring it. `warden` is the resolution keymaster.
+  const verifyTicket = makeTicketVerifier({ keymaster: warden, trustedBrokers: [bId.did] });
   const gateway = await new Promise<ReturnType<typeof startA2aGateway>>((resolve) => {
-    const gw = startA2aGateway({ port: PORT, publicUrl: BASE, backend, onListening: () => resolve(gw) });
+    const gw = startA2aGateway({ port: PORT, publicUrl: BASE, backend, verifyTicket, onListening: () => resolve(gw) });
   });
 
   try {
@@ -111,16 +116,17 @@ async function main(): Promise<void> {
     assert(!JSON.stringify(card).includes(sovId.did), 'agent card must not leak the Sovereign DID');
     process.stdout.write(`✓ Agent Card advertises CGPR (${CGPR_EXTENSION_URI}) on A2A ${A2A_VERSION}\n`);
 
-    // 2. C sends a CGPR request (ticket + its own DID; NO subject).
+    // 2. C sends a CGPR request (ticket + its own DID; NO subject). The ticket is SIGNED by broker B.
     const ticketId = randomUUID();
+    const signedTicket = await signTicket(broker, bId.name, {
+      ticketId,
+      expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+      singleUse: true,
+      scopes: ['foodAndBeverage.dietaryRestrictions'],
+      purpose: 'Seat the guest with a suitable menu',
+    });
     const artifact = {
-      ticket: {
-        ticketId,
-        expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
-        singleUse: true,
-        scopes: ['foodAndBeverage.dietaryRestrictions'],
-        purpose: 'Seat the guest with a suitable menu',
-      },
+      ticket: signedTicket,
       requester: { did: cId.did, agentCardUrl: 'https://c.example/agent-card.json' },
       validForMinutes: 15,
     };
@@ -165,6 +171,22 @@ async function main(): Promise<void> {
     assert(scopes.includes('foodAndBeverage.dietaryRestrictions'), 'disclosed claim must carry the requested scope');
     process.stdout.write('✓ C verified the grant (challenge/response), scope disclosed, issuer = Warden\n');
     await warden.keymaster.setCurrentId('hearthold-warden');
+
+    // 5b. verifyTicket wired: a ticket NOT signed by a trusted broker (here C self-signs) is refused AT THE
+    // GATEWAY — not merely by the standalone verifier. Fresh ticketId so this isn't the single-use rejection.
+    const forgedTicket = await signTicket(c, cId.name, {
+      ticketId: randomUUID(),
+      expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+      singleUse: true,
+      scopes: ['foodAndBeverage.dietaryRestrictions'],
+      purpose: 'Seat the guest with a suitable menu',
+    });
+    const forgedRes = await rpc('message/send', {
+      message: { role: 'user', messageId: randomUUID(), parts: [{ kind: 'data', data: { ...artifact, ticket: forgedTicket } }] },
+    });
+    const forgedState = (forgedRes.result as { status?: { state?: string } })?.status?.state;
+    assert(forgedState === 'rejected' || forgedState === 'failed', `a ticket from an untrusted broker must be refused at the gateway, got ${forgedState}`);
+    process.stdout.write('✓ verifyTicket wired: untrusted-broker ticket refused at the gateway RPC\n');
 
     // 6. Reusing the same ticket is refused (single-use).
     const reuse = await rpc('message/send', {
