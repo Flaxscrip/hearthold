@@ -4,6 +4,25 @@ Hearthold is a reference implementation built on **open standards and small prim
 Where we adopt or adapt an external design, we credit it here *and* in the file header of the code that
 implements it. This ledger grows as we build.
 
+## Conceptual foundation — the Privacy Is Value Model
+
+Hearthold began as a single brief: **"implement the Privacy Is Value Model (PVM) on Archon."** The PVM
+(Mitchell / agentprivacy, <https://agentprivacy.ai/model>) is the conceptual spine, not a parallel we
+noticed after the fact — the architecture is a deliberate instantiation of its terms.
+
+| PVM concept | Author / body | How Hearthold instantiates it | Where |
+|---|---|---|---|
+| **The 7th Capital** — a person's behavioural data history as measurable capital, privacy as *value* rather than a policy promise | **Mitchell / agentprivacy** | The Warden custodies the full history on-device; disclosure emits verifiable evidence, never the data — value is realized without spending the capital. | `packages/warden`; `docs/evidence-graph.md` |
+| **Dual-agent custody separation** — separate the custodian of data from the agent that acts in the world | agentprivacy | Warden (custodian/enforcer) vs Emissary (world-facing companion under a scoped, revocable delegation); neither alone reconstructs the whole. | `packages/warden`, `packages/emissary`; `CLAUDE.md` |
+| **Multiplicatively-gated value** `V(π,t)` — any protective term at zero collapses the whole | agentprivacy | Deny-by-default release ladder: every disclosure crosses `decideRelease()`; a failed gate (revocation, expiry, missing consent) fails the whole disclosure closed, it doesn't degrade it. | `packages/core/src/security.ts`; `invocation-monitor.ts` |
+| **Three sovereignty axes** — Φ_agent, Φ_data, Φ_inference | agentprivacy | Φ_agent = each agent its own `did:cid`; Φ_data = on-device custody; Φ_inference = local classification, only derived facts leave. | `packages/core/src/identity.ts`; on-device classifier; `docs/security-model.md` |
+
+**Honest divergence (recorded, not glossed):** the PVM contemplates zero-knowledge proofs for reconstruction
+resistance; Hearthold ships **salted-Merkle selective disclosure** (`evidence.ts`) instead — verifiable and
+decomposable, but not ZK. The substrate is **Archon `did:cid`**, not the Zcash/Nillion stack the model
+references. These are implementation choices on the same value model, and are called out so the alignment
+reads as instantiation, not aspiration.
+
 ## Capability & invocation layer
 
 Design: `docs/invocation.md`. The shipped mechanism is `packages/core/src/capability.ts` +
@@ -55,6 +74,7 @@ What the invocation layer *adds* on top is the authorization it owns — none of
   authcrypt-authenticated envelope (`transport.ts`) — reading Keymaster's own authentication flag, not inferring it.
 
 ## Full citations
+- Mitchell / agentprivacy, *"Privacy Is Value Model"* (PVM): <https://agentprivacy.ai/model>
 - A. H. Karp, message to W3C public-credentials (Sep 2022):
   <https://lists.w3.org/Archives/Public/public-credentials/2022Sep/0056.html>
 - ZCAP-LD, W3C-CCG: <https://w3c-ccg.github.io/zcap-spec/>
