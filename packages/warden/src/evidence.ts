@@ -130,6 +130,7 @@ export class EvidenceService {
       expectedRootIssuer: this.config.sovereignDid ?? '',
       authorizationSchema,
       spent: new FileSpentTxnStore(this.warden.dataFolder),
+      requireStatus: this.config.requireRevocableCapabilities,
       ...(requireChallenge ? { requireChallenge } : {}),
     };
     const resolved = await resolveInvocation(inv, ctx);

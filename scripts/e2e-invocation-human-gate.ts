@@ -60,7 +60,7 @@ async function main(): Promise<void> {
   const authSchema = await ensureAuthorizationSchema(warden);
   // Ceiling SEALED, NO requiresDischarge caveat — the issuer attached no human gate at all.
   const scopeVc = await issueScopeCapability({
-    issuer: sovereign, issuerName: sovId.name, holder: emiId.did, schemaDid: authSchema,
+    issuer: sovereign, issuerName: sovId.name, holder: emiId.did, schemaDid: authSchema, config,
     scope: { invocationTarget: VAULT, authority: { operations: ['prove'], resources: [VAULT] }, caveats: { ceiling: Sensitivity.SEALED, owner: sovId.did } },
   });
   await acceptCredential(emissary, scopeVc);

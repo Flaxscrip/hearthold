@@ -109,6 +109,13 @@ export interface HearthholdConfig {
    */
   requiresHumanAt: Sensitivity;
   /**
+   * Revocation-by-default (audit-3 §4): when true (default), the Warden refuses a capability that carries no
+   * `credentialStatus` pointer — a capability that can never be revoked is denied rather than trusted forever.
+   * `issueScopeCapability` allocates a status by default so honest capabilities satisfy this. Env:
+   * `HEARTHOLD_REQUIRE_REVOCABLE` (`0`/`false` to allow non-revocable capabilities).
+   */
+  requireRevocableCapabilities: boolean;
+  /**
    * The interface the control-plane HTTP daemons (Warden `:4310`, Signet `:4311`) bind to. Defaults to
    * `127.0.0.1` (loopback only — the safe default; the control API is unauthenticated-at-transport). An
    * isolated-node deployment that fronts the daemon with its own bridge can set `HEARTHOLD_CONTROL_HOST=0.0.0.0`
@@ -230,6 +237,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): HearthholdConf
     })(),
     confirmAtOrBelow: parseSensitivity(env.HEARTHOLD_CONFIRM_AT_OR_BELOW, Sensitivity.SEALED),
     requiresHumanAt: parseSensitivity(env.HEARTHOLD_REQUIRES_HUMAN_AT, Sensitivity.MEDIUM),
+    requireRevocableCapabilities: env.HEARTHOLD_REQUIRE_REVOCABLE !== 'false' && env.HEARTHOLD_REQUIRE_REVOCABLE !== '0',
     controlHost: env.HEARTHOLD_CONTROL_HOST ?? '127.0.0.1',
     controlAllowOrigins: (env.HEARTHOLD_CONTROL_ALLOW_ORIGIN ?? '')
       .split(',')

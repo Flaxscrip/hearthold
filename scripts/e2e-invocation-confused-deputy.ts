@@ -57,7 +57,7 @@ async function main(): Promise<void> {
 
   // The Sovereign legitimately grants the Emissary a scope.
   const scopeVc = await issueScopeCapability({
-    issuer: sovereign, issuerName: sovId.name, holder: emiId.did, schemaDid: authSchema,
+    issuer: sovereign, issuerName: sovId.name, holder: emiId.did, schemaDid: authSchema, config,
     scope: { invocationTarget: VAULT, authority: { operations: ['prove'], resources: [VAULT] }, caveats: { ceiling: Sensitivity.MEDIUM, owner: sovId.did } },
   });
   await acceptCredential(emissary, scopeVc);

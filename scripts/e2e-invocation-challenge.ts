@@ -55,7 +55,7 @@ async function main(): Promise<void> {
   await warden.keymaster.setCurrentId(wardenId.name);
   const authSchema = await ensureAuthorizationSchema(warden);
   const scopeVc = await issueScopeCapability({
-    issuer: sovereign, issuerName: sovId.name, holder: emiId.did, schemaDid: authSchema,
+    issuer: sovereign, issuerName: sovId.name, holder: emiId.did, schemaDid: authSchema, config,
     scope: { invocationTarget: VAULT, authority: { operations: ['prove'], resources: [VAULT] }, caveats: { ceiling: Sensitivity.MEDIUM, owner: sovId.did } },
   });
   await acceptCredential(emissary, scopeVc);

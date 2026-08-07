@@ -51,6 +51,12 @@ export interface InvocationContext {
   requireChallenge?: (challenge: string) => boolean;
   /** Max-age for the StatusList cache (default: fresh resolve every invocation). */
   statusMaxAgeMs?: number;
+  /**
+   * Revocation-by-default (audit-3 §4): when true, a capability with NO `caveats.status` pointer is DENIED — a
+   * capability that can never be revoked is refused rather than silently trusted forever. The Warden sets this
+   * from `config.requireRevocableCapabilities` (default true).
+   */
+  requireStatus?: boolean;
 }
 
 /** The capability as VERIFIED from the presentation — the only thing the monitor enforces against. */
@@ -122,9 +128,12 @@ export async function resolveInvocation(
   const targetOk = leaf.authority.resources.some((r) => inv.act.target === r || targetWithin(inv.act.target, r));
   if (!targetOk) return { ok: false, reason: `target '${inv.act.target}' is outside the capability's resources` };
 
-  // Revocation — from the capability's own status pointer. Fail-closed.
+  // Revocation — from the capability's own status pointer. Fail-closed. A capability with NO status pointer is
+  // not revocable; under the revocation-by-default policy it is refused rather than trusted forever.
   const status = leaf.caveats.status;
-  if (status) {
+  if (!status) {
+    if (ctx.requireStatus) return { ok: false, reason: 'capability carries no revocation status pointer (not revocable)' };
+  } else {
     const resolver = new StatusListResolver(ctx.keymaster, {
       statusListCredential: status.statusListCredential,
       expectedIssuer: ctx.expectedRootIssuer,

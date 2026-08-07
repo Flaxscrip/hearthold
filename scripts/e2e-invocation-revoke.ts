@@ -78,6 +78,25 @@ async function main(): Promise<void> {
   const revoked = await evidence.handleInvocation(await invoke(), emiId.did);
   check('revoked capability → DENIED (live status re-check)', revoked.status === 'denied' && /revoked/.test(revoked.reason ?? ''), revoked.reason ?? '');
 
+  line('\n════ revocation-by-default: a non-revocable capability is refused ════');
+  // No `config` and no explicit `status` ⇒ the capability carries no status pointer, so it can never be
+  // revoked. The Warden's default policy (requireRevocableCapabilities) refuses it rather than trust it forever.
+  // Issued to a FRESH holder so its wallet presents only this one VC (a clean, unambiguous presentation).
+  const holder2 = await openKeymaster('verifier', config, pass);
+  const h2Id = await ensureIdentity(holder2, config);
+  const noStatusVc = await issueScopeCapability({
+    issuer: sovereign, issuerName: sovId.name, holder: h2Id.did, schemaDid: authSchema,
+    scope: { invocationTarget: VAULT, authority: { operations: ['prove'], resources: [VAULT] }, caveats: { ceiling: Sensitivity.MEDIUM, owner: sovId.did } },
+  });
+  await acceptCredential(holder2, noStatusVc);
+  const invoke2 = async (): Promise<CapabilityInvocation> => {
+    const challenge = await requestProof(warden, { schema: authSchema, trustedIssuers: [sovId.did] });
+    const presentation = await presentProof(holder2, challenge);
+    return { type: 'hearthold/invocation', version: PROTOCOL_VERSION, presentation, act: { action: 'prove', target: 'hearthold:vault:location', nonce: randomUUID(), txn: randomUUID(), args: { claim: 'resided in FR', spec: { kind: 'location' } } } };
+  };
+  const nonRevocable = await evidence.handleInvocation(await invoke2(), h2Id.did);
+  check('non-revocable capability (no status pointer) → DENIED', nonRevocable.status === 'denied' && /revocable|status pointer/.test(nonRevocable.reason ?? ''), nonRevocable.reason ?? '');
+
   line(`\n${failures === 0 ? '✅ ALL PASS' : `❌ ${failures} FAILURE(S)`}`);
   process.exit(failures === 0 ? 0 : 1);
 }
