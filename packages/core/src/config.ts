@@ -116,12 +116,13 @@ export interface HearthholdConfig {
    */
   requireRevocableCapabilities: boolean;
   /**
-   * The shared HearthholdAuthorization schema DID the ISSUER (Sovereign) mints scope capabilities against, so
-   * it matches what the VERIFIER (Warden) requests in its invocation challenge. Archon schema DIDs are NOT
-   * content-addressed across wallets, so in a multi-wallet deployment the Sovereign must be handed the Warden's
-   * schema DID (env `HEARTHOLD_AUTHORIZATION_SCHEMA_DID`). Unset ⇒ derive locally (single-wallet dev, where
-   * issuer and verifier are the same wallet). The verifier side always uses its own local schema, which is
-   * canonical.
+   * The canonical HearthholdAuthorization schema DID the ISSUER (Sovereign) mints scope capabilities against.
+   * A `did:cid` schema is registered ONCE — its registrant is the Controller — and is resolvable + reusable by
+   * any issuer within the same registry sphere (local / hyperswarm). So the model is *one canonical schema,
+   * many issuers*: the Warden registers it, and the Sovereign resolves and reuses that one DID for issuance (a
+   * verifier's challenge matches on the schema DID). This config distributes that canonical DID to the issuer
+   * (env `HEARTHOLD_AUTHORIZATION_SCHEMA_DID` = the Warden's registered schema); unset ⇒ the issuer registers
+   * its own, which is only valid when issuer and verifier share a wallet (single-wallet dev).
    */
   authorizationSchemaDid?: string;
   /**

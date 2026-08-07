@@ -32,9 +32,10 @@ Emissary acts autonomously), with an *automatic Signet step-up* for anything at 
   revocation-by-default check refuses at the next invocation. CLI (`sovereign capabilities` /
   `capability:revoke`), control routes (`GET /api/capabilities`, `POST /api/revoke-capability`, and
   `authorize-capability` now records), MCP verbs (`list_capabilities`, `revoke_capability`), and the Table
-  mirror contract in control-types. Also fixed a multi-wallet bug this exposed: authorization schema DIDs are
-  NOT content-addressed across wallets, so the issuer now mints against the verifier's schema DID
-  (`config.authorizationSchemaDid` / `HEARTHOLD_AUTHORIZATION_SCHEMA_DID`). (`e2e-permissions-center`: grant →
+  mirror contract in control-types. Also fixed a multi-wallet bug this exposed: a `did:cid` schema is registered
+  ONCE and resolved + reused sphere-wide (one canonical schema, many issuers) — the earlier code had each wallet
+  register its own, so the Sovereign issued against a schema DID the Warden's challenge didn't request. The
+  issuer now reuses the canonical schema DID (`config.authorizationSchemaDid` / `HEARTHOLD_AUTHORIZATION_SCHEMA_DID`). (`e2e-permissions-center`: grant →
   list → invoke → revoke → deny.)
 - **Phase 5 — onboarding + Emissary-as-delegator.** Baseline grant wired into device setup alongside
   `warden delegate`; multi-hop attenuation (the retained `attenuation.ts` / `capability-chain.ts` primitive) so

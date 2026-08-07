@@ -55,9 +55,10 @@ export async function ensureCapabilityStatusContext(
 }
 
 /**
- * Register (idempotent) the HearthholdAuthorization schema and return its DID. Schema DIDs are registered
- * locally and are NOT content-addressed across wallets, so a multi-wallet deployment shares the verifier's
- * (Warden's) schema DID via `config.authorizationSchemaDid` — the Sovereign issues against it.
+ * Register (idempotent) the HearthholdAuthorization schema and return its DID. A `did:cid` schema is registered
+ * ONCE (the registrant is its Controller) and is then resolvable + reusable by any issuer in the same registry
+ * sphere — so the canonical model is *one schema, many issuers*: one agent registers it here, and everyone else
+ * reuses that DID (`config.authorizationSchemaDid`) rather than registering a duplicate.
  */
 export async function ensureAuthorizationSchema(handle: KeymasterHandle): Promise<string> {
   return ensureSchema(handle, AUTHORIZATION_SCHEMA_NAME, openSchema(AUTHORIZATION_TYPE));
