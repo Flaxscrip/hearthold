@@ -20,7 +20,13 @@ Emissary acts autonomously), with an *automatic Signet step-up* for anything at 
   steps up to the Sovereign's Signet. Stricter than the internal `requiresHumanAt` by default; configurable both
   ways. Replaced the fixed STANDING release ladder in `CgprService`, the same move `requiresHumanAt` made on the
   invocation path. (`e2e-cgpr-threshold`)
-- **Phase 3 — per-actor MCP servers.** ◀ next. See below (added at flaxscrip's direction, 2026-08-07).
+- **Phase 3 — per-actor MCP servers.** ✅ (first slice). `@hearthold/agent-mcp` is now role-configured
+  (`--role warden|sovereign|emissary|verifier`, or `full` = the original agent-as-principal set): each role
+  exposes only its actor's verb set as a façade over the control-plane routes. Retired the stale
+  `hearthold_forge` (→ removed `/api/forge`) for `hearthold_invoke` (→ `/api/invoke`) — closing an audit-4
+  standing finding — and added `grant_capability`, `accept_capability`, `delegate`, and a keymaster-direct
+  `verify_card`. (`smoke-agent-mcp-roles`) Deferred: the Verifier's full challenge/response verify (needs a
+  DIDComm request/present, not just a resolve-and-check); the MCP still can't bypass the monitor or human gate.
 - **Phase 4 — permissions center.** Capability inventory + revoke at the Signet; read-only mirror in the Table.
 - **Phase 5 — onboarding + Emissary-as-delegator.** Baseline grant wired into device setup alongside
   `warden delegate`; multi-hop attenuation (the retained `attenuation.ts` / `capability-chain.ts` primitive) so

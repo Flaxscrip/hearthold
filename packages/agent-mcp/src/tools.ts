@@ -9,7 +9,7 @@
 
 import type { ArchonRuntime } from '@didcid/mcp-server';
 
-import type { HeartholdControlConfig } from './config.js';
+import type { HeartholdControlConfig, HeartholdRole } from './config.js';
 
 /** The bound keymaster, or a clear error (a passphrase is required to operate the agent key). */
 function boundKeymaster(runtime: ArchonRuntime): NonNullable<ArchonRuntime['keymaster']> {
@@ -175,19 +175,27 @@ export const HEARTHOLD_TOOLS: HeartholdTool[] = [
     handler: (ctx, a) => control(ctx, ctx.control.wardenUrl, 'Warden', 'POST', '/api/card/decline', { credentialDid: a.credentialDid }),
   },
   {
-    name: 'hearthold_forge',
-    description: 'Forge an attestation over my witnessed history — issuer-attested evidence, optionally recipient-sealed. Mirrors DataSource.forge. As an agent Sovereign this signs autonomously within my allowance; sensitive forges escalate to my parent.',
+    name: 'hearthold_invoke',
+    description:
+      'Prove a fact by presenting my scope capability (the invocation grant) — the Warden mints issuer-attested evidence. My Emissary daemon runs the ceremony with my wallet; a sensitive claim blocks while it steps up to my Signet. There is NO recipient argument: the audience of a proof is designated by the capability (a pairwise grant), never chosen here.',
     inputSchema: {
       type: 'object',
       properties: {
-        claim: { type: 'string' },
-        kind: { type: 'string' },
-        recipientDid: { type: 'string' },
+        claim: { type: 'string', description: 'the fact to prove' },
+        kind: { type: 'string', description: 'the witness kind backing it — must satisfy the capability’s caveats.kinds' },
+        target: { type: 'string', description: 'optional invocation target; default hearthold:vault:<kind>' },
+        reveal: { type: 'array', items: { type: 'number' }, description: 'optional selective-disclosure leaf indices' },
       },
       required: ['claim', 'kind'],
       additionalProperties: false,
     },
-    handler: (ctx, a) => control(ctx, ctx.control.wardenUrl, 'Warden', 'POST', '/api/forge', { claim: a.claim, kind: a.kind, recipientDid: a.recipientDid }),
+    handler: (ctx, a) => control(ctx, ctx.control.emissaryUrl, 'Emissary', 'POST', '/api/invoke', { claim: a.claim, kind: a.kind, target: a.target, reveal: a.reveal }),
+  },
+  {
+    name: 'hearthold_accept_capability',
+    description: 'Accept a Sovereign-granted scope capability into my Emissary’s wallet, so it can be presented on invoke. The credentialDid comes from a grant_capability call.',
+    inputSchema: { type: 'object', properties: { credentialDid: { type: 'string' } }, required: ['credentialDid'], additionalProperties: false },
+    handler: (ctx, a) => control(ctx, ctx.control.emissaryUrl, 'Emissary', 'POST', '/api/accept-capability', { credentialDid: a.credentialDid }),
   },
   {
     name: 'hearthold_triage',
@@ -226,4 +234,86 @@ export const HEARTHOLD_TOOLS: HeartholdTool[] = [
     },
     handler: (ctx, a) => control(ctx, ctx.control.signetUrl, 'Signet', 'POST', '/api/approve', { id: a.id, approve: a.approve, pin: a.pin }),
   },
+  {
+    name: 'hearthold_grant_capability',
+    description:
+      'Grant an Emissary a revocable scope capability to PROVE facts (the invocation grant). Signet-gated: the human (or, for an AI-agent Sovereign, the AgentGate) sees exactly what disclosure authority is granted. Separate from delegate (submit authority) by design.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        emissaryDid: { type: 'string' },
+        kinds: { type: 'array', items: { type: 'string' }, description: 'witness kinds the Emissary may prove (default: any)' },
+        ceiling: { type: 'string', description: 'max sensitivity — PUBLIC|LOW|MEDIUM|HIGH|SEALED (default LOW)' },
+        target: { type: 'string', description: 'invocation target (default hearthold:vault)' },
+        days: { type: 'number', description: 'days until expiry (default 90)' },
+      },
+      required: ['emissaryDid'],
+      additionalProperties: false,
+    },
+    handler: (ctx, a) => control(ctx, ctx.control.signetUrl, 'Signet', 'POST', '/api/authorize-capability', { emissaryDid: a.emissaryDid, kinds: a.kinds, ceiling: a.ceiling, target: a.target, days: a.days }),
+  },
+  {
+    name: 'hearthold_delegate',
+    description: 'Delegate SUBMIT authority to an Emissary (so it may contribute observations to my vault). Session-gated + co-signed at my Signet. Separate from grant_capability (prove authority).',
+    inputSchema: {
+      type: 'object',
+      properties: { emissaryDid: { type: 'string' }, kinds: { type: 'array', items: { type: 'string' }, description: 'witness kinds it may submit (default: the text set)' } },
+      required: ['emissaryDid'],
+      additionalProperties: false,
+    },
+    handler: (ctx, a) => control(ctx, ctx.control.wardenUrl, 'Warden', 'POST', '/api/delegate', { emissaryDid: a.emissaryDid, kinds: a.kinds }),
+  },
+  {
+    name: 'hearthold_verify_card',
+    description:
+      'Verify a credential I was handed (e.g. a Warden-minted evidence graph): check the issuer’s signature and, if given, that the issuer is the one I trust. Trust rests on the ISSUER’s signature, never a presenter’s word. Composes the Archon keymaster; does not reimplement it.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        credentialDid: { type: 'string' },
+        trustedIssuer: { type: 'string', description: 'optional — the issuer DID I trust (e.g. the Warden). If given, verification also requires the credential was issued by it.' },
+      },
+      required: ['credentialDid'],
+      additionalProperties: false,
+    },
+    async handler(ctx, a) {
+      const did = String(a.credentialDid ?? '');
+      if (!did.startsWith('did:')) throw new Error('verify_card needs a did: credential identifier');
+      const km = boundKeymaster(ctx.runtime);
+      const vc = (await km.getCredential(did).catch(() => null)) as Record<string, any> | null;
+      if (!vc || typeof vc !== 'object') return { verified: false, reason: 'not resolvable as a credential' };
+      const signatureOk = await (km.verifyProof as (o: unknown) => Promise<boolean>)(vc).catch(() => false);
+      const issuer = String(vc.issuer ?? '');
+      const trustedIssuer = a.trustedIssuer ? String(a.trustedIssuer) : undefined;
+      const issuerTrusted = !trustedIssuer || issuer === trustedIssuer;
+      return {
+        verified: signatureOk && issuerTrusted,
+        signatureOk,
+        issuer,
+        ...(trustedIssuer ? { trustedIssuer, issuerTrusted } : {}),
+        claims: vc.credentialSubject ?? undefined,
+      };
+    },
+  },
 ];
+
+/**
+ * Which verbs each actor role exposes — the per-actor tool sets (Phase 3). Every tool is a façade over the same
+ * control-plane routes / keymaster, so the MCP is never a bypass of the reference monitor or the human gate: an
+ * Emissary `invoke` still steps up to the Signet for a sensitive claim, and a Sovereign `decide`/approve is
+ * meaningful only for an AI-agent Sovereign (AgentGate) — a human Sovereign's approval stays at the Signet.
+ * `whoami`/`read_card` are the shared identity verbs. `full` is the original agent-as-principal set.
+ */
+const PROFILES: Record<Exclude<HeartholdRole, 'full'>, string[]> = {
+  warden: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_recall', 'hearthold_list_inbound', 'hearthold_triage', 'hearthold_confirm_triage', 'hearthold_delegate', 'hearthold_pass_card', 'hearthold_accept_card', 'hearthold_decline_card'],
+  sovereign: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_grant_capability', 'hearthold_pending_approvals', 'hearthold_decide'],
+  emissary: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_contribute', 'hearthold_invoke', 'hearthold_accept_capability'],
+  verifier: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_verify_card'],
+};
+
+/** The tool set for a role — `full` gets everything; a focused role gets only its actor's verbs. */
+export function toolsForRole(role: HeartholdRole): HeartholdTool[] {
+  if (role === 'full') return HEARTHOLD_TOOLS;
+  const names = new Set(PROFILES[role]);
+  return HEARTHOLD_TOOLS.filter((t) => names.has(t.name));
+}

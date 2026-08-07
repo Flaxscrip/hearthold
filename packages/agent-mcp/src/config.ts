@@ -27,10 +27,30 @@ export interface HeartholdControlConfig {
   token?: string;
 }
 
+/**
+ * Which actor this MCP instance drives. Each role binds an actor's wallet and exposes only that actor's verb
+ * set — the agent-facing realization of the per-actor model. `full` (the default, back-compat) is the original
+ * agent-as-principal set (all facets of one agent's stack). See `TOOL_PROFILES` in tools.ts.
+ */
+export type HeartholdRole = 'warden' | 'sovereign' | 'emissary' | 'verifier' | 'full';
+
+const ROLES: readonly HeartholdRole[] = ['warden', 'sovereign', 'emissary', 'verifier', 'full'];
+
 export interface AgentMcpConfig {
   /** The Archon MCP's own binding config — passed straight into `createArchonRuntime`. */
   archon: McpServerConfig;
   control: HeartholdControlConfig;
+  /** The actor role this instance exposes (HEARTHOLD_MCP_ROLE / `--role`; default `full`). */
+  role: HeartholdRole;
+}
+
+/** Read the role from `--role <r>` or HEARTHOLD_MCP_ROLE; default `full`. Rejects an unknown role. */
+function readRole(env: NodeJS.ProcessEnv, argv: string[]): HeartholdRole {
+  const i = argv.indexOf('--role');
+  const raw = (i >= 0 ? argv[i + 1] : env.HEARTHOLD_MCP_ROLE) ?? 'full';
+  const role = raw.toLowerCase() as HeartholdRole;
+  if (!ROLES.includes(role)) throw new Error(`unknown --role '${raw}' — one of ${ROLES.join(' | ')}`);
+  return role;
 }
 
 const pick = (env: NodeJS.ProcessEnv, ...keys: string[]): string | undefined => {
@@ -38,7 +58,7 @@ const pick = (env: NodeJS.ProcessEnv, ...keys: string[]): string | undefined => 
   return undefined;
 };
 
-export function loadAgentMcpConfig(env: NodeJS.ProcessEnv = process.env): AgentMcpConfig {
+export function loadAgentMcpConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] = process.argv): AgentMcpConfig {
   const nodeUrl = pick(env, 'HEARTHOLD_GATEKEEPER_URL', 'ARCHON_NODE_URL', 'ARCHON_GATEKEEPER_URL');
   const walletPath = pick(env, 'HEARTHOLD_WALLET_PATH', 'ARCHON_WALLET_PATH');
   const passphrase = pick(env, 'HEARTHOLD_PASSPHRASE', 'ARCHON_PASSPHRASE');
@@ -58,5 +78,6 @@ export function loadAgentMcpConfig(env: NodeJS.ProcessEnv = process.env): AgentM
       emissaryUrl: pick(env, 'HEARTHOLD_EMISSARY_CONTROL_URL'),
       token: pick(env, 'HEARTHOLD_CONTROL_TOKEN'),
     },
+    role: readRole(env, argv),
   };
 }
