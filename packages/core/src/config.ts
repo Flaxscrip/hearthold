@@ -116,6 +116,14 @@ export interface HearthholdConfig {
    */
   requireRevocableCapabilities: boolean;
   /**
+   * CGPR autonomy threshold (Phase 2): an external Consent-Gated Preference request whose disclosure is at or
+   * below this sensitivity clears **autonomously** (no per-request Signet consent); above it, the gateway steps
+   * up to the Sovereign's Signet. Default **LOW**, deliberately STRICTER than the internal `requiresHumanAt` —
+   * an external AI requester warrants more caution than the Sovereign's own Emissary. Env:
+   * `HEARTHOLD_CGPR_AUTONOMOUS_AT` (a label PUBLIC|LOW|MEDIUM|HIGH|SEALED or a number 0–4).
+   */
+  cgprAutonomousAtOrBelow: Sensitivity;
+  /**
    * The interface the control-plane HTTP daemons (Warden `:4310`, Signet `:4311`) bind to. Defaults to
    * `127.0.0.1` (loopback only — the safe default; the control API is unauthenticated-at-transport). An
    * isolated-node deployment that fronts the daemon with its own bridge can set `HEARTHOLD_CONTROL_HOST=0.0.0.0`
@@ -238,6 +246,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): HearthholdConf
     confirmAtOrBelow: parseSensitivity(env.HEARTHOLD_CONFIRM_AT_OR_BELOW, Sensitivity.SEALED),
     requiresHumanAt: parseSensitivity(env.HEARTHOLD_REQUIRES_HUMAN_AT, Sensitivity.MEDIUM),
     requireRevocableCapabilities: env.HEARTHOLD_REQUIRE_REVOCABLE !== 'false' && env.HEARTHOLD_REQUIRE_REVOCABLE !== '0',
+    cgprAutonomousAtOrBelow: parseSensitivity(env.HEARTHOLD_CGPR_AUTONOMOUS_AT, Sensitivity.LOW),
     controlHost: env.HEARTHOLD_CONTROL_HOST ?? '127.0.0.1',
     controlAllowOrigins: (env.HEARTHOLD_CONTROL_ALLOW_ORIGIN ?? '')
       .split(',')

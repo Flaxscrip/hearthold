@@ -15,10 +15,12 @@ Emissary acts autonomously), with an *automatic Signet step-up* for anything at 
 - **Phase 1.5 — keyless invoke-shim.** ✅ Emissary `POST /api/invoke` + `/api/accept-capability`, Sovereign
   `POST /api/authorize-capability` (Signet-gated grant); the `Invoke*`/`Authorize*` contract published in
   `@hearthold/control-types`. Unblocks Sevenfold's keyless Table. (`e2e-invoke-shim`)
-- **Phase 2 — CGPR threshold.** ◀ next. CGPR becomes an *invocation at the edge*: the A2A gateway / CgprService
-  invokes the standing CGPR capability; autonomous when the disclosure is ≤ `cgprAutonomousAtOrBelow` (new
-  config, default **LOW**, deliberately stricter than the internal `requiresHumanAt`), Signet step-up above.
-- **Phase 3 — per-actor MCP servers.** See below (added at flaxscrip's direction, 2026-08-07, sequenced after Phase 2).
+- **Phase 2 — CGPR threshold.** ✅ CGPR autonomy is now a single configurable knob, `cgprAutonomousAtOrBelow`
+  (env `HEARTHOLD_CGPR_AUTONOMOUS_AT`, default **LOW**): a disclosure ≤ the threshold clears autonomously, above it
+  steps up to the Sovereign's Signet. Stricter than the internal `requiresHumanAt` by default; configurable both
+  ways. Replaced the fixed STANDING release ladder in `CgprService`, the same move `requiresHumanAt` made on the
+  invocation path. (`e2e-cgpr-threshold`)
+- **Phase 3 — per-actor MCP servers.** ◀ next. See below (added at flaxscrip's direction, 2026-08-07).
 - **Phase 4 — permissions center.** Capability inventory + revoke at the Signet; read-only mirror in the Table.
 - **Phase 5 — onboarding + Emissary-as-delegator.** Baseline grant wired into device setup alongside
   `warden delegate`; multi-hop attenuation (the retained `attenuation.ts` / `capability-chain.ts` primitive) so

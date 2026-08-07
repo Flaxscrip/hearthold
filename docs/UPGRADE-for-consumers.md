@@ -162,6 +162,11 @@ A2A / CGPR
    consent, grants minted to a fresh pairwise DID, the Warden authors the consent text. A2A stays
    at the edge; nothing Archon-specific leaks into the A2A envelope.
 
+CGPR AUTONOMY THRESHOLD (new)
+0. CGPR autonomy is now a configurable knob: HEARTHOLD_CGPR_AUTONOMOUS_AT (label or 0-4; default LOW).
+   A disclosure at or below it clears autonomously; above it steps up to the Sovereign's Signet. Default LOW
+   is stricter than the internal requiresHumanAt on purpose (external AI requester). Set per your risk posture.
+
 CAPABILITIES
 3. Revocation by default: if HATPro mints scope capabilities via issueScopeCapability, pass
    `config` so a revocation status is allocated — otherwise the capability is non-revocable and
