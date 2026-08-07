@@ -92,6 +92,9 @@ export class DelegationStore {
     );
     if (!proof.ok || !proof.responder) return { ok: false, reason: proof.reason ?? 'delegation presentation not verified' };
     if (proof.responder !== expectedHolder) return { ok: false, reason: 'presenter is not the delegate (holder mismatch)' };
+    // Bind the caller to the credential subject — possession of the delegation VC is not authority.
+    const subject = proof.disclosed[0]?.subject;
+    if (!subject || subject !== proof.responder) return { ok: false, reason: 'presenter does not control the delegation subject' };
     const claims = (proof.disclosed[0]?.claims ?? {}) as { kinds?: WitnessKind[]; member?: string };
     return { ok: true, kinds: claims.kinds ?? LEGACY_DELEGATION_KINDS, member: claims.member };
   }

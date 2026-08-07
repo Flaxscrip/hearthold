@@ -68,6 +68,7 @@ export async function resolveInvocation(
   ctx: InvocationContext,
 ): Promise<{ ok: true; leaf: VerifiedLeaf } | { ok: false; reason: string }> {
   if (!inv.presentation) return { ok: false, reason: 'invocation carries no capability presentation' };
+  if (!ctx.expectedRootIssuer) return { ok: false, reason: 'no trusted root issuer configured (Sovereign DID unset)' };
 
   // The Archon credential-request ceremony: the presentation must satisfy the challenge (schema = the
   // authorization schema) AND be issued by the trusted Sovereign. `verifyProof` returns the disclosed scope,
@@ -85,6 +86,9 @@ export async function resolveInvocation(
   if (!claims.authority || !Array.isArray(claims.authority.operations) || !claims.caveats) {
     return { ok: false, reason: 'authorization credential is missing authority/caveats' };
   }
+  // Bind the caller to the credential SUBJECT the Sovereign signed — possession of the VC plaintext (a copied
+  // wallet, a shared data root) is NOT authority. The subject must be the party that produced the response.
+  if (!authCred.subject || authCred.subject !== proof.responder) return { ok: false, reason: 'presenter does not control the credential subject' };
   const holder = proof.responder;
   if (ctx.fromDid && ctx.fromDid !== holder) return { ok: false, reason: 'transport sender is not the capability holder' };
 
@@ -118,6 +122,13 @@ export async function resolveInvocation(
 export async function authorizeInvocation(inv: CapabilityInvocation, ctx: InvocationContext, leaf: VerifiedLeaf): Promise<InvocationDecision> {
   if (await ctx.spent.isSpent(inv.act.txn)) return deny('invocation txn already spent (replay)');
 
+  // Capability lifetime enforced at USE, not just narrowed at issuance: expiry + single-use burn of the cap.
+  if (leaf.caveats.expires) {
+    const exp = Date.parse(leaf.caveats.expires);
+    if (Number.isNaN(exp) || exp <= Date.now()) return deny('capability has expired');
+  }
+  if (leaf.caveats.singleUse && (await ctx.spent.isSpent(`cap:${leaf.id}`))) return deny('single-use capability already spent');
+
   if (ctx.sensitivity !== undefined && ctx.sensitivity > leaf.caveats.ceiling) {
     return deny(`sensitivity ${ctx.sensitivity} exceeds the capability ceiling ${leaf.caveats.ceiling}`);
   }
@@ -129,6 +140,7 @@ export async function authorizeInvocation(inv: CapabilityInvocation, ctx: Invoca
   if (unmet.length > 0) return { allow: false, reason: 'discharge required', needsDischarge: unmet, owner: leaf.caveats.owner, ceiling: leaf.caveats.ceiling };
 
   await ctx.spent.markSpent(inv.act.txn);
+  if (leaf.caveats.singleUse) await ctx.spent.markSpent(`cap:${leaf.id}`);
   return { allow: true, reason: 'invocation authorized', owner: leaf.caveats.owner, audience: leaf.caveats.audience, ceiling: leaf.caveats.ceiling };
 }
 

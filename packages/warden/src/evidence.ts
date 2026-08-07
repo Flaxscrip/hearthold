@@ -105,11 +105,15 @@ export class EvidenceService {
     const leaf = resolved.leaf;
     const owner = leaf.caveats.owner ?? this.config.sovereignDid;
     if (!owner) return deny('capability names no owner scope');
+    // Kind compartment: the requested kind must be granted by the capability's caveats. Leak-safe message.
+    if (leaf.caveats.kinds && !leaf.caveats.kinds.includes(spec.kind)) return deny('not authorized to disclose the requested claim');
 
     // OWNER-SCOPED assembly — only the VERIFIED owner's artefacts (closes the whole-vault store.list() leak).
     const scoped = (await this.store.list()).filter((a) => (a.owner ?? this.config.sovereignDid) === owner);
     const assembled = assembleEvidence(scoped.map(toMeta), spec);
-    if (!assembled) return deny(`no supporting ${spec.kind} artefacts (owned by the capability's subject) back that claim`);
+    // Leak-safe: identical to the ceiling denial below, so a below-clearance holder can't tell "no such
+    // artefact" from "exists but above your ceiling".
+    if (!assembled) return deny('not authorized to disclose the requested claim');
     if (args.reveal && args.reveal.length > 0) {
       assembled.group.revealed = revealLeaves(assembled, args.reveal);
       assembled.group.disclosure = 'selective';
@@ -139,7 +143,12 @@ export class EvidenceService {
       }
       decision = await authorizeInvocation({ ...inv, discharges }, { ...ctx, sensitivity }, leaf);
     }
-    if (!decision.allow) return deny(`invocation refused: ${decision.reason}`);
+    if (!decision.allow) {
+      // A ceiling/sensitivity denial reveals that artefacts exist above the holder's clearance — return the
+      // same message as "no artefacts" so the two are indistinguishable. Structural denials stay specific.
+      if (/ceiling|sensitivity/.test(decision.reason)) return deny('not authorized to disclose the requested claim');
+      return deny(`invocation refused: ${decision.reason}`);
+    }
 
     // Bind the scroll to the capability's audience (forge-for-a-recipient), else to the VERIFIED holder —
     // NEVER a requester-chosen recipient (the other half of finding A).

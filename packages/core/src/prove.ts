@@ -33,6 +33,12 @@ export interface ProofRequest {
 export interface DisclosedCredential {
   credentialDid: string;
   issuer: string;
+  /**
+   * The credential SUBJECT DID (`credentialSubject.id`) — the party the issuer granted this to. A caller that
+   * authorizes by holder MUST assert `subject === responder`, else possession of the VC plaintext (a copied
+   * wallet, a shared data root) is authority. Empty if the VC carried no subject id.
+   */
+  subject: string;
   /** `issued` (external issuer), `witnessed` (Warden-derived), or `composite` (both). */
   trustClass: 'issued' | 'witnessed' | 'composite';
   claims: Record<string, unknown>;
@@ -112,11 +118,13 @@ export async function verifyProof(
   }>;
   const disclosed: DisclosedCredential[] = vps.map((vp, i) => {
     const claims = { ...(vp.credentialSubject ?? {}) };
+    const subject = String((claims as { id?: unknown }).id ?? ''); // the DID the issuer granted this to
     delete (claims as { id?: unknown }).id;
     const tc = (claims as { trustClass?: string }).trustClass;
     return {
       credentialDid: creds[i]?.vc ?? '',
       issuer: String(vp.issuer ?? ''),
+      subject,
       trustClass: tc === 'witnessed' || tc === 'composite' ? tc : 'issued',
       claims,
     };

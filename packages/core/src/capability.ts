@@ -63,6 +63,11 @@ export interface Caveats {
   /** Max artefact sensitivity this capability may disclose (≤ parent). Numeric, per `Sensitivity`. */
   ceiling: Sensitivity;
   /**
+   * Witness kinds this capability may disclose (the compartment, e.g. `['location']`). Enforced at
+   * invocation against the requested `spec.kind`. Absent ⇒ any kind (use with care — prefer explicit kinds).
+   */
+  kinds?: string[];
+  /**
    * WHOSE data this authority is over — the owner scoping the Warden enforces at invocation. Designated by
    * the capability, never by a request field (closes the whole-vault `store.list()` leak and finding A).
    */
@@ -218,6 +223,7 @@ export function capabilityNarrows(child: HearthholdCapability, parent: Hearthhol
  */
 export function normalizeCaveats(c: Caveats): Record<string, unknown> {
   const out: Record<string, unknown> = { ceiling: c.ceiling };
+  if (c.kinds && c.kinds.length > 0) out.kinds = [...c.kinds].sort();
   if (c.owner !== undefined) out.owner = c.owner;
   if (c.audience !== undefined) out.audience = c.audience;
   if (c.expires !== undefined) out.expires = c.expires;

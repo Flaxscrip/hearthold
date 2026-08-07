@@ -89,6 +89,12 @@ async function main(): Promise<void> {
   const a3 = await evidence.handleInvocation({ type: 'hearthold/invocation', version: PROTOCOL_VERSION, presentation: emiPresentation, act: act() } as CapabilityInvocation, atkId.did);
   mustDeny('captured legit presentation replayed by a non-holder', a3.status, a3.reason);
 
+  // A4 — the attacker COPIES the Emissary's scope VC (shared wallet / HEARTHOLD_DATA_ROOT) and presents it
+  // under its OWN DID. Possession of the VC plaintext must not be authority: subject ≠ responder.
+  await acceptCredential(attacker, scopeVc).catch(() => undefined);
+  const a4 = await evidence.handleInvocation({ type: 'hearthold/invocation', version: PROTOCOL_VERSION, presentation: await present(attacker), act: act() } as CapabilityInvocation, atkId.did);
+  mustDeny("copied scope VC presented under the attacker's own DID (possession ≠ authority)", a4.status, a4.reason);
+
   line(`\n${failures === 0 ? '✅ ALL ATTACKS REFUSED' : `❌ ${failures} ATTACK(S) SUCCEEDED — vulnerability live`}`);
   process.exit(failures === 0 ? 0 : 1);
 }
