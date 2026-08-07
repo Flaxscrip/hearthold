@@ -9,25 +9,16 @@
  * Sovereign channel wired, a sensitive claim is denied.
  */
 
-import { randomUUID } from 'node:crypto';
-
 import {
   assembleEvidence,
   revealLeaves,
   mintEvidenceGraph,
-  verifyEvidenceApproval,
-  requiredLevelFor,
-  decideRelease,
   resolveInvocation,
   authorizeInvocation,
   ensureAuthorizationSchema,
   FileSpentTxnStore,
-  IssuedStore,
-  AuthzTier,
   PROTOCOL_VERSION,
   type ArtefactMeta,
-  type IssuedLeafRef,
-  type EvidenceRequest,
   type EvidenceClaimSpec,
   type CapabilityInvocation,
   type Discharge,
@@ -74,8 +65,6 @@ export class EvidenceService {
   constructor(
     private readonly warden: KeymasterHandle,
     private readonly config: HearthholdConfig,
-    /** Direct channel to the Sovereign for a step-up. When absent, sensitive claims are denied. */
-    private readonly approver?: SovereignApprover,
     /** Channel to a designated Signet for a consent discharge (the capability step-up). When absent, a
      *  capability that requires a discharge is denied. */
     private readonly dischargeRequester?: DischargeRequester,
@@ -83,152 +72,10 @@ export class EvidenceService {
     this.store = new VaultStore(warden.dataFolder);
   }
 
-  async handle(
-    req: EvidenceRequest,
-    fromDid: string,
-    delegationValid: boolean,
-  ): Promise<EvidenceResponse> {
-    const deny = (reason: string): EvidenceResponse => ({
-      type: 'hearthold/evidence-response',
-      version: PROTOCOL_VERSION,
-      status: 'denied',
-      reason,
-    });
-
-    if (!req.spec) return deny('evidence request needs a claim spec (kind + optional window)');
-    if (!delegationValid) return deny('no valid delegation for this requester');
-
-    const metas = (await this.store.list()).map(toMeta);
-    const assembled = assembleEvidence(metas, req.spec);
-    if (!assembled) return deny(`no supporting ${req.spec.kind} artefacts back that claim`);
-
-    // A3 selective disclosure: reveal the requested observations against the signed Merkle root.
-    if (req.reveal && req.reveal.length > 0) {
-      assembled.group.revealed = revealLeaves(assembled, req.reveal);
-      assembled.group.disclosure = 'selective';
-    }
-
-    const sensitivity = assembled.sensitivity as Sensitivity;
-    // The APPROVER (forger) co-signs the disclosure at their own Signet and is the approval's expected signer.
-    const subjectDid = req.subjectDid ?? this.config.sovereignDid ?? fromDid;
-    // The credential-BINDING subject: bind to the recipient (forge-for-a-recipient) so THEY can read the
-    // scroll, else to the approver (forge for self). The approval below is always by `subjectDid` (the forger).
-    const bindSubject = req.recipientDid ?? subjectDid;
-    const evidenceRoot = assembled.group.commitment.merkleRoot;
-    // Ephemeral proof: expires after the requested window (Archon's validUntil), default 10 min.
-    const ttlMin = req.validForMinutes && req.validForMinutes > 0 ? req.validForMinutes : 10;
-    const validUntil = new Date(Date.now() + ttlMin * 60_000).toISOString();
-
-    // Compose third-party `issued` leaves the requester named — the strongest evidence class.
-    const issuedLeaves: IssuedLeafRef[] = [];
-    if (req.with && req.with.length > 0) {
-      const store = new IssuedStore(this.warden.dataFolder);
-      for (const did of req.with) {
-        const leaf = await store.get(did);
-        if (!leaf) return deny(`issued credential not in the vault: ${did.slice(0, 24)}…`);
-        if (leaf.status === 'revoked') return deny(`issued credential is revoked: ${did.slice(0, 24)}…`);
-        issuedLeaves.push({
-          id: `urn:hearthold:issued:${did.slice(-8)}`,
-          type: ['HearthholdIssuedLeaf'],
-          trustClass: 'issued',
-          credentialDid: did,
-          issuer: leaf.issuer,
-          schema: leaf.schema,
-          credentialType: leaf.credentialType,
-          descriptionSource: 'issuer-asserted',
-        });
-      }
-    }
-
-    const mint = (approval?: Parameters<typeof mintEvidenceGraph>[1]['approval']) =>
-      mintEvidenceGraph(this.warden, {
-        subjectDid: bindSubject, // bind to the recipient (forge-for) or the forger (self); NOT the approver role
-        claim: req.claim,
-        structured: req.spec?.structured,
-        evidence: [assembled.group],
-        issuedLeaves,
-        txn: approval?.txn ?? randomUUID(),
-        validUntil,
-        approval,
-      });
-    const granted = async (
-      approval?: Parameters<typeof mintEvidenceGraph>[1]['approval'],
-    ): Promise<EvidenceResponse> => {
-      const { credentialDid, schemaDid } = await mint(approval);
-      const g = assembled.group;
-      return {
-        type: 'hearthold/evidence-response',
-        version: PROTOCOL_VERSION,
-        status: 'granted',
-        credentialDid,
-        schemaDid,
-        graph: {
-          claim: req.claim,
-          structured: req.spec?.structured,
-          evidence: [
-            {
-              kind: g.kind,
-              observedFrom: g.observedFrom,
-              observedTo: g.observedTo,
-              count: g.count,
-              witnessedBy: g.witnessedBy,
-              merkleRoot: g.commitment.merkleRoot,
-            },
-          ],
-          approved: Boolean(approval),
-          validUntil,
-          trustClass: issuedLeaves.length > 0 ? 'composite' : 'witnessed',
-          issued: issuedLeaves.map((l) => ({ issuer: l.issuer, credentialType: l.credentialType, schema: l.schema })),
-        },
-      };
-    };
-
-    // STANDING clears up to LOW → mint directly (A1).
-    const standingClears = decideRelease({
-      sensitivity,
-      tier: AuthzTier.STANDING,
-      delegationValid,
-      mode: req.disclosureMode,
-      disclosureSatisfiable: true,
-    }).allow;
-    if (standingClears) return granted();
-
-    // Sensitive (MEDIUM/HIGH/SEALED): the disclosure needs the Sovereign's proof-of-human approval.
-    const requiredLevel = requiredLevelFor(sensitivity);
-
-    // Primary path: the WARDEN obtains the approval directly from the Sovereign (Emissary not involved).
-    if (this.approver) {
-      const txn = randomUUID();
-      const ares = await this.approver.requestApproval({
-        type: 'hearthold/approval-request',
-        version: PROTOCOL_VERSION,
-        txn,
-        claim: req.claim,
-        evidenceRoot,
-        requiredLevel,
-        reason: `Disclose “${req.claim}” — backed by ${assembled.group.count} witnessed ${req.spec.kind} observation(s)`,
-        subjectDid,
-      });
-      if (!ares.approved) return deny(`disclosure declined by the Sovereign: ${ares.reason}`);
-      const check = await verifyEvidenceApproval(this.warden, ares.approval, {
-        approver: subjectDid,
-        claim: req.claim,
-        evidenceRoot,
-        requiredLevel,
-      });
-      if (!check.ok) return deny(`approval verification failed: ${check.reason}`);
-      return granted(ares.approval);
-    }
-
-    // No direct channel to the Sovereign wired → this sensitive disclosure can't be co-signed here.
-    return deny('sensitive claim needs a Sovereign approval channel — set HEARTHOLD_SOVEREIGN_DID on the Warden');
-  }
-
   /**
-   * Phase 2 capability path: authorize a disclosure by a presented CAPABILITY, verified at the point of use,
-   * instead of the requester-supplied `subjectDid` + a delegation boolean. The owner scope AND the recipient
-   * come from the capability — never from the request — which closes the confused-deputy step-up (finding A)
-   * and the whole-vault `store.list()` leak. The legacy `handle()` path above is untouched (back-compat).
+   * Authorize a disclosure by a presented CAPABILITY, verified at the point of use. The owner scope AND the
+   * recipient come from the capability — never from the request — which closes the confused-deputy step-up
+   * (finding A) and the whole-vault `store.list()` leak. This is the ONLY evidence-disclosure path.
    */
   async handleInvocation(inv: CapabilityInvocation, fromDid: string): Promise<EvidenceResponse> {
     const deny = (reason: string): EvidenceResponse => ({

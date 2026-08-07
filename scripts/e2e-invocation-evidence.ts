@@ -21,7 +21,6 @@ import {
   PROTOCOL_VERSION,
   Sensitivity,
   type CapabilityInvocation,
-  type EvidenceRequest,
 } from '@hearthold/core';
 import { VaultStore } from '@hearthold/warden/store';
 import { EvidenceService } from '@hearthold/warden/evidence';
@@ -83,12 +82,6 @@ async function main(): Promise<void> {
 
   const wrongHolder = await evidence.handleInvocation(await invocation(randomUUID()), otherId.did);
   check('a NON-HOLDER caller is DENIED (holder binding, not a request field)', wrongHolder.status === 'denied' && /holder/.test(wrongHolder.reason ?? ''), wrongHolder.reason ?? '');
-
-  line('\n════ the legacy path is untouched (back-compat) ════');
-  const legacyReq: EvidenceRequest = { type: 'hearthold/evidence-request', version: PROTOCOL_VERSION, claim: 'resided in FR', disclosureMode: 'ATTESTATION', spec: { kind: 'location' } };
-  const legacy = await evidence.handle(legacyReq, emiId.did, true);
-  check('legacy handle() still GRANTS at STANDING', legacy.status === 'granted', legacy.reason ?? '');
-  check('legacy handle() is UNSCOPED (whole vault, count = 2) — the behavior kept behind the capability check', legacy.graph?.evidence?.[0]?.count === 2, `count=${legacy.graph?.evidence?.[0]?.count}`);
 
   line(`\n${failures === 0 ? '✅ ALL PASS' : `❌ ${failures} FAILURE(S)`}`);
   process.exit(failures === 0 ? 0 : 1);

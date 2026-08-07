@@ -44,7 +44,6 @@ import {
   type SubmissionReceipt,
   type WitnessSubmission,
   type WitnessKind,
-  type EvidenceRequest,
   type Ruleset,
   type SignedRuleset,
 } from '@hearthold/core';
@@ -69,9 +68,6 @@ import {
   type TriageConfirmRequest,
   type MarkCandidate,
   type MarkClaimRequest,
-  type ProveRequest,
-  type ProofRecord,
-  type PresentRequest,
   type KbView,
   type KbGrantRequest,
   type KbPolicyRequest,
@@ -82,7 +78,7 @@ import { createVisionCaptioner } from './vision.js';
 import { WardenService } from './service.js';
 import { VaultStore, type Artefact } from './store.js';
 import { DelegationStore } from './delegations.js';
-import { EvidenceService, type SovereignApprover } from './evidence.js';
+import { EvidenceService } from './evidence.js';
 import { OllamaEmbedder, RecallService } from './recall.js';
 import { makeDidcommActionApprover, makeDidcommRulesetSigner, makeDidcommMemberAcker } from './kb.js';
 import { routeCoSign } from './escalate.js';
@@ -220,31 +216,7 @@ export async function runWardenControl(
   const transport = new DidCommTransport(handle, IDENTITY_NAME.warden, config.nodeUrl);
   await transport.ready();
 
-  // Direct Warden↔Signet approval channel for a sensitive disclosure (a forge of MEDIUM+ data). Routes
-  // to the SUBJECT MEMBER's own Signet — `req.subjectDid` (Fable amendment 2 / rewrap-spec §4.2: one
-  // household ≠ one Signet), falling back to the configured Sovereign for the single-Sovereign case. The
-  // step-up timeout is configurable per assurance level (Fable: the hard 180s lapses for a live human tap).
-  const approver: SovereignApprover = {
-    async requestApproval(req) {
-      const target = req.subjectDid ?? config.sovereignDid;
-      if (!target) {
-        return { type: 'hearthold/approval-response', version: PROTOCOL_VERSION, approved: false, reason: 'no approver configured for this disclosure' };
-      }
-      const timeoutMs = config.stepUpTimeoutMs[req.requiredLevel >= 2 ? 'factor2' : 'factor1'];
-      try {
-        const reply = await transport.request(target, req, { timeoutMs });
-        if (reply.type === 'hearthold/approval-response') return reply;
-        return { type: 'hearthold/approval-response', version: PROTOCOL_VERSION, approved: false, reason: `unexpected reply ${reply.type}` };
-      } catch (err) {
-        return { type: 'hearthold/approval-response', version: PROTOCOL_VERSION, approved: false, reason: `Signet unreachable: ${err instanceof Error ? err.message : String(err)}` };
-      }
-    },
-  };
-  const evidenceService = new EvidenceService(handle, config, approver);
-  // Forge/present (Sevenfold Divination→Forge→Burn): scroll validity by credentialDid, single-use
-  // enforced verifier-side (the holder can't reset it) via the same SpentTxnStore as e2e:scroll-burn.
-  const forgeLedger = new Map<string, string | undefined>(); // credentialDid → validUntil (session)
-  const spentScrolls = new FileSpentTxnStore(handle.dataFolder);
+  const evidenceService = new EvidenceService(handle, config);
 
   const classifierLabel =
     config.classifierMode === 'ollama'
@@ -438,69 +410,6 @@ export async function runWardenControl(
         });
         return { result };
       },
-      // Forge (Sevenfold) — mint an Attestation scroll from a divination. Reuses the evidence flow: a
-      // MEDIUM+ forge triggers the same out-of-band Signet evidence-approval the DIDComm path uses;
-      // LOW/witnessed clears at STANDING with no step-up. The browser holds no key.
-      'POST /api/forge': async (ctx) => {
-        const { claim, kind, from, to, structured, validForMinutes, recipientDid } = (ctx.body ?? {}) as ProveRequest;
-        if (!claim || !kind) throw new Error('claim and kind are required');
-        // The forge APPROVER is the SESSION member (Phase 3) — a MEDIUM+ forge step-ups to THAT member's own
-        // Signet (the per-member approver, Phase 2), never config.sovereignDid. `recipientDid` (forge-for)
-        // only changes who the scroll is BOUND to (readable-by), never who approves.
-        const subjectDid = effectiveViewer(ctx);
-        const at = new Date().toISOString();
-        const req: EvidenceRequest = {
-          type: 'hearthold/evidence-request',
-          version: PROTOCOL_VERSION,
-          claim,
-          disclosureMode: 'ATTESTATION',
-          spec: { kind: kind as never, from, to, structured },
-          ...(subjectDid ? { subjectDid } : {}),
-          ...(recipientDid ? { recipientDid } : {}),
-          ...(validForMinutes ? { validForMinutes } : {}),
-        };
-        // Home-plane forge: the member proves from their own vault (delegationValid = true).
-        const r = await withWalletWrite(() => evidenceService.handle(req, id.did, true));
-        const proof: ProofRecord =
-          r.status === 'granted'
-            ? {
-                id: randomUUID(),
-                claim,
-                kind,
-                status: 'granted',
-                credentialDid: r.credentialDid,
-                structured: r.graph?.structured,
-                evidence: r.graph?.evidence,
-                approved: r.graph?.approved,
-                validUntil: r.graph?.validUntil,
-                issued: r.graph?.issued,
-                trustClass: r.graph?.trustClass,
-                at,
-              }
-            : { id: randomUUID(), claim, kind, status: 'denied', reason: r.reason, at };
-        if (proof.status === 'granted' && proof.credentialDid) {
-          forgeLedger.set(proof.credentialDid, proof.validUntil);
-          server.emit('scroll-forged', { proof }, { owner: subjectDid });
-        }
-        return { proof };
-      },
-      // Present (Sevenfold) — play the scroll; it BURNS. Single-use enforced verifier-side (the holder
-      // can't reset it). Home-plane demonstration; cross-party presentation stays Emissary-side.
-      'POST /api/present': async ({ body }) => {
-        const { credentialDid } = (body ?? {}) as PresentRequest;
-        if (!credentialDid) throw new Error('credentialDid is required');
-        if (await spentScrolls.isSpent(credentialDid)) {
-          return { verified: false, reason: 'single-use scroll already spent (burned)' };
-        }
-        const validUntil = forgeLedger.get(credentialDid);
-        if (validUntil && new Date(validUntil).getTime() < Date.now()) {
-          return { verified: false, reason: 'scroll expired' };
-        }
-        await spentScrolls.markSpent(credentialDid);
-        server.emit('scroll-burned', { credentialDid });
-        return { verified: true };
-      },
-
       // Card-face hydration for the Sevenfold Table — crosses decideRelease; a refusal is `granted:false`
       // (obsidian), not an error. The face is unsealed transiently and never cached (G2). Phase 3 fix: the
       // face is computed for the SESSION member (cross-member cards never render) and the tier is

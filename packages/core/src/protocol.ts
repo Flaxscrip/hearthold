@@ -77,17 +77,6 @@ export interface EvidenceRequest {
   disclosureMode: DisclosureMode;
   /** Which artefacts back the claim (kind + optional window). Required to assemble evidence. */
   spec?: EvidenceClaimSpec;
-  /**
-   * The APPROVER of the disclosure — whose proof-of-human co-signs the mint (the forger). Also the default
-   * credential-binding subject. Defaults to the Warden's configured Sovereign.
-   */
-  subjectDid?: string;
-  /**
-   * Bind the minted scroll to THIS DID instead of the approver (forge-FOR-a-recipient): the scroll's content
-   * is encrypted to `recipientDid`, so that recipient can decrypt/read it — while the APPROVER (`subjectDid`)
-   * still co-signs the disclosure at their own Signet. Absent ⇒ bound to the approver (forge for self).
-   */
-  recipientDid?: string;
   /** How long the minted proof should stay valid (`validUntil`). Defaults to the Warden's setting. */
   validForMinutes?: number;
   /** Third-party `issued` credentials (by DID) the Sovereign holds, to compose into the proof. */

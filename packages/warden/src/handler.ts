@@ -3,9 +3,7 @@ import {
   type RequestHandler,
   type HearthholdMessage,
   type WitnessSubmission,
-  type WitnessKind,
   type SubmissionReceipt,
-  type EvidenceRequest,
   type CapabilityInvocation,
   type KbRequestMessage,
   type KbLoginStartMessage,
@@ -53,36 +51,19 @@ export function makeWardenHandler(
   // Resolve the KbService for a request's kbId (or deny if unknown / none provisioned).
   const kbFor = (kbId: string | undefined): KbService | undefined => (kbId ? kbs?.get(kbId) : undefined);
 
-  // The legacy `evidence-request` path is the confused-deputy door (second audit): it trusts a requester-
-  // supplied subjectDid. OFF by default over DIDComm; set HEARTHOLD_ALLOW_LEGACY_EVIDENCE=1 only to stage the
-  // app migration to `hearthold/invocation`, and it logs loudly when used.
-  const allowLegacyEvidence = process.env.HEARTHOLD_ALLOW_LEGACY_EVIDENCE === '1' || process.env.HEARTHOLD_ALLOW_LEGACY_EVIDENCE === 'true';
-  // Submissions authorize by a PRESENTED delegation credential; the local-ACL fallback is off by default
-  // (staged migration — set HEARTHOLD_ALLOW_LEGACY_DELEGATION=1 to keep the boolean-store path).
-  const allowLegacyDelegation = process.env.HEARTHOLD_ALLOW_LEGACY_DELEGATION === '1' || process.env.HEARTHOLD_ALLOW_LEGACY_DELEGATION === 'true';
-
   return async (message, fromDid) => {
     switch (message.type) {
       case 'hearthold/witness-submission': {
         // Authorize by the PRESENTED delegation credential (verifyProof → kinds + member + proven holder +
-        // issuer-trust in one step). The legacy local-ACL lookup is off by default. Kind-enforcement
-        // (compartmentalized Emissaries) stays: a submission whose kind isn't granted is refused, fail-closed.
+        // issuer-trust in one step). Kind-enforcement (compartmentalized Emissaries) stays: a submission whose
+        // kind isn't granted is refused, fail-closed.
         const kind = (message as WitnessSubmission).kind;
         const delegationProof = (message as WitnessSubmission).delegationProof;
-        let grantedKinds: WitnessKind[];
-        let owner: string | undefined;
-        if (delegationProof) {
-          const del = await delegations.verifyDelegationPresentation(delegationProof, fromDid);
-          if (!del.ok) return deny(`delegation not proven: ${del.reason}`);
-          grantedKinds = del.kinds;
-          owner = del.member ?? defaultOwner;
-        } else if (allowLegacyDelegation) {
-          if (!(await delegations.isAuthorized(fromDid))) return deny('no valid delegation for this Emissary');
-          grantedKinds = await delegations.kindsFor(fromDid);
-          owner = (await delegations.memberFor(fromDid)) ?? defaultOwner;
-        } else {
-          return deny('submission carries no delegation presentation — present your delegation credential');
-        }
+        if (!delegationProof) return deny('submission carries no delegation presentation — present your delegation credential');
+        const del = await delegations.verifyDelegationPresentation(delegationProof, fromDid);
+        if (!del.ok) return deny(`delegation not proven: ${del.reason}`);
+        const grantedKinds = del.kinds;
+        const owner = del.member ?? defaultOwner;
         if (!grantedKinds.includes(kind)) {
           return deny(`this Emissary is not delegated for '${kind}' (granted: ${grantedKinds.join(', ') || 'none'})`);
         }
@@ -111,25 +92,8 @@ export function makeWardenHandler(
         };
       }
 
-      case 'hearthold/evidence-request': {
-        if (!allowLegacyEvidence) {
-          process.stderr.write('[warden] REFUSED a legacy hearthold/evidence-request — the capability path (hearthold/invocation) is required; set HEARTHOLD_ALLOW_LEGACY_EVIDENCE=1 to re-enable during migration.\n');
-          return deny('legacy evidence-request path is disabled — send hearthold/invocation');
-        }
-        if (!evidence) {
-          return {
-            type: 'hearthold/evidence-response',
-            version: PROTOCOL_VERSION,
-            status: 'denied',
-            reason: 'evidence service not configured',
-          };
-        }
-        const delegationValid = await delegations.isAuthorized(fromDid);
-        return evidence.handle(message as EvidenceRequest, fromDid, delegationValid);
-      }
-
-      // Phase 2 capability path: a presented capability, verified at the point of use (finding-A cure). The
-      // legacy `evidence-request` case above stays for back-compat until the apps migrate.
+      // The capability path: evidence is disclosed only by INVOKING a capability, verified at the point of use
+      // (the finding-A cure). There is no legacy requester-supplied-subjectDid `evidence-request` door.
       case 'hearthold/invocation': {
         if (!evidence) {
           return { type: 'hearthold/evidence-response', version: PROTOCOL_VERSION, status: 'denied', reason: 'evidence service not configured' };

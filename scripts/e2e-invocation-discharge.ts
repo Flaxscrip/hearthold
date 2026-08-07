@@ -68,10 +68,10 @@ async function main(): Promise<void> {
   };
 
   line('\n════ the discharge round-trip ════');
-  const granted = await new EvidenceService(warden, cfg, undefined, signetApproves).handleInvocation(await invocation(), emiId.did);
+  const granted = await new EvidenceService(warden, cfg, signetApproves).handleInvocation(await invocation(), emiId.did);
   check('MEDIUM+ invocation → Warden co-signs at the Signet → GRANTED', granted.status === 'granted', granted.reason ?? '');
 
-  const deny1 = await new EvidenceService(warden, cfg, undefined, signetDenies).handleInvocation(await invocation(), emiId.did);
+  const deny1 = await new EvidenceService(warden, cfg, signetDenies).handleInvocation(await invocation(), emiId.did);
   check('Signet DECLINES → disclosure denied', deny1.status === 'denied' && /declined/.test(deny1.reason ?? ''), deny1.reason ?? '');
 
   const deny2 = await new EvidenceService(warden, cfg).handleInvocation(await invocation(), emiId.did);

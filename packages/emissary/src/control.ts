@@ -25,8 +25,6 @@ import {
   type HearthholdMessage,
   type WitnessSubmission,
   type SubmissionReceipt,
-  type EvidenceRequest,
-  type EvidenceResponse,
 } from '@hearthold/core';
 import {
   SENSITIVITY_NAMES,
@@ -37,7 +35,6 @@ import {
   type ProjectionRecord,
   type ProofRecord,
   type SubmitRequest,
-  type ProveRequest,
 } from '@hearthold/control-types';
 
 const bareDid = (s: string | undefined): string => String(s ?? '').split('#')[0] ?? '';
@@ -56,9 +53,7 @@ export async function runEmissaryControl(
   const receipts: ReceiptRecord[] = [];
   const projections: ProjectionRecord[] = [];
   const proofs: ProofRecord[] = [];
-  type PendingReq =
-    | { type: 'submit'; kind: string; at: string }
-    | { type: 'prove'; claim: string; kind: string; at: string };
+  type PendingReq = { type: 'submit'; kind: string; at: string };
   const pending = new Map<string, PendingReq>();
   const sovereignDid = config.sovereignDid;
 
@@ -125,30 +120,6 @@ export async function runEmissaryControl(
         // Provisional receipt; the loop emits the final 'stored' record (same id) when the Warden replies.
         const receipt: ReceiptRecord = { id: thid, kind, status: 'submitted', at: submittedAt };
         return { receipt };
-      },
-      'POST /api/prove': async ({ body }) => {
-        const { claim, kind, from, to, structured, validForMinutes } = (body ?? {}) as ProveRequest;
-        if (!claim || !kind) throw new Error('claim and kind are required');
-        const wardenDid = config.wardenDid;
-        if (!wardenDid) throw new Error('HEARTHOLD_WARDEN_DID is not set on the Emissary daemon');
-        const thid = randomUUID();
-        const at = new Date().toISOString();
-        const request: EvidenceRequest = {
-          type: 'hearthold/evidence-request',
-          version: PROTOCOL_VERSION,
-          claim,
-          disclosureMode: 'ATTESTATION',
-          spec: { kind: kind as never, from, to, structured },
-          ...(sovereignDid ? { subjectDid: sovereignDid } : {}),
-          ...(validForMinutes ? { validForMinutes } : {}),
-        };
-        pending.set(thid, { type: 'prove', claim, kind, at });
-        await handle.keymaster.sendDidComm({ type: request.type, thid, body: request }, wardenDid, { name });
-        // Provisional; the loop emits the resolved record (same id) when the Warden replies. A sensitive
-        // claim will not resolve until the Sovereign approves it in the Signet — this is intentional.
-        const proof: ProofRecord = { id: thid, claim, kind, status: 'requesting', at };
-        proofs.push(proof);
-        return { proof };
       },
     },
     onListening: (p) =>
@@ -218,38 +189,6 @@ export async function runEmissaryControl(
         if (thid && pending.has(thid)) {
           const p = pending.get(thid);
           pending.delete(thid);
-
-          if (p?.type === 'prove') {
-            const now = new Date().toISOString();
-            let rec: ProofRecord;
-            if (body.type === 'hearthold/evidence-response') {
-              const r = body as EvidenceResponse;
-              rec =
-                r.status === 'granted'
-                  ? {
-                      id: thid,
-                      claim: p.claim,
-                      kind: p.kind,
-                      status: 'granted',
-                      credentialDid: r.credentialDid,
-                      structured: r.graph?.structured,
-                      evidence: r.graph?.evidence,
-                      approved: r.graph?.approved,
-                      validUntil: r.graph?.validUntil,
-                      issued: r.graph?.issued,
-                      trustClass: r.graph?.trustClass,
-                      at: now,
-                    }
-                  : { id: thid, claim: p.claim, kind: p.kind, status: 'denied', reason: r.reason, at: now };
-            } else {
-              rec = { id: thid, claim: p.claim, kind: p.kind, status: 'denied', reason: `unexpected reply ${body.type}`, at: now };
-            }
-            const idx = proofs.findIndex((x) => x.id === thid);
-            if (idx >= 0) proofs[idx] = rec;
-            else proofs.push(rec);
-            server.emit('proof', { proof: rec });
-            continue;
-          }
 
           const kind = p?.kind ?? 'unknown';
           let rec: ReceiptRecord;

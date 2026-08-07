@@ -71,31 +71,6 @@ export class DelegationStore {
     await writeFile(this.file, JSON.stringify(all, null, 2), 'utf8');
   }
 
-  /** The household member (Sovereign) an Emissary submits for, or undefined (single-Sovereign). */
-  async memberFor(emissaryDid: string): Promise<string | undefined> {
-    return (await this.readAll()).find((r) => r.subjectDid === emissaryDid)?.memberDid;
-  }
-
-  /**
-   * The witness kinds this Emissary is delegated to submit (the compartment). Undefined recorded kinds ⇒
-   * `LEGACY_DELEGATION_KINDS` (an old text delegation, never image). Returns `[]` for an unknown Emissary.
-   */
-  async kindsFor(emissaryDid: string): Promise<WitnessKind[]> {
-    // The MOST RECENT delegation for this Emissary wins — a re-delegation supersedes an earlier scope.
-    const recs = (await this.readAll()).filter((r) => r.subjectDid === emissaryDid);
-    const rec = recs[recs.length - 1];
-    if (!rec) return [];
-    return rec.kinds ?? LEGACY_DELEGATION_KINDS;
-  }
-
-  /** Authorized iff we issued this DID a delegation whose credential still resolves (not revoked). */
-  async isAuthorized(subjectDid: string): Promise<boolean> {
-    const rec = (await this.readAll()).find((r) => r.subjectDid === subjectDid);
-    if (!rec) return false;
-    const vc = await this.warden.keymaster.getCredential(rec.credentialDid).catch(() => null);
-    return vc != null;
-  }
-
   /**
    * Authorize a submission by a PRESENTED delegation credential (the VC path, replacing the local ACL). The
    * Emissary answers the Warden's credential-request challenge with its held delegation; `verifyProof` returns

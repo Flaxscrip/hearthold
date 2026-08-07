@@ -88,7 +88,7 @@ async function main(): Promise<void> {
   }
   const control = src('packages/warden/src/control.ts');
   check('control daemon defines the reload-before-write guard (withWalletWrite → reloadWallet)', /const withWalletWrite =/.test(control) && /await reloadWallet\(handle\)/.test(control));
-  for (const mut of ['issueDelegation(handle', 'claimMark(handle', 'evidenceService.handle(', 'grantAuthorization(handle', 'revokeAuthorization(handle']) {
+  for (const mut of ['issueDelegation(handle', 'claimMark(handle', 'grantAuthorization(handle', 'revokeAuthorization(handle']) {
     // Proximity test: a `withWalletWrite(` must open within ~140 chars before the mutation call, i.e. the
     // mutation actually sits inside the guard (not merely co-present in the file).
     const at = control.indexOf(mut);
