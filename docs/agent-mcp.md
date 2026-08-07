@@ -114,9 +114,13 @@ A third party that checks Hearthold-issued evidence. Keymaster-direct — no con
 |---|---|---|
 | `hearthold_verify_card` | `credentialDid`, `trustedIssuer?` | Verify a credential I was handed (e.g. a Warden-minted evidence graph): check the issuer's signature and, if `trustedIssuer` is given, that it was issued by the one I trust. Trust rests on the **issuer's signature**, never a presenter's word. *(keymaster-direct)* |
 
-> Note: `verify_card` resolves and checks a credential I already hold. A **full** challenge/response verify
-> (request a fresh presentation from a holder over DIDComm) is a planned addition; for now, use the `verifier`
-> CLI for the live present-to-me flow.
+> **By design, not a gap:** `verify_card` resolves and checks a credential I already hold — a keymaster-direct
+> read, which is what the augment does well. A **live present-to-me** verify (challenge a holder for a fresh
+> presentation over DIDComm) needs the process to be a DIDComm *participant* (publish an endpoint, own a receive
+> lifecycle) and pull in Hearthold's transport — which the agent-mcp deliberately avoids (it augments Archon, it
+> doesn't depend on Hearthold internals). That flow lives in the `verifier` CLI today; if we want it here, the
+> clean path is a verifier control-plane the MCP façades (like the other roles), not a DIDComm lifecycle inside a
+> stateless tool call.
 
 ---
 
