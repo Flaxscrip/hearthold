@@ -142,6 +142,12 @@ export interface Discharge {
   predicate?: string;
   /** The `txn` this discharge is bound to (the macaroon `PrepareForRequest` binding). */
   txn: string;
+  /**
+   * The Warden-minted request digest this discharge is bound to (over claim/kind/owner/audience/sensitivity —
+   * `dischargeDigest`). The Signet signs OVER it; the monitor recomputes it from the actual act. So a discharge
+   * obtained for one disclosure cannot be substituted onto another under the same txn (audit-4 §1).
+   */
+  digest?: string;
   /** The achieved proof-of-human level, attested by the discharging Signet (not the requester). */
   level?: number;
   proof?: unknown;

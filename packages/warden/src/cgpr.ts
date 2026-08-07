@@ -14,7 +14,6 @@ import { randomUUID } from 'node:crypto';
 
 import {
   assembleEvidence,
-  decideRelease,
   authorizeActor,
   activeRuleset,
   mintPairwiseGrant,
@@ -22,7 +21,6 @@ import {
   acceptCredential,
   pairwiseName,
   requiredLevelFor,
-  AuthzTier,
   PROTOCOL_VERSION,
   type SignedRuleset,
   type PairwiseStore,
@@ -182,17 +180,15 @@ export class CgprService {
     const ttlMin = req.validForMinutes > 0 ? req.validForMinutes : 10;
     const validUntil = new Date(Date.now() + ttlMin * 60_000).toISOString();
 
-    // 4. Release ladder (unchanged). LOW clears at STANDING; MEDIUM+ needs the Signet.
-    const standingClears = decideRelease({
-      sensitivity,
-      tier: AuthzTier.STANDING,
-      delegationValid: true,
-      mode: 'ATTESTATION',
-      disclosureSatisfiable: true,
-    }).allow;
+    // 4. Autonomy threshold (Phase 2): CGPR is invocation at the edge — a disclosure ≤ `cgprAutonomousAtOrBelow`
+    //    clears autonomously; above it steps up to the Sovereign's Signet. This is the CGPR-specific autonomy
+    //    knob, the same move we made on the invocation path with `requiresHumanAt`: a single configurable
+    //    threshold replaces the fixed STANDING release ladder. Default LOW — stricter than the internal gate,
+    //    because an external AI requester warrants more caution than the Sovereign's own Emissary.
+    const autonomous = sensitivity <= this.config.cgprAutonomousAtOrBelow;
 
     let approval: Parameters<typeof mintPairwiseGrant>[2]['approval'];
-    if (!standingClears) {
+    if (!autonomous) {
       if (!this.opts.approver) return deny('sensitive scope needs a Sovereign approval channel (Signet)');
       const txn = randomUUID();
       const ares = await this.opts.approver.requestApproval({

@@ -20,7 +20,7 @@ invocation layer adds).
 The branch is not a pure code merge. Two defaults change how already-issued state and existing flows behave:
 
 - **`requireRevocableCapabilities` defaults `true`** → a capability already issued *without* a
-  `credentialStatus` pointer is now **denied at invocation**. `issueScopeCapability` auto-allocates a
+  `caveats.status` revocation pointer is now **denied at invocation**. `issueScopeCapability` auto-allocates a
   status when passed `config`, so newly-minted capabilities are fine; anything minted the old way is not.
 - **`requiresHumanAt` defaults `MEDIUM`** → an existing MEDIUM+ evidence disclosure now **requires a
   reachable Signet** to obtain a signed consent discharge, or it fails closed (denied).
@@ -122,7 +122,7 @@ NEW UI STATES TO HANDLE
    submit yet — no Warden-issued delegation is available." Surface this as a first-run
    "delegate this device" step rather than a raw error.
 3. Capabilities/grants now carry a revocation status; if you render capability or grant details,
-   expect and (optionally) display a credentialStatus pointer.
+   expect and (optionally) display the `caveats.status` revocation pointer.
 
 DO
 - Remove/replace calls to the three deleted routes; re-point the prove UI to the invocation flow.
@@ -161,6 +161,11 @@ A2A / CGPR
 2. Unchanged invariants you still rely on (verify you don't regress them): no subject DID before
    consent, grants minted to a fresh pairwise DID, the Warden authors the consent text. A2A stays
    at the edge; nothing Archon-specific leaks into the A2A envelope.
+
+CGPR AUTONOMY THRESHOLD (new)
+0. CGPR autonomy is now a configurable knob: HEARTHOLD_CGPR_AUTONOMOUS_AT (label or 0-4; default LOW).
+   A disclosure at or below it clears autonomously; above it steps up to the Sovereign's Signet. Default LOW
+   is stricter than the internal requiresHumanAt on purpose (external AI requester). Set per your risk posture.
 
 CAPABILITIES
 3. Revocation by default: if HATPro mints scope capabilities via issueScopeCapability, pass

@@ -10,6 +10,7 @@
   "exports": {
     ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
     "./control": { "types": "./dist/control.d.ts", "import": "./dist/control.js" },
+    "./invoke": { "types": "./dist/invoke.d.ts", "import": "./dist/invoke.js" },
     "./handler": { "types": "./dist/handler.d.ts", "import": "./dist/handler.js" },
     "./kb-relay": { "types": "./dist/kb-relay.d.ts", "import": "./dist/kb-relay.js" }
   },

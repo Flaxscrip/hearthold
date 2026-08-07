@@ -12,6 +12,8 @@
  * credential), Macaroons (the discharge bound to the request), ZCAP-LD (invocation checked against the cap).
  */
 
+import { createHash } from 'node:crypto';
+
 import type { KeymasterHandle } from './keymaster.js';
 import type { AuthoritySet } from './attenuation.js';
 import type { CapabilityInvocation, Caveats, ThirdPartyCaveat } from './capability.js';
@@ -20,6 +22,29 @@ import { verifyProof } from './prove.js';
 import type { SpentTxnStore } from './single-use.js';
 import { StatusListResolver } from './status-list.js';
 import type { Sensitivity } from './security.js';
+
+/**
+ * The Warden-minted request digest a consent discharge is bound to. The Signet signs OVER this digest and the
+ * monitor recomputes it from the ACTUAL act, so a discharge obtained for one disclosure (a benign claim, a
+ * lower sensitivity, a different recipient) cannot be substituted onto another under the same `txn`. The
+ * macaroon `txn` binding stops replay ACROSS transactions; this stops substitution of MEANING within one —
+ * since the requester names the txn (audit-4 §1). Every field here is also shown to (or bounds what is shown
+ * to) the human, so approving benign text cannot authorize a sensitive act.
+ */
+export interface DischargeSubject {
+  txn: string;
+  predicate: string;
+  claim: string;
+  kind: string;
+  owner: string;
+  audience: string;
+  sensitivity: Sensitivity;
+}
+
+export function dischargeDigest(s: DischargeSubject): string {
+  const canon = JSON.stringify([s.txn, s.predicate, s.claim, s.kind, s.owner, s.audience, s.sensitivity]);
+  return createHash('sha256').update(canon).digest('hex');
+}
 
 export interface InvocationContext {
   /** Any keymaster bound to the Gatekeeper the Warden trusts (verifies the presentation). */
@@ -112,9 +137,17 @@ export async function resolveInvocation(
   const authCred = proof.disclosed.find((d) => (d.claims as { type?: string }).type === AUTHORIZATION_TYPE) ?? proof.disclosed[0];
   if (!authCred) return { ok: false, reason: 'no authorization credential presented' };
   const claims = authCred.claims as { authority?: AuthoritySet; caveats?: Caveats };
-  if (!claims.authority || !Array.isArray(claims.authority.operations) || !claims.caveats) {
-    return { ok: false, reason: 'authorization credential is missing authority/caveats' };
+  // Validate the SHAPE of what we enforce at the trust boundary — the credential is signed-but-arbitrary JSON,
+  // and a trusted issuer is not the same as a well-formed one (audit-4 §2). A missing `ceiling` would make
+  // `sensitivity > undefined` false and silently disable the ceiling; a missing `resources` would throw a
+  // TypeError that surfaces as a hang, not a denial.
+  if (!claims.authority || !Array.isArray(claims.authority.operations) || !Array.isArray(claims.authority.resources) || !claims.caveats) {
+    return { ok: false, reason: 'authorization credential is malformed (authority.operations/resources or caveats missing)' };
   }
+  if (typeof claims.caveats.ceiling !== 'number') return { ok: false, reason: 'authorization credential has no numeric ceiling' };
+  // The credential DID is the sole key of the single-use ledger (`cap:<id>`); an empty/positionally-desynced id
+  // (see prove.ts) would burn a bogus global key. Refuse rather than trust it (audit-4 §3).
+  if (!authCred.credentialDid) return { ok: false, reason: 'authorization credential has no resolvable id' };
   // Bind the caller to the credential SUBJECT the Sovereign signed — possession of the VC plaintext (a copied
   // wallet, a shared data root) is NOT authority. The subject must be the party that produced the response.
   if (!authCred.subject || authCred.subject !== proof.responder) return { ok: false, reason: 'presenter does not control the credential subject' };
@@ -167,7 +200,7 @@ export async function authorizeInvocation(inv: CapabilityInvocation, ctx: Invoca
 
   const unmet: { by: string; predicate: string }[] = [];
   for (const cav of leaf.caveats.requiresDischarge ?? []) {
-    if (!(await hasValidDischarge(inv, cav, ctx))) unmet.push({ by: cav.by, predicate: cav.predicate });
+    if (!(await hasValidDischarge(inv, cav, ctx, leaf))) unmet.push({ by: cav.by, predicate: cav.predicate });
   }
   // Warden POLICY gate: a disclosure at/above `requiresHumanAt` needs the OWNER's fresh consent even if the
   // issuer attached no caveat — so a `ceiling: SEALED` capability cannot disclose SEALED with no human (§3).
@@ -180,7 +213,7 @@ export async function authorizeInvocation(inv: CapabilityInvocation, ctx: Invoca
     if (!owner) return deny('policy requires the owner’s consent for this sensitivity, but the capability names no owner');
     const policyCav: ThirdPartyCaveat = { by: owner, predicate: POLICY_CONSENT_PREDICATE };
     const already = unmet.some((u) => u.by === owner && u.predicate === POLICY_CONSENT_PREDICATE);
-    if (!already && !(await hasValidDischarge(inv, policyCav, ctx))) unmet.push({ by: owner, predicate: POLICY_CONSENT_PREDICATE });
+    if (!already && !(await hasValidDischarge(inv, policyCav, ctx, leaf))) unmet.push({ by: owner, predicate: POLICY_CONSENT_PREDICATE });
   }
   if (unmet.length > 0) return { allow: false, reason: 'discharge required', needsDischarge: unmet, owner: leaf.caveats.owner ?? ctx.owner, ceiling: leaf.caveats.ceiling };
 
@@ -198,13 +231,24 @@ export async function verifyInvocation(inv: CapabilityInvocation, ctx: Invocatio
 
 /**
  * A discharge satisfies a third-party caveat iff it is signed by the DESIGNATED party (`cav.by`), covers the
- * same `predicate`, and is bound to THIS invocation's `txn` (the macaroon PrepareForRequest binding — so a
- * discharge for one act/predicate cannot be replayed against another). The approver is named by the caveat.
+ * same `predicate`, is bound to THIS invocation's `txn`, AND is bound to the act's request digest — so a
+ * discharge the human approved for one disclosure cannot be substituted onto another (audit-4 §1). The digest
+ * is recomputed here from the act the monitor is actually authorizing, not trusted from the wire.
  */
-async function hasValidDischarge(inv: CapabilityInvocation, cav: ThirdPartyCaveat, ctx: InvocationContext): Promise<boolean> {
+async function hasValidDischarge(inv: CapabilityInvocation, cav: ThirdPartyCaveat, ctx: InvocationContext, leaf: VerifiedLeaf): Promise<boolean> {
   const verifyProofFn = ctx.keymaster.keymaster.verifyProof.bind(ctx.keymaster.keymaster) as (o: unknown) => Promise<boolean>;
+  const args = (inv.act.args ?? {}) as { claim?: unknown; spec?: { kind?: unknown } };
+  const expected = dischargeDigest({
+    txn: inv.act.txn,
+    predicate: cav.predicate,
+    claim: String(args.claim ?? ''),
+    kind: String(args.spec?.kind ?? ''),
+    owner: leaf.caveats.owner ?? ctx.owner ?? '',
+    audience: leaf.caveats.audience ?? leaf.holder,
+    sensitivity: (ctx.sensitivity ?? -1) as Sensitivity,
+  });
   for (const d of inv.discharges ?? []) {
-    if (d.by !== cav.by || d.txn !== inv.act.txn || d.predicate !== cav.predicate || !d.proof) continue;
+    if (d.by !== cav.by || d.txn !== inv.act.txn || d.predicate !== cav.predicate || d.digest !== expected || !d.proof) continue;
     if (!(await verifyProofFn(d).catch(() => false))) continue;
     const signer = ((d.proof as { verificationMethod?: string }).verificationMethod ?? '').split('#')[0];
     if (signer === cav.by) return true;
@@ -222,7 +266,13 @@ export interface DischargeRequest {
   /** The party expected to sign — equals the caveat's `by` (the owner's Signet). */
   by: string;
   predicate: string;
-  claim?: string;
+  /** The semantic fields the discharge is bound to — the Signet computes `dischargeDigest` over these and the
+   *  monitor recomputes it from the act, so consent cannot be transplanted onto a different disclosure. `claim`,
+   *  `sensitivity` and `audience` are shown to the human (who is disclosing what, at what tier, to whom). */
+  claim: string;
+  kind: string;
+  owner: string;
+  audience: string;
+  sensitivity: Sensitivity;
   reason?: string;
-  sensitivity?: Sensitivity;
 }

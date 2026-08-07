@@ -164,6 +164,7 @@ export class EvidenceService {
     // what replaces the requester-chosen approver at high sensitivity.
     if (!decision.allow && decision.needsDischarge && decision.needsDischarge.length > 0) {
       if (!this.dischargeRequester) return deny('this disclosure needs a consent discharge but no discharge channel is wired');
+      const audience = leaf.caveats.audience ?? leaf.holder;
       const discharges: Discharge[] = [...(inv.discharges ?? [])];
       for (const need of decision.needsDischarge) {
         const d = await this.dischargeRequester.requestDischarge({
@@ -171,8 +172,11 @@ export class EvidenceService {
           by: need.by,
           predicate: need.predicate,
           claim: args.claim,
-          reason: `Disclose “${args.claim}” — ${spec.kind}`,
+          kind: spec.kind,
+          owner,
+          audience,
           sensitivity,
+          reason: `Disclose “${args.claim}” — ${spec.kind}`,
         });
         if (!d) return deny('consent declined at the Signet');
         discharges.push(d);

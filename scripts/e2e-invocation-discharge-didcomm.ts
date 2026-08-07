@@ -24,6 +24,7 @@ import {
   presentProof,
   DidCommTransport,
   IDENTITY_NAME,
+  POLICY_CONSENT_PREDICATE,
   PROTOCOL_VERSION,
   Sensitivity,
   type CapabilityInvocation,
@@ -82,7 +83,7 @@ async function main(): Promise<void> {
   {
     const sig = new DidCommTransport(sovereign, IDENTITY_NAME.sovereign, config.nodeUrl);
     await sig.ready();
-    const stop = await sig.serve(makeSovereignHandler(sovereign, new PinGate(PIN, PIN)), { pollMs: 1000 });
+    const stop = await sig.serve(makeSovereignHandler(sovereign, new PinGate(PIN, PIN), undefined, wardenId.did), { pollMs: 1000 });
     const evidence = new EvidenceService(warden, cfg, makeDidcommDischargeRequester(wardenTransport));
     const granted = await evidence.handleInvocation(await invocation(), emiId.did);
     await stop();
@@ -93,11 +94,31 @@ async function main(): Promise<void> {
   {
     const sig = new DidCommTransport(sovereign, IDENTITY_NAME.sovereign, config.nodeUrl);
     await sig.ready();
-    const stop = await sig.serve(makeSovereignHandler(sovereign, new PinGate(PIN, 'wrong')), { pollMs: 1000 });
+    const stop = await sig.serve(makeSovereignHandler(sovereign, new PinGate(PIN, 'wrong'), undefined, wardenId.did), { pollMs: 1000 });
     const evidence = new EvidenceService(warden, cfg, makeDidcommDischargeRequester(wardenTransport));
     const denied = await evidence.handleInvocation(await invocation(), emiId.did);
     await stop();
     check('Signet declines the consent → DENIED', denied.status === 'denied', denied.reason ?? '');
+  }
+
+  // A discharge-request from anyone but the owner's Warden is refused — consent must be Warden-mediated so a
+  // holder cannot prompt the Signet directly with text of its choosing (audit-4 §1a).
+  {
+    const attacker = await openKeymaster('verifier', config, pass);
+    const atkId = await ensureIdentity(attacker, config);
+    const atkTransport = new DidCommTransport(attacker, atkId.name, config.nodeUrl);
+    await atkTransport.ready();
+    const sig = new DidCommTransport(sovereign, IDENTITY_NAME.sovereign, config.nodeUrl);
+    await sig.ready();
+    const stop = await sig.serve(makeSovereignHandler(sovereign, new PinGate(PIN, PIN), undefined, wardenId.did), { pollMs: 1000 });
+    const reply = await atkTransport.request(
+      sovId.did,
+      { type: 'hearthold/discharge-request', version: PROTOCOL_VERSION, request: { txn: randomUUID(), by: sovId.did, predicate: POLICY_CONSENT_PREDICATE, claim: 'x', kind: 'location', owner: sovId.did, audience: atkId.did, sensitivity: Sensitivity.SEALED } },
+      { timeoutMs: 30_000 },
+    );
+    await stop();
+    const refused = reply.type === 'hearthold/discharge-response' && (reply as { approved?: boolean }).approved === false;
+    check('a discharge-request from a non-Warden sender → refused', refused, `${reply.type}`);
   }
 
   line(`\n${failures === 0 ? '✅ ALL PASS' : `❌ ${failures} FAILURE(S)`}`);

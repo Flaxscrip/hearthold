@@ -7,20 +7,20 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
-import { HEARTHOLD_TOOLS, type HeartholdToolContext } from './tools.js';
+import { type HeartholdTool, type HeartholdToolContext } from './tools.js';
 
-export function buildServer(ctx: HeartholdToolContext): Server {
+export function buildServer(ctx: HeartholdToolContext, tools: HeartholdTool[]): Server {
   const server = new Server(
     { name: 'hearthold-agent-mcp', version: '0.1.0' },
     { capabilities: { tools: {} } },
   );
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: HEARTHOLD_TOOLS.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema })),
+    tools: tools.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema })),
   }));
 
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
-    const tool = HEARTHOLD_TOOLS.find((t) => t.name === req.params.name);
+    const tool = tools.find((t) => t.name === req.params.name);
     if (!tool) return { isError: true, content: [{ type: 'text' as const, text: `unknown tool: ${req.params.name}` }] };
     try {
       const result = await tool.handler(ctx, (req.params.arguments ?? {}) as Record<string, unknown>);

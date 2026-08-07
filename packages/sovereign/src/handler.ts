@@ -55,6 +55,12 @@ export function makeSovereignHandler(
   sovereign: KeymasterHandle,
   gate: ApprovalGate,
   reopen?: () => Promise<KeymasterHandle>,
+  /**
+   * When set, a `hearthold/discharge-request` is honored only from this DID (the owner's own Warden). Consent
+   * for a disclosure must be Warden-mediated (the Warden authors the request); a holder must not be able to
+   * prompt the Signet directly with text of its choosing (audit-4 §1). Omit in in-process tests.
+   */
+  trustedRequester?: string,
 ): RequestHandler {
   return async (message, fromDid) => {
     if (!HANDLED_TYPES.has(message.type)) return null;
@@ -188,6 +194,11 @@ export function makeSovereignHandler(
     // governor's, never the requesting agent's) and signs the discharge; a decline returns approved:false.
     if (message.type === 'hearthold/discharge-request') {
       const m = message as DischargeRequestMessage;
+      // Consent must be Warden-mediated: refuse a discharge-request from anyone but the owner's Warden, so a
+      // holder cannot prompt the Signet directly with benign text (audit-4 §1). fromDid is authcrypt-verified.
+      if (trustedRequester && fromDid !== trustedRequester) {
+        return { type: 'hearthold/discharge-response', version: PROTOCOL_VERSION, approved: false, reason: 'discharge requests are accepted only from the owner’s Warden' };
+      }
       const idName = await active.keymaster.getCurrentId();
       if (!idName) return { type: 'hearthold/discharge-response', version: PROTOCOL_VERSION, approved: false, reason: 'no current identity at the Signet' };
       const discharge = await signDischarge(active, idName, gate, m.request);
