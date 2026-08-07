@@ -36,6 +36,14 @@ export class ChallengeStore {
     private readonly registry: string,
     /** The Sovereign trusted to issue invocation scope VCs — required to mint an invocation challenge. */
     private readonly sovereignDid?: string,
+    /**
+     * The canonical authorization schema DID the invocation challenge requests. In a multi-wallet deployment
+     * this is the Warden's registered schema, distributed to the Sovereign via `HEARTHOLD_AUTHORIZATION_SCHEMA_DID`
+     * so its issued scope VC matches (schema DIDs are not content-addressed across wallets). Unset ⇒ the Warden's
+     * own — valid only when issuer and verifier share a wallet (single-wallet dev). Must match the DID the
+     * monitor expects (`evidence.ts` `authorizationSchema`) and the DID the Sovereign issues against.
+     */
+    private readonly authorizationSchemaDid?: string,
     private readonly defaultTtlMs = 120_000,
   ) {}
 
@@ -61,7 +69,10 @@ export class ChallengeStore {
       return this.mint('delegation', { schema, trustedIssuers: [wardenDid] }, { reusable: true, ttlMs: 10 * 60_000 });
     }
     if (!this.sovereignDid) throw new Error('cannot mint an invocation challenge: sovereign DID unset');
-    const schema = await ensureAuthorizationSchema(this.warden);
+    // Honor the canonical schema DID (config) so the challenge requests the SAME schema the Sovereign issued
+    // against; fall back to the Warden's own only in single-wallet dev. This is the fix for the cross-wallet
+    // "challenge not satisfied" (Sevenfold, 2026-08-07): the challenge side must not hardcode the Warden's DID.
+    const schema = this.authorizationSchemaDid ?? (await ensureAuthorizationSchema(this.warden));
     return this.mint('invocation', { schema, trustedIssuers: [this.sovereignDid] }, { reusable: false });
   }
 

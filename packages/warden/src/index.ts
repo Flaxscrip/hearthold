@@ -7,6 +7,7 @@ import {
   ensureIdentity,
   type WitnessKind,
   ensureDelegationSchema,
+  ensureAuthorizationSchema,
   issueDelegation,
   createRegistryGroup,
   grantAuthorization,
@@ -247,12 +248,18 @@ async function main(): Promise<void> {
         config.sovereignDid,
         undefined,
         undefined,
-        new ChallengeStore(handle, config.registry, config.sovereignDid),
+        new ChallengeStore(handle, config.registry, config.sovereignDid, config.authorizationSchemaDid),
       );
       const stop = await transport.serve(handler);
+      // Surface the canonical authorization schema DID so an operator can wire it into the Sovereign's
+      // HEARTHOLD_AUTHORIZATION_SCHEMA_DID (schema DIDs aren't content-addressed across wallets — the issuer
+      // must reference the Warden's, not register its own). Also on `warden control`'s /api/status.
+      const authSchema = config.authorizationSchemaDid ?? (await ensureAuthorizationSchema(handle));
       process.stdout.write(
         `Warden serving over DIDComm\n  did:  ${id.did}\n  node: ${config.nodeUrl}\n` +
           `  kb:   ${kbs.size ? `serving ${kbs.size} Knowledge Base(s): ${[...kbs.keys()].join(', ')}` : 'none provisioned'}\n` +
+          `  auth-schema: ${authSchema}\n` +
+          `    ↳ set HEARTHOLD_AUTHORIZATION_SCHEMA_DID to this on the Sovereign so its grants match.\n` +
           `  (Ctrl-C to stop)\n`,
       );
       const shutdown = (): void => {

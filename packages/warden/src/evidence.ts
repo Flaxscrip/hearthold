@@ -123,7 +123,9 @@ export class EvidenceService {
     // Resolve + AUTHENTICATE the capability FIRST. The enforced owner/ceiling/audience come from the
     // verified, commitment-bound chain, and the caller is bound to the holder by challenge/response — nothing
     // below trusts inv.capability.credentialSubject.
-    const authorizationSchema = await ensureAuthorizationSchema(this.warden);
+    // The same canonical schema DID the challenge requests + the Sovereign issues against (config in a
+    // multi-wallet deployment; the Warden's own in single-wallet dev). All three must agree — see challenge-store.ts.
+    const authorizationSchema = this.config.authorizationSchemaDid ?? (await ensureAuthorizationSchema(this.warden));
     const ctx = {
       keymaster: this.warden,
       fromDid,

@@ -37,5 +37,22 @@ signet control (:4311)   POST /api/authorize-capability   { emissaryDid, ceiling
 emissary control (:4312) POST /api/accept-capability      { credentialDid }
 ```
 
-Multi-wallet deployments: set `HEARTHOLD_AUTHORIZATION_SCHEMA_DID` (the Warden's canonical schema) so the
-Sovereign issues against the DID the Warden's challenge requests — see `docs/invocation.md`.
+## Multi-wallet deployments — align the authorization schema (required)
+
+When the Warden and Sovereign run as **separate wallets** (any real deployment — separate containers/daemons),
+you MUST point the Sovereign at the Warden's canonical authorization schema, or every `invoke` fails with
+`invocation refused: capability presentation invalid: challenge not satisfied`. A `did:cid` schema is registered
+once and reused, but its DID is **not content-addressed across wallets** — so the Sovereign's scope VC must
+reference the *Warden's* schema DID, not one it registers itself. Two steps:
+
+```
+1. Read the Warden's canonical schema DID:
+     GET :4310/api/status  →  { "authorizationSchemaDid": "did:cid:…" }     (or the `warden serve` banner line)
+
+2. Set it on BOTH the Sovereign and the Warden daemons, then restart:
+     HEARTHOLD_AUTHORIZATION_SCHEMA_DID=did:cid:…
+```
+
+The Sovereign then issues each grant against that DID; the Warden's invocation challenge requests the same DID;
+`verifyResponse` matches. Regression-locked by `e2e-invoke-schema-alignment` (mismatch denies, aligned grants).
+Single-wallet dev needs none of this (issuer and verifier share a wallet). See `docs/invocation.md`.

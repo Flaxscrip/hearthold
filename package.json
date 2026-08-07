@@ -111,6 +111,7 @@
     "smoke:agent-mcp-roles": "npm run build && node --experimental-strip-types scripts/smoke-agent-mcp-roles.ts",
     "e2e:agent-mcp-dispatch": "npm run build && node --experimental-strip-types scripts/e2e-agent-mcp-dispatch.ts",
     "e2e:permissions-center": "npm run build && node --experimental-strip-types scripts/e2e-permissions-center.ts",
+    "e2e:invoke-schema": "npm run build && node --experimental-strip-types scripts/e2e-invoke-schema-alignment.ts",
     "e2e:dtg-compat": "npm run build && node --experimental-strip-types scripts/e2e-dtg-compat.ts",
     "demo:cgpr": "npm run build && node --experimental-strip-types scripts/demo-cgpr.ts",
     "e2e:cgpr-relay": "npm run build && node --experimental-strip-types scripts/e2e-cgpr-relay.ts",

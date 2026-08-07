@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import {
   ensureIdentity,
   ensureDelegationSchema,
+  ensureAuthorizationSchema,
   issueDelegation,
   reloadWallet,
   DidCommTransport,
@@ -220,7 +221,14 @@ export async function runWardenControl(
   // Wire the consent channel (audit-3 §3) — a sensitive disclosure routes to the owner's Signet over DIDComm;
   // without it, MEDIUM+ fails closed. And the Warden-minted challenge store (§1) for invocation + delegation.
   const evidenceService = new EvidenceService(handle, config, makeDidcommDischargeRequester(transport));
-  const challenges = new ChallengeStore(handle, config.registry, config.sovereignDid);
+  const challenges = new ChallengeStore(handle, config.registry, config.sovereignDid, config.authorizationSchemaDid);
+
+  // The canonical schema DIDs this Warden challenges against, computed once (idempotent registration). Surfaced
+  // in /api/status so an operator can wire the authorization one into the Sovereign's
+  // HEARTHOLD_AUTHORIZATION_SCHEMA_DID — schema DIDs are not content-addressed across wallets, so the issuer
+  // must reference the Warden's canonical schema rather than register its own.
+  const authorizationSchemaDid = config.authorizationSchemaDid ?? (await ensureAuthorizationSchema(handle));
+  const delegationSchemaDid = await ensureDelegationSchema(handle);
 
   const classifierLabel =
     config.classifierMode === 'ollama'
@@ -235,6 +243,8 @@ export async function runWardenControl(
     artefactCount: (await store.list()).length,
     delegationCount: (await delegations.list()).length,
     serving: true,
+    authorizationSchemaDid,
+    delegationSchemaDid,
   });
 
   // A delegation belongs to the member it serves (`memberDid`), defaulting to the configured Sovereign for

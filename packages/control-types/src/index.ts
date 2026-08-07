@@ -79,6 +79,14 @@ export interface WardenStatus {
   serving: boolean;
   /** Whose view this is — the authenticated session member DID. Undefined when unauthenticated / single-Sovereign. */
   sessionDid?: string;
+  /**
+   * The canonical HearthholdAuthorization schema DID this Warden's invocation challenge requests. Wire it into
+   * the Sovereign's `HEARTHOLD_AUTHORIZATION_SCHEMA_DID` so its granted scope VCs match (schema DIDs are not
+   * content-addressed across wallets). Its absence is what causes "invocation refused: challenge not satisfied".
+   */
+  authorizationSchemaDid?: string;
+  /** The canonical delegation schema DID (issued + challenged by the Warden itself). */
+  delegationSchemaDid?: string;
 }
 
 export interface WardenSnapshot {
