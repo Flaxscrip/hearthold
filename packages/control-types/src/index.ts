@@ -651,37 +651,71 @@ export interface SubmitResponse {
   receipt: ReceiptRecord;
 }
 
-/** Ask the Warden to prove a claim from witnessed vault data (the A1/A2 evidence flow). */
-export interface ProveRequest {
+// ── Invocation: the keyless invoke-shim (Emissary daemon) + the Signet-gated grant (Sovereign daemon) ──
+//
+// A browser has no keymaster, so it POSTs an INTENT over local HTTP and the wallet-holding daemon runs the
+// full `hearthold/invocation` ceremony. Confused-deputy-safe: the Emissary is the authcrypt sender bound to
+// the capability holder, and every invoke is bound by the capability's caveats (ceiling / kinds / owner).
+
+/** A readable summary of the minted evidence graph (the credential itself is sealed). Mirrors the core shape. */
+export interface EvidenceGraphSummary {
   claim: string;
-  kind: string;
-  from?: string;
-  to?: string;
-  /** Optional structured predicate carried into the graph (e.g. {type:'residence',country:'FR'}). */
   structured?: Record<string, unknown>;
-  /** How long the minted proof should stay valid, in minutes (default 10). */
-  validForMinutes?: number;
-  /**
-   * Forge FOR a recipient (the Oracle "forge an attestation *for* you" gesture): bind the scroll to this DID
-   * so THEY can read it once it's passed to them — the forging member still co-signs the disclosure at their
-   * own Signet. Absent ⇒ forge for self (bound to the session member), exactly as before.
-   */
-  recipientDid?: string;
-}
-export interface ProveResponse {
-  proof: ProofRecord;
+  evidence: { kind: string; observedFrom: string; observedTo: string; count: number; witnessedBy: string[]; merkleRoot: string }[];
+  approved: boolean;
+  validUntil: string;
+  issued?: { issuer: string; credentialType: string; schema?: string }[];
+  trustClass: 'witnessed' | 'composite';
 }
 
 /**
- * Present a minted Attestation scroll — it BURNS on play (single-use). Home-plane: the Sovereign
- * demonstrates the burn on their own Table; cross-party presentation to an external verifier is the
- * Emissary's job (projecting into the world), so that path stays Emissary-side.
+ * Emissary daemon `POST /api/invoke` — an invocation intent. The daemon fills nonce/txn/presentation from its
+ * wallet + held scope capability. There is deliberately **no `recipientDid`**: the audience of a minted proof
+ * is DESIGNATED by the capability (a per-audience pairwise grant), never chosen at invoke time — otherwise a
+ * requester-chosen recipient reopens the confused-deputy hole. Forge-for-a-peer is a scoped grant, not a field.
  */
-export interface PresentRequest {
+export interface InvokeRequest {
+  /** The fact to prove. */
+  claim: string;
+  /** The witness kind backing it — must satisfy the capability's `caveats.kinds`. */
+  kind: string;
+  /** The capability operation (default `prove`), must be in `authority.operations`. */
+  action?: string;
+  /** The invocation target (default `hearthold:vault:<kind>`), within the capability's `resources`. */
+  target?: string;
+  /** Selective-disclosure leaf indices. */
+  reveal?: number[];
+}
+
+/** Mirrors `hearthold/evidence-response`, minus the DIDComm envelope. Consent blocks; then granted | denied. */
+export type InvokeResponse =
+  | { status: 'granted'; credentialDid: string; schemaDid: string; graph?: EvidenceGraphSummary }
+  | { status: 'denied'; reason: string }; // the Warden's reason string, passed through unmodified
+
+/** Emissary daemon `POST /api/accept-capability` — accept a granted scope VC into the Emissary's wallet. */
+export interface AcceptCapabilityRequest {
   credentialDid: string;
 }
-export interface PresentResponse {
-  verified: boolean;
-  /** Why it didn't verify (already spent / expired), when `verified` is false. */
-  reason?: string;
+export interface AcceptCapabilityResponse {
+  accepted: boolean;
 }
+
+/**
+ * Sovereign/Signet daemon `POST /api/authorize-capability` — the Sovereign grants the Emissary a revocable
+ * scope capability to PROVE facts. Signet-gated (a proof-of-human prompt), so the human sees exactly what
+ * disclosure authority they are granting. Separate from `/api/delegate` (submit authority) by design.
+ */
+export interface AuthorizeCapabilityRequest {
+  emissaryDid: string;
+  /** Witness kinds the Emissary may prove (default: any). */
+  kinds?: string[];
+  /** Max sensitivity the capability may disclose — PUBLIC|LOW|MEDIUM|HIGH|SEALED (default LOW). */
+  ceiling?: string;
+  /** Invocation target (default `hearthold:vault`). */
+  target?: string;
+  /** Days until the capability expires (default 90). */
+  days?: number;
+}
+export type AuthorizeCapabilityResponse =
+  | { granted: true; credentialDid: string; schemaDid: string }
+  | { granted: false; declined: true };

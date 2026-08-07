@@ -37,7 +37,12 @@ import {
   type ProjectionRecord,
   type ProofRecord,
   type SubmitRequest,
+  type InvokeRequest,
+  type InvokeResponse,
+  type AcceptCapabilityRequest,
+  type AcceptCapabilityResponse,
 } from '@hearthold/control-types';
+import { invokeEvidence } from './invoke.js';
 
 const bareDid = (s: string | undefined): string => String(s ?? '').split('#')[0] ?? '';
 const sensName = (s: number): SensitivityName => SENSITIVITY_NAMES[s] ?? 'SEALED';
@@ -58,6 +63,12 @@ export async function runEmissaryControl(
   type PendingReq = { type: 'submit'; kind: string; at: string };
   const pending = new Map<string, PendingReq>();
   const sovereignDid = config.sovereignDid;
+
+  // Invoke-shim queue (Sevenfold's ask): a keyless browser POSTs an INTENT; the daemon runs the full
+  // invocation ceremony with its OWN wallet + scope capability. The two request/reply legs must run on the
+  // SOLE mailbox drainer (the receive loop) to avoid contention, so the route enqueues and the loop resolves.
+  type PendingInvoke = { spec: InvokeRequest; resolve: (r: InvokeResponse) => void };
+  const invokeQueue: PendingInvoke[] = [];
 
   // The Warden-minted delegation challenge the daemon answers to authorize each submission (audit-3 §1/§5).
   // Reusable within the Warden's TTL, so we fetch it through the loop (the sole mailbox drainer — no receive
@@ -154,6 +165,25 @@ export async function runEmissaryControl(
         const receipt: ReceiptRecord = { id: thid, kind, status: 'submitted', at: submittedAt };
         return { receipt };
       },
+
+      // The keyless invoke-shim: a browser POSTs an intent; the daemon presents its scope capability and
+      // invokes. BLOCKS while the Warden gets the owner's consent for a sensitive claim — the app shows a
+      // "waiting for approval at your Signet" state, then receives granted | denied verbatim (§ Sevenfold).
+      'POST /api/invoke': async ({ body }): Promise<InvokeResponse> => {
+        const req = (body ?? {}) as InvokeRequest;
+        if (!req.claim || !req.kind) throw new Error('claim and kind are required');
+        if (!config.wardenDid) throw new Error('HEARTHOLD_WARDEN_DID is not set on the Emissary daemon');
+        return new Promise<InvokeResponse>((resolve) => invokeQueue.push({ spec: req, resolve }));
+      },
+
+      // Accept a Sovereign-granted scope capability into the Emissary's wallet, so it can be presented on
+      // invoke. The credential DID comes from the Sovereign's `/api/authorize-capability` grant.
+      'POST /api/accept-capability': async ({ body }): Promise<AcceptCapabilityResponse> => {
+        const { credentialDid } = (body ?? {}) as AcceptCapabilityRequest;
+        if (!credentialDid) throw new Error('credentialDid is required');
+        const accepted = await handle.keymaster.acceptCredential(credentialDid).catch(() => false);
+        return { accepted: !!accepted };
+      },
     },
     onListening: (p) =>
       process.stdout.write(
@@ -170,6 +200,23 @@ export async function runEmissaryControl(
       // Keep the delegation challenge fresh from inside the loop (sole mailbox drainer → no receive contention).
       if (config.wardenDid && Date.now() > challengeExp - 60_000) {
         await refreshDelegationChallenge().catch(() => undefined);
+      }
+      // Drain queued invocations HERE — the ceremony's two request/reply legs run on the sole drainer, so
+      // they don't race the loop's own receive. The POST route awaits the promise we resolve.
+      while (running && invokeQueue.length > 0) {
+        const job = invokeQueue.shift();
+        if (!job) break;
+        const reply = await invokeEvidence(handle, transport, config.wardenDid ?? '', {
+          claim: job.spec.claim,
+          kind: job.spec.kind,
+          ...(job.spec.target ? { target: job.spec.target } : {}),
+          ...(job.spec.reveal ? { reveal: job.spec.reveal } : {}),
+        }).catch((e: unknown) => ({ type: 'hearthold/error' as const, version: PROTOCOL_VERSION, reason: e instanceof Error ? e.message : String(e) }));
+        if (reply.type === 'hearthold/evidence-response' && reply.status === 'granted') {
+          job.resolve({ status: 'granted', credentialDid: reply.credentialDid, schemaDid: reply.schemaDid, ...(reply.graph ? { graph: reply.graph } : {}) });
+        } else {
+          job.resolve({ status: 'denied', reason: reply.type === 'hearthold/error' ? reply.reason : reply.reason ?? 'denied' });
+        }
       }
       let inbound: Awaited<ReturnType<typeof handle.keymaster.receiveDidComm>> = [];
       try {

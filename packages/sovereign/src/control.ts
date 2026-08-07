@@ -12,14 +12,20 @@ import {
   DidCommTransport,
   IDENTITY_NAME,
   startControlServer,
+  issueScopeCapability,
+  ensureAuthorizationSchema,
+  Sensitivity,
   type HearthholdConfig,
   type KeymasterHandle,
+  type WitnessKind,
 } from '@hearthold/core';
 import type {
   SignetStatus,
   SignetSnapshot,
   ApprovalDecisionRequest,
   LoginSignRequest,
+  AuthorizeCapabilityRequest,
+  AuthorizeCapabilityResponse,
 } from '@hearthold/control-types';
 
 import { makeSovereignHandler } from './handler.js';
@@ -90,6 +96,48 @@ export async function runSovereignControl(
         await handle.keymaster.setCurrentId(id.name);
         const response = await handle.keymaster.createResponse(challenge);
         return { response };
+      },
+
+      // Grant the Emissary a revocable scope capability to PROVE facts (the invocation grant). Signet-gated
+      // so the human sees exactly what disclosure authority they authorize — separate from submit-delegation
+      // by design. The Table drives this; the signature is the Sovereign's, here at the Signet.
+      'POST /api/authorize-capability': async ({ body }): Promise<AuthorizeCapabilityResponse> => {
+        const req = (body ?? {}) as AuthorizeCapabilityRequest;
+        if (!req.emissaryDid) throw new Error('emissaryDid is required');
+        const CEIL: Record<string, Sensitivity> = { PUBLIC: Sensitivity.PUBLIC, LOW: Sensitivity.LOW, MEDIUM: Sensitivity.MEDIUM, HIGH: Sensitivity.HIGH, SEALED: Sensitivity.SEALED };
+        const ceilingLabel = (req.ceiling ?? 'LOW').toUpperCase();
+        const ceiling = CEIL[ceilingLabel];
+        if (ceiling === undefined) throw new Error(`unknown ceiling '${req.ceiling}' — use PUBLIC|LOW|MEDIUM|HIGH|SEALED`);
+        const target = req.target ?? 'hearthold:vault';
+        const kinds = req.kinds && req.kinds.length > 0 ? (req.kinds as WitnessKind[]) : undefined;
+        const days = req.days ?? 90;
+        const validUntil = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+
+        const assertion = await gate.approve({
+          requester: 'the Table',
+          action: {
+            action: 'grant-capability',
+            resource: req.emissaryDid,
+            summary: `Grant this Emissary a capability to PROVE ${kinds ? kinds.join('/') : 'any'} facts ≤ ${ceilingLabel}, expiring ${validUntil.slice(0, 10)}`,
+          },
+        });
+        if (!assertion) return { granted: false, declined: true };
+
+        const schemaDid = await ensureAuthorizationSchema(handle);
+        const credentialDid = await issueScopeCapability({
+          issuer: handle,
+          issuerName: id.name,
+          holder: req.emissaryDid,
+          schemaDid,
+          config,
+          scope: {
+            invocationTarget: target,
+            authority: { operations: ['prove'], resources: [target] },
+            caveats: { ceiling, owner: id.did, expires: validUntil, ...(kinds ? { kinds } : {}) },
+          },
+          validUntil,
+        });
+        return { granted: true, credentialDid, schemaDid };
       },
     },
     onListening: (p) =>
