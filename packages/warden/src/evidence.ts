@@ -2,11 +2,12 @@
  * The Warden's evidence flow: turn a claim + the Sovereign's witnessed vault data into a signed,
  * presentable evidence graph.
  *
- * Selects the artefacts that back the claim, runs the release decision over their sensitivity, and
- * either mints the graph (trust class `witnessed`) or steps up. STANDING clears ≤LOW directly; for
- * MEDIUM/HIGH/SEALED the Warden obtains the Sovereign's signed proof-of-human approval on a **direct
- * Warden↔Sovereign channel** (the Emissary is never in the authorization path — §7.7). Without a
- * Sovereign channel wired, a sensitive claim is denied.
+ * Selects the artefacts that back the claim, runs the release decision over their sensitivity, and either
+ * mints the graph (trust class `witnessed`) or steps up. The human gate is a WARDEN POLICY, not an issuer
+ * option: a disclosure at/above `config.requiresHumanAt` (default MEDIUM) requires the OWNER's fresh signed
+ * consent (a discharge) obtained on a **direct Warden↔Signet channel** — the Emissary is never in the
+ * authorization path (§7.7). Without a discharge channel wired, a sensitive disclosure is denied (fail-closed),
+ * so a `ceiling: SEALED` capability with no `requiresDischarge` caveat cannot disclose SEALED with no human.
  */
 
 import {
@@ -29,6 +30,7 @@ import {
   type HearthholdConfig,
   type KeymasterHandle,
   type Sensitivity,
+  type Transport,
 } from '@hearthold/core';
 
 import { VaultStore, type Artefact } from './store.js';
@@ -49,6 +51,29 @@ export interface SovereignApprover {
  */
 export interface DischargeRequester {
   requestDischarge(req: DischargeRequest): Promise<Discharge | null>;
+}
+
+/**
+ * A DischargeRequester backed by DIDComm: the Warden asks the DESIGNATED owner's Signet (`req.by`) directly to
+ * co-sign a sensitive disclosure, on the control-plane channel. The Emissary is never on it (§7.7). Times out
+ * (→ null, denied) if the Signet doesn't answer — fail closed. Mirrors `makeDidcommActionApprover` (kb.ts).
+ */
+export function makeDidcommDischargeRequester(transport: Transport, timeoutMs = 170_000): DischargeRequester {
+  return {
+    async requestDischarge(req) {
+      try {
+        const reply = await transport.request(
+          req.by,
+          { type: 'hearthold/discharge-request', version: PROTOCOL_VERSION, request: req },
+          { timeoutMs },
+        );
+        if (reply.type === 'hearthold/discharge-response' && reply.approved && reply.discharge) return reply.discharge;
+        return null;
+      } catch {
+        return null; // unreachable Signet / timeout ⇒ not discharged (fail closed)
+      }
+    },
+  };
 }
 
 const toMeta = (a: Artefact): ArtefactMeta => ({
@@ -127,8 +152,11 @@ export class EvidenceService {
     }
     const sensitivity = assembled.sensitivity as Sensitivity;
 
-    // Authorize the act against the verified leaf: replay, ceiling, consent discharge.
-    let decision = await authorizeInvocation(inv, { ...ctx, sensitivity }, leaf);
+    // Authorize the act against the verified leaf: replay, ceiling, consent discharge. The Warden POLICY gate
+    // (`requiresHumanAt`, default MEDIUM) forces the owner's fresh consent for a sensitive disclosure even when
+    // the issuer attached no `requiresDischarge` caveat — so SEALED never discloses with no human (§3).
+    const authCtx = { ...ctx, sensitivity, owner, requiresHumanAt: this.config.requiresHumanAt };
+    let decision = await authorizeInvocation(inv, authCtx, leaf);
 
     // Consent step-up (MEDIUM+): the Warden obtains a discharge from the DESIGNATED Signet — never via the
     // Emissary — bound to this act's txn, then retries. The macaroon third-party caveat made real; this is
@@ -148,7 +176,7 @@ export class EvidenceService {
         if (!d) return deny('consent declined at the Signet');
         discharges.push(d);
       }
-      decision = await authorizeInvocation({ ...inv, discharges }, { ...ctx, sensitivity }, leaf);
+      decision = await authorizeInvocation({ ...inv, discharges }, authCtx, leaf);
     }
     if (!decision.allow) {
       // A ceiling/sensitivity denial reveals that artefacts exist above the holder's clearance — return the

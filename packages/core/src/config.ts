@@ -101,6 +101,14 @@ export interface HearthholdConfig {
    */
   confirmAtOrBelow: Sensitivity;
   /**
+   * WARDEN POLICY human gate for evidence disclosure (invocation): a disclosure at or above this sensitivity
+   * REQUIRES the owner's fresh signed consent (a discharge), regardless of whether the capability's issuer
+   * attached a `requiresDischarge` caveat. Default **MEDIUM** (PUBLIC/LOW clear without a human; MEDIUM+ needs
+   * one) — so a `ceiling: SEALED` capability cannot disclose SEALED with no human in the loop. Env:
+   * `HEARTHOLD_REQUIRES_HUMAN_AT` (a label PUBLIC|LOW|MEDIUM|HIGH|SEALED or a number 0–4).
+   */
+  requiresHumanAt: Sensitivity;
+  /**
    * The interface the control-plane HTTP daemons (Warden `:4310`, Signet `:4311`) bind to. Defaults to
    * `127.0.0.1` (loopback only — the safe default; the control API is unauthenticated-at-transport). An
    * isolated-node deployment that fronts the daemon with its own bridge can set `HEARTHOLD_CONTROL_HOST=0.0.0.0`
@@ -221,6 +229,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): HearthholdConf
       return Number.isFinite(n) && n > 0 ? n : DEFAULT_SESSION_TTL_MS;
     })(),
     confirmAtOrBelow: parseSensitivity(env.HEARTHOLD_CONFIRM_AT_OR_BELOW, Sensitivity.SEALED),
+    requiresHumanAt: parseSensitivity(env.HEARTHOLD_REQUIRES_HUMAN_AT, Sensitivity.MEDIUM),
     controlHost: env.HEARTHOLD_CONTROL_HOST ?? '127.0.0.1',
     controlAllowOrigins: (env.HEARTHOLD_CONTROL_ALLOW_ORIGIN ?? '')
       .split(',')

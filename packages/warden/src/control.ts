@@ -78,7 +78,8 @@ import { createVisionCaptioner } from './vision.js';
 import { WardenService } from './service.js';
 import { VaultStore, type Artefact } from './store.js';
 import { DelegationStore } from './delegations.js';
-import { EvidenceService } from './evidence.js';
+import { EvidenceService, makeDidcommDischargeRequester } from './evidence.js';
+import { ChallengeStore } from './challenge-store.js';
 import { OllamaEmbedder, RecallService } from './recall.js';
 import { makeDidcommActionApprover, makeDidcommRulesetSigner, makeDidcommMemberAcker } from './kb.js';
 import { routeCoSign } from './escalate.js';
@@ -216,7 +217,10 @@ export async function runWardenControl(
   const transport = new DidCommTransport(handle, IDENTITY_NAME.warden, config.nodeUrl);
   await transport.ready();
 
-  const evidenceService = new EvidenceService(handle, config);
+  // Wire the consent channel (audit-3 §3) — a sensitive disclosure routes to the owner's Signet over DIDComm;
+  // without it, MEDIUM+ fails closed. And the Warden-minted challenge store (§1) for invocation + delegation.
+  const evidenceService = new EvidenceService(handle, config, makeDidcommDischargeRequester(transport));
+  const challenges = new ChallengeStore(handle, config.registry, config.sovereignDid);
 
   const classifierLabel =
     config.classifierMode === 'ollama'
@@ -875,7 +879,7 @@ export async function runWardenControl(
   const inner = makeWardenHandler(service, delegations, evidenceService, kbs, config.sovereignDid, {
     confirmAtOrBelow: config.confirmAtOrBelow,
     isAutofileTrusted,
-  }, onSubmissionStored);
+  }, onSubmissionStored, challenges);
   const handler: RequestHandler = async (message, fromDid) => {
     // Inbound card from another node — VERIFY at receipt, then queue as PENDING-INBOUND (born obsidian;
     // promote into the vault only on the member's explicit accept — Sevenfold's model), emit `card-received`,

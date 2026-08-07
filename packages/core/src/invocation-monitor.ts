@@ -32,6 +32,15 @@ export interface InvocationContext {
   spent: SpentTxnStore;
   /** Sensitivity of what the act would disclose (the Warden computes it post-assembly; ≤ the bound ceiling). */
   sensitivity?: Sensitivity;
+  /**
+   * WARDEN POLICY human gate (audit-3 §3): disclosures at or above this sensitivity REQUIRE the owner's fresh
+   * signed consent (a discharge), regardless of whether the issuer attached a `requiresDischarge` caveat. This
+   * is what stops a `ceiling: SEALED` capability with no caveat from disclosing SEALED with no human in the
+   * loop. Undefined ⇒ no policy gate (only issuer-attached caveats apply).
+   */
+  requiresHumanAt?: Sensitivity;
+  /** The resolved owner whose Signet the policy consent routes to (evidence.ts resolves the caveat/fallback). */
+  owner?: string;
   /** Transport-authenticated caller (authcrypt sender), when available — an additional binding to the holder. */
   fromDid?: string;
   /**
@@ -63,6 +72,9 @@ export interface InvocationDecision {
 }
 
 const deny = (reason: string): InvocationDecision => ({ allow: false, reason });
+
+/** The predicate the Warden's sensitivity policy asks the owner's Signet to sign — a fresh human consent. */
+export const POLICY_CONSENT_PREDICATE = 'human-consent' as const;
 
 /**
  * Resolve + AUTHENTICATE the invocation, returning the VERIFIED capability. Verifies the presentation
@@ -148,7 +160,20 @@ export async function authorizeInvocation(inv: CapabilityInvocation, ctx: Invoca
   for (const cav of leaf.caveats.requiresDischarge ?? []) {
     if (!(await hasValidDischarge(inv, cav, ctx))) unmet.push({ by: cav.by, predicate: cav.predicate });
   }
-  if (unmet.length > 0) return { allow: false, reason: 'discharge required', needsDischarge: unmet, owner: leaf.caveats.owner, ceiling: leaf.caveats.ceiling };
+  // Warden POLICY gate: a disclosure at/above `requiresHumanAt` needs the OWNER's fresh consent even if the
+  // issuer attached no caveat — so a `ceiling: SEALED` capability cannot disclose SEALED with no human (§3).
+  if (
+    ctx.requiresHumanAt !== undefined &&
+    ctx.sensitivity !== undefined &&
+    ctx.sensitivity >= ctx.requiresHumanAt
+  ) {
+    const owner = leaf.caveats.owner ?? ctx.owner;
+    if (!owner) return deny('policy requires the owner’s consent for this sensitivity, but the capability names no owner');
+    const policyCav: ThirdPartyCaveat = { by: owner, predicate: POLICY_CONSENT_PREDICATE };
+    const already = unmet.some((u) => u.by === owner && u.predicate === POLICY_CONSENT_PREDICATE);
+    if (!already && !(await hasValidDischarge(inv, policyCav, ctx))) unmet.push({ by: owner, predicate: POLICY_CONSENT_PREDICATE });
+  }
+  if (unmet.length > 0) return { allow: false, reason: 'discharge required', needsDischarge: unmet, owner: leaf.caveats.owner ?? ctx.owner, ceiling: leaf.caveats.ceiling };
 
   await ctx.spent.markSpent(inv.act.txn);
   if (leaf.caveats.singleUse) await ctx.spent.markSpent(`cap:${leaf.id}`);

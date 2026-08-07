@@ -8,7 +8,8 @@
 import type { Sensitivity, DisclosureMode } from './security.js';
 import type { SpendApprovalDetail } from './escalation.js';
 import type { CipherPublicJwk } from './payload.js';
-import type { CapabilityInvocation } from './capability.js';
+import type { CapabilityInvocation, Discharge } from './capability.js';
+import type { DischargeRequest } from './invocation-monitor.js';
 import type { GatekeeperEvent } from '@didcid/gatekeeper/types';
 
 export const PROTOCOL_VERSION = '0.4.0' as const;
@@ -557,6 +558,27 @@ export interface ChallengeResponseMessage {
   acceptCredentials?: string[];
 }
 
+// ── Warden → owner's Signet: obtain a consent discharge for a sensitive disclosure ──────────────────
+//
+// The direct control-plane channel (the Emissary is never on it — §7.7). The Warden authors the request; the
+// Signet runs the owner's fresh proof-of-human gate and, on approval, signs a discharge bound to the act's txn.
+
+export interface DischargeRequestMessage {
+  type: 'hearthold/discharge-request';
+  version: typeof PROTOCOL_VERSION;
+  /** The Warden-authored discharge request (act txn, predicate, the owner to sign, human-readable reason). */
+  request: DischargeRequest;
+}
+
+export interface DischargeResponseMessage {
+  type: 'hearthold/discharge-response';
+  version: typeof PROTOCOL_VERSION;
+  approved: boolean;
+  /** The signed consent, present iff approved — bound to `request.txn`/`predicate` and signed by `request.by`. */
+  discharge?: Discharge;
+  reason?: string;
+}
+
 export interface ErrorMessage {
   type: 'hearthold/error';
   version: typeof PROTOCOL_VERSION;
@@ -596,4 +618,6 @@ export type HearthholdMessage =
   | CredentialDeliveryAckMessage
   | ChallengeRequestMessage
   | ChallengeResponseMessage
+  | DischargeRequestMessage
+  | DischargeResponseMessage
   | ErrorMessage;
