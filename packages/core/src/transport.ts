@@ -214,11 +214,20 @@ export class DidCommTransport implements Transport {
 
           // Otherwise it's an incoming request — dispatch to the handler off the loop.
           const h = this.handler;
-          const fromDid = bareDid(m.metadata?.sender);
+          // A6 (docs/attributions.md): trust the sender ONLY on an authcrypt-AUTHENTICATED envelope. Don't
+          // infer identity from a `sender` field on a non-authenticated (anoncrypt) message — the holder
+          // binding the whole invocation/submission path rests on is this `fromDid`.
+          const authenticated = m.metadata?.authenticated === true;
+          const fromDid = authenticated ? bareDid(m.metadata?.sender) : '';
           if (!h || !fromDid) {
-            // A body with no resolvable sender = the authcrypt sender couldn't be verified/resolved — the
-            // likely cause of a silent submit drop. Surface it (but stay quiet when we simply aren't serving).
-            if (h && !fromDid) process.stderr.write(`[didcomm] ${this.idName}: dropped '${body.type}' — no verified sender (authcrypt sender unresolved)\n`);
+            // A body with no resolvable AUTHENTICATED sender = the authcrypt sender couldn't be
+            // verified/resolved — the likely cause of a silent submit drop. Surface it (but stay quiet when
+            // we simply aren't serving).
+            if (h && !authenticated && m.metadata?.sender) {
+              process.stderr.write(`[didcomm] ${this.idName}: dropped '${body.type}' — envelope not authcrypt-authenticated (sender not trusted)\n`);
+            } else if (h && !fromDid) {
+              process.stderr.write(`[didcomm] ${this.idName}: dropped '${body.type}' — no verified sender (authcrypt sender unresolved)\n`);
+            }
             continue;
           }
           void (async () => {

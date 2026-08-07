@@ -95,6 +95,14 @@ async function main(): Promise<void> {
   const a4 = await evidence.handleInvocation({ type: 'hearthold/invocation', version: PROTOCOL_VERSION, presentation: await present(attacker), act: act() } as CapabilityInvocation, atkId.did);
   mustDeny("copied scope VC presented under the attacker's own DID (possession ≠ authority)", a4.status, a4.reason);
 
+  // A5 — the LEGIT holder invokes an ACTION its capability doesn't grant (a prove-only scope, a 'delete' act).
+  const a5 = await evidence.handleInvocation({ type: 'hearthold/invocation', version: PROTOCOL_VERSION, presentation: await present(emissary), act: { ...act(), action: 'delete' } } as CapabilityInvocation, emiId.did);
+  mustDeny("an action outside the capability's operations", a5.status, a5.reason);
+
+  // A6 — the LEGIT holder invokes over a TARGET outside its resources (scope is hearthold:vault, act names another).
+  const a6 = await evidence.handleInvocation({ type: 'hearthold/invocation', version: PROTOCOL_VERSION, presentation: await present(emissary), act: { ...act(), target: 'hearthold:othervault:location' } } as CapabilityInvocation, emiId.did);
+  mustDeny("a target outside the capability's resources", a6.status, a6.reason);
+
   line(`\n${failures === 0 ? '✅ ALL ATTACKS REFUSED' : `❌ ${failures} ATTACK(S) SUCCEEDED — vulnerability live`}`);
   process.exit(failures === 0 ? 0 : 1);
 }
