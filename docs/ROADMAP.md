@@ -41,9 +41,17 @@ Emissary acts autonomously), with an *automatic Signet step-up* for anything at 
   register its own, so the Sovereign issued against a schema DID the Warden's challenge didn't request. The
   issuer now reuses the canonical schema DID (`config.authorizationSchemaDid` / `HEARTHOLD_AUTHORIZATION_SCHEMA_DID`). (`e2e-permissions-center`: grant →
   list → invoke → revoke → deny.)
-- **Phase 5 — onboarding + Emissary-as-delegator.** Baseline grant wired into device setup alongside
-  `warden delegate`; multi-hop attenuation (the retained `attenuation.ts` / `capability-chain.ts` primitive) so
-  the Emissary can attenuate-and-hand-off a further-narrowed capability to a third party.
+- **Phase 5 — onboarding + Emissary-as-delegator.**
+  - **Part A — onboarding.** ✅ Ships via the two grants' sensible defaults (`warden delegate` for submit +
+    `sovereign capability:grant` at LOW/90-day baseline for prove), over CLI or control plane. Documented in
+    `docs/onboarding.md`.
+  - **Part B — multi-hop delegation.** ◀ **designed, gated — not wired.** The chain machinery
+    (`capability-chain.ts`) is hardened + unit-tested (`e2e-capability-chain`), but wiring it into the live
+    monitor must first reach parity with the single-hop VC path (Warden-minted challenge, holder proof,
+    per-hop revocation, human gate, caveat-shape validation) and pass an adversarial suite. That integration is
+    where audits 2–3 found their defects, so it earns its own workstream + red-team pass rather than a rushed
+    commit. Full design + parity bar + test plan in `docs/multihop-delegation.md`. Single-hop stays the shipped,
+    graded path until multi-hop clears the gate.
 
 ## Phase 3 — per-actor MCP servers (detail)
 
