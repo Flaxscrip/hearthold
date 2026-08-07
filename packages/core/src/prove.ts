@@ -49,9 +49,8 @@ export interface ProofResult {
   responder?: string;
   /**
    * The challenge DID this response answered (`ChallengeResponse.challenge`). A verifier that minted the
-   * challenge MUST assert this equals one it minted and burn it — otherwise a presentation is a permanent
-   * bearer token, and the audience binding rests entirely on the (unverified) accident that `createResponse`
-   * encrypts to the challenge's controller. Empty if the response named no challenge.
+   * challenge asserts this equals one it minted and burns it, binding the presentation to this verifier and
+   * occasion (audience binding) so it can't be replayed as a bearer token. Empty if the response named none.
    */
   challenge: string;
   disclosed: DisclosedCredential[];

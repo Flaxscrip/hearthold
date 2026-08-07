@@ -1,11 +1,11 @@
 /**
- * e2e: the Warden-minted challenge (audit-3 §1). A presentation must answer a challenge the WARDEN minted —
- * fresh and single-use — so it is not a permanent bearer token, and the audience binding does not rest on the
- * unverified accident that `createResponse` encrypts to the challenge's controller (assumption A1).
+ * e2e: the Warden-minted challenge. The verifier mints the challenge (object-capability audience binding), so a
+ * presentation must answer a challenge the WARDEN minted — fresh and single-use — and cannot be replayed as a
+ * bearer token or answered against a challenge the holder minted for itself.
  *
  *   ✓ honest: a fresh Warden challenge → granted, and the challenge is consumed.
  *   ✗ replay: a second presentation of the (burned) challenge → refused.
- *   ✗ self-minted: a challenge the HOLDER minted (not the Warden) → refused, regardless of whether A1 holds.
+ *   ✗ self-minted: a challenge the HOLDER minted (not the Warden) → refused.
  *
  *   HEARTHOLD_DATA_ROOT=$(mktemp -d) HEARTHOLD_NODE_URL=http://flaxlap.local:4222 HEARTHOLD_REGISTRY=local \
  *   node --experimental-strip-types scripts/e2e-invocation-challenge.ts

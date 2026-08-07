@@ -214,9 +214,10 @@ export class DidCommTransport implements Transport {
 
           // Otherwise it's an incoming request — dispatch to the handler off the loop.
           const h = this.handler;
-          // A6 (docs/attributions.md): trust the sender ONLY on an authcrypt-AUTHENTICATED envelope. Don't
-          // infer identity from a `sender` field on a non-authenticated (anoncrypt) message — the holder
-          // binding the whole invocation/submission path rests on is this `fromDid`.
+          // Trust the sender ONLY on an authcrypt-AUTHENTICATED envelope — read Keymaster's own
+          // `metadata.authenticated` flag rather than inferring identity from a `sender` field on a
+          // non-authenticated (anoncrypt) message. The holder binding the invocation/submission path rests on
+          // is this `fromDid`.
           const authenticated = m.metadata?.authenticated === true;
           const fromDid = authenticated ? bareDid(m.metadata?.sender) : '';
           if (!h || !fromDid) {

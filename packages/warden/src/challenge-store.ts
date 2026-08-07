@@ -1,13 +1,13 @@
 /**
  * Warden-minted challenges for the credential-request ceremony (invocation + delegation presentation).
  *
- * Why this exists (audit-3 §1 / §6-A1): `verifyProof` gates on `res.match`/`fulfilled`/`requested`, which
- * describe *the challenge the response itself names* — not a challenge WE minted. Without this, a presentation
- * is a permanent bearer token, and the only thing stopping a holder from answering its OWN challenge (any
- * schema, any issuer set) is the *accident* that `createResponse` encrypts to the challenge's controller
- * (assumption A1, unverified). This store makes the audience binding explicit and adds freshness: the Warden
- * mints the challenge, remembers it, and the verify path asserts `res.challenge` is one of ours before
- * trusting the disclosed scope — then burns it (single-use) or lets it live to its TTL (reusable).
+ * The verifier mints the challenge — standard object-capability audience binding. Keymaster's
+ * `verifyResponse` verifies the presented credentials (their signatures and challenge-satisfaction), which
+ * Hearthold consumes and trusts as a first-class Archon primitive, like Vaults or asset registration. What
+ * this store adds is the authorization the reference monitor owns: the presentation must answer a challenge
+ * *we* minted, so it is bound to this verifier and this occasion and cannot be replayed as a bearer token.
+ * The Warden mints the challenge, remembers it, and the verify path asserts `res.challenge` is one of ours
+ * before trusting the disclosed scope — then burns it (single-use) or lets it live to its TTL (reusable).
  *
  * Template: `kb.ts:199-221` (the 18-byte login nonce with a TTL, stored and deleted on use).
  */
