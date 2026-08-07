@@ -55,9 +55,9 @@ export async function ensureCapabilityStatusContext(
 }
 
 /**
- * Register (idempotent) the HearthholdAuthorization schema and return its DID. Schema DIDs are
- * content-addressed, so every wallet that registers the same schema JSON derives the SAME DID — the Sovereign
- * issues against it and the Warden requests it without any shared configuration.
+ * Register (idempotent) the HearthholdAuthorization schema and return its DID. Schema DIDs are registered
+ * locally and are NOT content-addressed across wallets, so a multi-wallet deployment shares the verifier's
+ * (Warden's) schema DID via `config.authorizationSchemaDid` — the Sovereign issues against it.
  */
 export async function ensureAuthorizationSchema(handle: KeymasterHandle): Promise<string> {
   return ensureSchema(handle, AUTHORIZATION_SCHEMA_NAME, openSchema(AUTHORIZATION_TYPE));

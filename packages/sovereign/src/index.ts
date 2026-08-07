@@ -15,8 +15,6 @@ import {
   ensureSchema,
   openSchema,
   issueClaim,
-  issueScopeCapability,
-  ensureAuthorizationSchema,
   Sensitivity,
   signKbRequest,
   PROTOCOL_VERSION,
@@ -27,6 +25,10 @@ import {
 import { makeSovereignHandler } from './handler.js';
 import { PromptGate, AgentGate } from './signet.js';
 import { runSovereignControl } from './control.js';
+import { CapabilityGrantStore, grantCapability, revokeCapability, grantState } from './capability-grants.js';
+
+const SENS_NAMES = ['PUBLIC', 'LOW', 'MEDIUM', 'HIGH', 'SEALED'];
+const sensName = (s: number): string => SENS_NAMES[s] ?? String(s);
 
 const HELP = `Hearthold Sovereign — the principal (Signet precursor)
 
@@ -39,6 +41,9 @@ Usage:
                              Issue a credential to a subject (act as an issuer, e.g. a sphere manager)
   sovereign capability:grant <emissaryDid> [ceiling=LOW] [kinds=location,activity] [target=hearthold:vault] [days=90]
                              Grant the Emissary a revocable scope capability to PROVE facts (the invocation grant)
+  sovereign capabilities     List the scope capabilities I've granted (active / expired / revoked)
+  sovereign capability:revoke <capabilityDid>
+                             Revoke a granted capability — the Warden refuses it at the next invocation
   sovereign serve            Serve over DIDComm: present proofs on request (terminal PIN)
   sovereign control [port]   Serve DIDComm + a control API for the Signet Approver app (default 4311)
   sovereign agent-signet     Serve as an AGENT's Signet (AgentGate: self-approve within the parent-signed
@@ -208,38 +213,45 @@ async function main(): Promise<void> {
       const ceilingLabel = (opts.ceiling ?? 'LOW').toUpperCase();
       const ceiling = CEIL[ceilingLabel];
       if (ceiling === undefined) throw new Error(`unknown ceiling '${opts.ceiling}' — use PUBLIC|LOW|MEDIUM|HIGH|SEALED`);
-      const target = opts.target ?? 'hearthold:vault';
       const kinds = opts.kinds ? (opts.kinds.split(',').map((s) => s.trim()).filter(Boolean) as WitnessKind[]) : undefined;
-      const days = Number(opts.days ?? '90');
-      const validUntil = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
 
-      // The Sovereign is the issuer — running this command IS the authorizing act. (The Signet co-sign gate is
-      // the productionization; here the wallet passphrase gates issuance.) Revocable by default via `config`.
-      const schemaDid = await ensureAuthorizationSchema(handle);
-      const credDid = await issueScopeCapability({
-        issuer: handle,
-        issuerName: id.name,
-        holder: emissaryDid,
-        schemaDid,
-        config,
-        scope: {
-          invocationTarget: target,
-          authority: { operations: ['prove'], resources: [target] },
-          caveats: { ceiling, owner: id.did, expires: validUntil, ...(kinds ? { kinds } : {}) },
-        },
-        validUntil,
-      });
+      // The Sovereign is the issuer — running this command IS the authorizing act. Recorded in the grant
+      // inventory (so it can be listed + revoked), revocable by default.
+      const grant = await grantCapability(handle, id.name, id.did, config, { holder: emissaryDid, ...(opts.target ? { target: opts.target } : {}), ...(kinds ? { kinds } : {}), ceiling, days: Number(opts.days ?? '90') }, new CapabilityGrantStore(handle.dataFolder));
       process.stdout.write(
         `Granted a scope capability to ${emissaryDid.slice(0, 28)}…\n` +
-          `  target:     ${target}\n` +
+          `  target:     ${grant.target}\n` +
           `  operations: prove\n` +
           `  ceiling:    ${ceilingLabel}\n` +
           `  kinds:      ${kinds ? kinds.join(', ') : '(any)'}\n` +
-          `  expires:    ${validUntil}\n` +
-          `  revocable:  yes (carries a status pointer)\n` +
-          `  capability: ${credDid}\n` +
-          `  → emissary runs: emissary accept ${credDid}\n`,
+          `  expires:    ${grant.expires}\n` +
+          `  revocable:  yes (status index ${grant.statusListIndex})\n` +
+          `  capability: ${grant.credentialDid}\n` +
+          `  → emissary runs: emissary accept ${grant.credentialDid}\n`,
       );
+      break;
+    }
+    case 'capabilities': {
+      const grants = await new CapabilityGrantStore(handle.dataFolder).list();
+      if (grants.length === 0) {
+        process.stdout.write('No capabilities granted.\n');
+        break;
+      }
+      for (const g of grants) {
+        process.stdout.write(
+          `[${grantState(g).padEnd(7)}] ${g.credentialDid.slice(0, 30)}… → ${g.holder.slice(0, 24)}… · ` +
+            `${g.kinds ? g.kinds.join('/') : 'any'} ≤ ${sensName(g.ceiling)} · expires ${g.expires.slice(0, 10)}\n`,
+        );
+      }
+      process.stdout.write(`${grants.length} capability grant(s).\n`);
+      break;
+    }
+    case 'capability:revoke': {
+      const credDid = process.argv[3];
+      if (!credDid) throw new Error('usage: sovereign capability:revoke <capabilityDid>');
+      const r = await revokeCapability(handle, id.name, new CapabilityGrantStore(handle.dataFolder), credDid);
+      if (!r.revoked) throw new Error(`revoke failed: ${r.reason}`);
+      process.stdout.write(`Revoked ${credDid.slice(0, 30)}… — the Warden will refuse it at the next invocation.\n`);
       break;
     }
     case 'issued': {

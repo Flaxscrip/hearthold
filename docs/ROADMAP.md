@@ -27,7 +27,15 @@ Emissary acts autonomously), with an *automatic Signet step-up* for anything at 
   standing finding — and added `grant_capability`, `accept_capability`, `delegate`, and a keymaster-direct
   `verify_card`. (`smoke-agent-mcp-roles`) Deferred: the Verifier's full challenge/response verify (needs a
   DIDComm request/present, not just a resolve-and-check); the MCP still can't bypass the monitor or human gate.
-- **Phase 4 — permissions center.** Capability inventory + revoke at the Signet; read-only mirror in the Table.
+- **Phase 4 — permissions center.** ✅ The Sovereign records each grant (`CapabilityGrantStore`), lists it with
+  its state (active/expired/revoked), and revokes it by flipping the status bit — which the Warden's
+  revocation-by-default check refuses at the next invocation. CLI (`sovereign capabilities` /
+  `capability:revoke`), control routes (`GET /api/capabilities`, `POST /api/revoke-capability`, and
+  `authorize-capability` now records), MCP verbs (`list_capabilities`, `revoke_capability`), and the Table
+  mirror contract in control-types. Also fixed a multi-wallet bug this exposed: authorization schema DIDs are
+  NOT content-addressed across wallets, so the issuer now mints against the verifier's schema DID
+  (`config.authorizationSchemaDid` / `HEARTHOLD_AUTHORIZATION_SCHEMA_DID`). (`e2e-permissions-center`: grant →
+  list → invoke → revoke → deny.)
 - **Phase 5 — onboarding + Emissary-as-delegator.** Baseline grant wired into device setup alongside
   `warden delegate`; multi-hop attenuation (the retained `attenuation.ts` / `capability-chain.ts` primitive) so
   the Emissary can attenuate-and-hand-off a further-narrowed capability to a third party.

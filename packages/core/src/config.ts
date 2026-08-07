@@ -116,6 +116,15 @@ export interface HearthholdConfig {
    */
   requireRevocableCapabilities: boolean;
   /**
+   * The shared HearthholdAuthorization schema DID the ISSUER (Sovereign) mints scope capabilities against, so
+   * it matches what the VERIFIER (Warden) requests in its invocation challenge. Archon schema DIDs are NOT
+   * content-addressed across wallets, so in a multi-wallet deployment the Sovereign must be handed the Warden's
+   * schema DID (env `HEARTHOLD_AUTHORIZATION_SCHEMA_DID`). Unset ⇒ derive locally (single-wallet dev, where
+   * issuer and verifier are the same wallet). The verifier side always uses its own local schema, which is
+   * canonical.
+   */
+  authorizationSchemaDid?: string;
+  /**
    * CGPR autonomy threshold (Phase 2): an external Consent-Gated Preference request whose disclosure is at or
    * below this sensitivity clears **autonomously** (no per-request Signet consent); above it, the gateway steps
    * up to the Sovereign's Signet. Default **LOW**, deliberately STRICTER than the internal `requiresHumanAt` —
@@ -246,6 +255,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): HearthholdConf
     confirmAtOrBelow: parseSensitivity(env.HEARTHOLD_CONFIRM_AT_OR_BELOW, Sensitivity.SEALED),
     requiresHumanAt: parseSensitivity(env.HEARTHOLD_REQUIRES_HUMAN_AT, Sensitivity.MEDIUM),
     requireRevocableCapabilities: env.HEARTHOLD_REQUIRE_REVOCABLE !== 'false' && env.HEARTHOLD_REQUIRE_REVOCABLE !== '0',
+    ...(env.HEARTHOLD_AUTHORIZATION_SCHEMA_DID ? { authorizationSchemaDid: env.HEARTHOLD_AUTHORIZATION_SCHEMA_DID } : {}),
     cgprAutonomousAtOrBelow: parseSensitivity(env.HEARTHOLD_CGPR_AUTONOMOUS_AT, Sensitivity.LOW),
     controlHost: env.HEARTHOLD_CONTROL_HOST ?? '127.0.0.1',
     controlAllowOrigins: (env.HEARTHOLD_CONTROL_ALLOW_ORIGIN ?? '')

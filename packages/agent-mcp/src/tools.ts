@@ -253,6 +253,18 @@ export const HEARTHOLD_TOOLS: HeartholdTool[] = [
     handler: (ctx, a) => control(ctx, ctx.control.signetUrl, 'Signet', 'POST', '/api/authorize-capability', { emissaryDid: a.emissaryDid, kinds: a.kinds, ceiling: a.ceiling, target: a.target, days: a.days }),
   },
   {
+    name: 'hearthold_list_capabilities',
+    description: 'My permissions center — the scope capabilities I have granted, each with its holder, scope, and state (active / expired / revoked).',
+    inputSchema: NO_ARGS,
+    handler: (ctx) => control(ctx, ctx.control.signetUrl, 'Signet', 'GET', '/api/capabilities'),
+  },
+  {
+    name: 'hearthold_revoke_capability',
+    description: 'Revoke a scope capability I granted — flips its status bit so the Warden refuses it at the very next invocation (revocation-by-default). Immediate and irreversible.',
+    inputSchema: { type: 'object', properties: { credentialDid: { type: 'string' } }, required: ['credentialDid'], additionalProperties: false },
+    handler: (ctx, a) => control(ctx, ctx.control.signetUrl, 'Signet', 'POST', '/api/revoke-capability', { credentialDid: a.credentialDid }),
+  },
+  {
     name: 'hearthold_delegate',
     description: 'Delegate SUBMIT authority to an Emissary (so it may contribute observations to my vault). Session-gated + co-signed at my Signet. Separate from grant_capability (prove authority).',
     inputSchema: {
@@ -306,7 +318,7 @@ export const HEARTHOLD_TOOLS: HeartholdTool[] = [
  */
 const PROFILES: Record<Exclude<HeartholdRole, 'full'>, string[]> = {
   warden: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_recall', 'hearthold_list_inbound', 'hearthold_triage', 'hearthold_confirm_triage', 'hearthold_delegate', 'hearthold_pass_card', 'hearthold_accept_card', 'hearthold_decline_card'],
-  sovereign: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_grant_capability', 'hearthold_pending_approvals', 'hearthold_decide'],
+  sovereign: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_grant_capability', 'hearthold_list_capabilities', 'hearthold_revoke_capability', 'hearthold_pending_approvals', 'hearthold_decide'],
   emissary: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_contribute', 'hearthold_invoke', 'hearthold_accept_capability'],
   verifier: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_verify_card'],
 };
