@@ -32,6 +32,7 @@ import { WardenService } from '@hearthold/warden/service';
 import { VaultStore } from '@hearthold/warden/store';
 import { DelegationStore } from '@hearthold/warden/delegations';
 import { makeWardenHandler } from '@hearthold/warden/handler';
+import { ChallengeStore } from '@hearthold/warden/challenge-store';
 import { OllamaVisionCaptioner } from '@hearthold/warden/vision';
 import type { Classifier } from '@hearthold/warden/classifier';
 import { runEmissaryControl } from '@hearthold/emissary/control';
@@ -80,8 +81,9 @@ async function main(): Promise<void> {
   const svc = new WardenService(warden, stubClassifier, stubEmbedder, haveVision ? new OllamaVisionCaptioner(base.ollamaUrl, base.visionModel) : undefined);
   const wardenTransport = new DidCommTransport(warden, IDENTITY_NAME.warden, wardenCfg.nodeUrl);
   await wardenTransport.ready();
+  const challenges = new ChallengeStore(warden, wardenCfg.registry);
   const stopWarden = await wardenTransport.serve(
-    makeWardenHandler(svc, delegations, undefined, undefined, wardenId.did, { confirmAtOrBelow: Sensitivity.SEALED, isAutofileTrusted: async () => false }),
+    makeWardenHandler(svc, delegations, undefined, undefined, wardenId.did, { confirmAtOrBelow: Sensitivity.SEALED, isAutofileTrusted: async () => false }, undefined, challenges),
     { pollMs: 1000 },
   );
 

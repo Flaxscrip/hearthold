@@ -118,7 +118,18 @@ export function makeWardenHandler(
         if (purpose !== 'invocation' && purpose !== 'delegation') return deny('challenge-request needs a purpose of invocation|delegation');
         try {
           const challenge = await challenges.mintForPurpose(purpose);
-          return { type: 'hearthold/challenge-response', version: PROTOCOL_VERSION, challenge };
+          // Self-provisioning: tell the Emissary which delegation VC(s) WE issued it to accept before
+          // presenting — the daemon pulls its grant here instead of relying on a delivery push at delegate time.
+          const acceptCredentials =
+            purpose === 'delegation'
+              ? (await delegations.list()).filter((d) => d.subjectDid === fromDid).map((d) => d.credentialDid)
+              : [];
+          return {
+            type: 'hearthold/challenge-response',
+            version: PROTOCOL_VERSION,
+            challenge,
+            ...(acceptCredentials.length > 0 ? { acceptCredentials } : {}),
+          };
         } catch (e) {
           return deny(`cannot mint a ${purpose} challenge: ${e instanceof Error ? e.message : String(e)}`);
         }

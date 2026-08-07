@@ -549,6 +549,12 @@ export interface ChallengeResponseMessage {
   version: typeof PROTOCOL_VERSION;
   /** The Warden-minted challenge DID to answer with `createResponse`. */
   challenge: string;
+  /**
+   * For a `delegation` challenge: the delegation credential DID(s) the Warden has issued to THIS caller that
+   * it should `acceptCredential` before presenting — so an Emissary self-provisions its held delegation when
+   * it fetches a challenge, rather than needing a separate delivery push to a possibly-offline daemon.
+   */
+  acceptCredentials?: string[];
 }
 
 export interface ErrorMessage {

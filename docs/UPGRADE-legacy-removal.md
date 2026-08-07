@@ -24,12 +24,21 @@ and must be migrated to the capability path.
 ## Consumers to migrate (deferred)
 
 ### 1. Submission-feature e2e — add the delegation-presentation preamble
-These compile but now fail at runtime (they submit without `delegationProof`):
-`e2e:triage`, `e2e:ack-before-caption`, `e2e:ingestion-gate`, `e2e:kind-and-asset`, `e2e:image-witness`,
-`e2e:daemon-image-submit`, `e2e:mark`.
+These are **library-level** tests that call `makeWardenHandler` directly and submit without `delegationProof`,
+so they compile but fail at runtime: `e2e:triage`, `e2e:ack-before-caption`, `e2e:ingestion-gate`,
+`e2e:kind-and-asset`, `e2e:image-witness`, `e2e:mark`.
 
 Fix (mechanical — copy from `scripts/e2e-submission.ts`): after `issueDelegation`, `acceptDelegation(emissary, del)`;
 then per submission `const challenge = await requestProof(warden, { schema: delSchema, trustedIssuers: [wardenId.did] }); const delegationProof = await presentProof(emissary, challenge);` and set `submission.delegationProof`.
+(They pass `undefined` for the handler's `challenges` arg, so the Warden-minted-challenge gate is skipped — a
+self-minted `requestProof` challenge is fine for a direct-library test.)
+
+**Fixed, not deferred:** the **Emissary control daemon** (`emissary/src/control.ts`) and
+`e2e:daemon-image-submit` now work end-to-end. The daemon **self-provisions**: it sends the Warden a
+`hearthold/challenge-request {purpose:'delegation'}`, the Warden replies with a reusable challenge **and** the
+delegation VC(s) it has issued this Emissary, the daemon `acceptCredential`s them and answers with
+`createResponse`, and each `/api/submit` attaches that `delegationProof`. No manual preamble; the submission is
+now Warden-minted-challenge-bound (audit-3 §1). Construct the Warden handler with a `ChallengeStore` to enable it.
 
 ### 2. Emissary app prove button — `apps/emissary/src/api.ts:43`
 `post('/api/prove', …)` now 404s. Re-implement on the capability path: the Emissary holds a Sovereign-issued

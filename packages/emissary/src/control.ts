@@ -16,6 +16,7 @@ import { randomUUID } from 'node:crypto';
 import {
   ensureIdentity,
   sealForWarden,
+  presentProof,
   DidCommTransport,
   IDENTITY_NAME,
   PROTOCOL_VERSION,
@@ -25,6 +26,7 @@ import {
   type HearthholdMessage,
   type WitnessSubmission,
   type SubmissionReceipt,
+  type ChallengeResponseMessage,
 } from '@hearthold/core';
 import {
   SENSITIVITY_NAMES,
@@ -56,6 +58,28 @@ export async function runEmissaryControl(
   type PendingReq = { type: 'submit'; kind: string; at: string };
   const pending = new Map<string, PendingReq>();
   const sovereignDid = config.sovereignDid;
+
+  // The Warden-minted delegation challenge the daemon answers to authorize each submission (audit-3 §1/§5).
+  // Reusable within the Warden's TTL, so we fetch it through the loop (the sole mailbox drainer — no receive
+  // contention) and cache it; the submit route only answers it with `createResponse`. The Warden also hands
+  // back the delegation VC(s) to accept, so the daemon self-provisions its grant here.
+  let delegationChallenge: string | undefined;
+  let challengeExp = 0;
+  const refreshDelegationChallenge = async (): Promise<void> => {
+    const wardenDid = config.wardenDid;
+    if (!wardenDid) return;
+    const reply = await transport.request(
+      wardenDid,
+      { type: 'hearthold/challenge-request', version: PROTOCOL_VERSION, purpose: 'delegation' },
+      { timeoutMs: 30_000 },
+    );
+    if (reply.type !== 'hearthold/challenge-response') return;
+    for (const cid of (reply as ChallengeResponseMessage).acceptCredentials ?? []) {
+      await handle.keymaster.acceptCredential(cid).catch(() => undefined); // idempotent; accept our own grant
+    }
+    delegationChallenge = (reply as ChallengeResponseMessage).challenge;
+    challengeExp = Date.now() + 9 * 60_000; // refresh a minute before the Warden's 10-min TTL
+  };
 
   const status = (): EmissaryStatus => ({
     identity: { role: 'emissary', name: id.name, did: id.did },
@@ -104,6 +128,14 @@ export async function runEmissaryControl(
           payload = JSON.stringify({ text });
         }
         const ciphertext = await sealForWarden(handle, wardenDid, payload);
+        // Present our delegation: answer the Warden's cached challenge. `createResponse` is a node op (no
+        // mailbox), so it's safe from this route; the challenge is kept fresh by the loop.
+        if (!delegationChallenge) {
+          throw new Error(
+            'not authorized to submit yet — no Warden-issued delegation is available. Delegate this Emissary (warden delegate <did>) and retry once the daemon has fetched its challenge.',
+          );
+        }
+        const delegationProof = await presentProof(handle, delegationChallenge);
         const thid = randomUUID();
         const submittedAt = new Date().toISOString();
         const submission: WitnessSubmission = {
@@ -112,6 +144,7 @@ export async function runEmissaryControl(
           kind: kind as never,
           observedAt: submittedAt,
           ciphertext,
+          delegationProof,
         };
         pending.set(thid, { type: 'submit', kind, at: submittedAt });
         await handle.keymaster.sendDidComm({ type: submission.type, thid, body: submission }, wardenDid, {
@@ -134,6 +167,10 @@ export async function runEmissaryControl(
   let running = true;
   const loop = async (): Promise<void> => {
     while (running) {
+      // Keep the delegation challenge fresh from inside the loop (sole mailbox drainer → no receive contention).
+      if (config.wardenDid && Date.now() > challengeExp - 60_000) {
+        await refreshDelegationChallenge().catch(() => undefined);
+      }
       let inbound: Awaited<ReturnType<typeof handle.keymaster.receiveDidComm>> = [];
       try {
         inbound = await handle.keymaster.receiveDidComm({ name });
@@ -221,6 +258,10 @@ export async function runEmissaryControl(
       if (running) await new Promise((r) => setTimeout(r, 1500));
     }
   };
+  // Fetch the delegation challenge once before serving submissions (no loop contention yet) so the first
+  // submit isn't refused for a not-yet-fetched challenge; the loop keeps it fresh thereafter. Best-effort:
+  // if the Warden is unreachable at boot, the loop retries and submits fail closed until it succeeds.
+  await refreshDelegationChallenge().catch(() => undefined);
   void loop();
 
   const shutdown = (): void => {
