@@ -25,8 +25,9 @@ Emissary acts autonomously), with an *automatic Signet step-up* for anything at 
   exposes only its actor's verb set as a façade over the control-plane routes. Retired the stale
   `hearthold_forge` (→ removed `/api/forge`) for `hearthold_invoke` (→ `/api/invoke`) — closing an audit-4
   standing finding — and added `grant_capability`, `accept_capability`, `delegate`, and a keymaster-direct
-  `verify_card`. (`smoke-agent-mcp-roles`) Deferred: the Verifier's full challenge/response verify (needs a
-  DIDComm request/present, not just a resolve-and-check); the MCP still can't bypass the monitor or human gate.
+  `verify_card`. (`smoke-agent-mcp-roles`) Manual: `docs/agent-mcp.md` (a by-role features manual). Deferred:
+  the Verifier's full challenge/response verify (needs a DIDComm request/present, not just a resolve-and-check);
+  a live MCP-client→daemon integration test; the MCP still can't bypass the monitor or human gate.
 - **Phase 4 — permissions center.** ✅ The Sovereign records each grant (`CapabilityGrantStore`), lists it with
   its state (active/expired/revoked), and revokes it by flipping the status bit — which the Warden's
   revocation-by-default check refuses at the next invocation. CLI (`sovereign capabilities` /
