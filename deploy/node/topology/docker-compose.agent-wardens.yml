@@ -25,7 +25,10 @@ x-agent-warden-env: &agent-warden-env
   HEARTHOLD_NODE_URL: ${HEARTHOLD_NODE_URL:-http://table-gateway:4299}
   HEARTHOLD_DIDCOMM_ENDPOINT: ${HEARTHOLD_DIDCOMM_ENDPOINT:-http://drawbridge:4222/didcomm}
   HEARTHOLD_CONTROL_HOST: "0.0.0.0"
-  HEARTHOLD_REGISTRY: ${HEARTHOLD_REGISTRY:-local}
+  HEARTHOLD_REGISTRY: ${HEARTHOLD_REGISTRY:-local}   # also gates capability StatusList/allocation birth (invocation upgrade)
+  # Invocation upgrade (feat/invocation) — COMPATIBILITY POSTURE default; flip to secure deliberately later.
+  HEARTHOLD_REQUIRE_REVOCABLE: ${HEARTHOLD_REQUIRE_REVOCABLE:-false}
+  HEARTHOLD_REQUIRES_HUMAN_AT: ${HEARTHOLD_REQUIRES_HUMAN_AT:-SEALED}
   # single-member plane → requireSession derives false; the facade (pass/inbound/accept) needs no login.
   HEARTHOLD_REQUIRE_SESSION: "false"
   # PARENT (governor) DID turns ON the escalation ladder: a provenance pass self-approves at the agent's own

@@ -21,6 +21,8 @@ import {
   ensureIdentity,
   ensureDelegationSchema,
   issueDelegation,
+  createStatusList,
+  createAllocationRecord,
 } from '@hearthold/core';
 
 let failures = 0;
@@ -58,6 +60,14 @@ async function main(): Promise<void> {
   const credDid = await issueDelegation(warden, wid.did, schema, { kinds: ['document'], validUntil: new Date(Date.now() + 1e10).toISOString() });
   check('a vault credential (delegation VC) is registered on `local`', (await registryOf(credDid)) === 'local');
   check('so is a schema asset (content, not identity)', (await registryOf(schema)) === 'local');
+
+  // Invocation upgrade (feat/invocation): issuing a capability auto-creates a W3C StatusList + a durable
+  // allocation record per issuer, born on config.registry. A status list accidentally born on hyperswarm is a
+  // real defect — assert both are local.
+  const { statusListCredential } = await createStatusList(warden, wid.name, config);
+  check('a capability revocation StatusList is registered on `local`', (await registryOf(statusListCredential)) === 'local');
+  const allocationRecord = await createAllocationRecord(warden, wid.name, config);
+  check('a capability allocation record is registered on `local`', (await registryOf(allocationRecord)) === 'local');
 
   step('C · source-scan — the wiring: content defaults local, identity keeps its registry; unpack failures logged');
   const root = dirname(fileURLToPath(import.meta.url));

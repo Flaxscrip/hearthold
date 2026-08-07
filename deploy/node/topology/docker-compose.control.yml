@@ -27,7 +27,11 @@ x-daemon-env: &daemon-env
   # (sandbox.archon.local is non-resolving -> submission delivery 502s). Per AEGIS-HANDOFF.md.
   HEARTHOLD_DIDCOMM_ENDPOINT: ${HEARTHOLD_DIDCOMM_ENDPOINT:-http://drawbridge:4222/didcomm}
   HEARTHOLD_CONTROL_HOST: "0.0.0.0"                          # bind the container interface (Hearthold 067af4c)
-  HEARTHOLD_REGISTRY: ${HEARTHOLD_REGISTRY:-local}           # isolated node: challenge+response anchor on local
+  HEARTHOLD_REGISTRY: ${HEARTHOLD_REGISTRY:-local}           # isolated node: challenge+response anchor on local (+ gates StatusList/allocation birth)
+  # Invocation upgrade (feat/invocation) — COMPATIBILITY POSTURE default; the control plane has a Signet, so the
+  # consent-discharge path CAN run when we flip HEARTHOLD_REQUIRES_HUMAN_AT down to MEDIUM.
+  HEARTHOLD_REQUIRE_REVOCABLE: ${HEARTHOLD_REQUIRE_REVOCABLE:-false}
+  HEARTHOLD_REQUIRES_HUMAN_AT: ${HEARTHOLD_REQUIRES_HUMAN_AT:-SEALED}
   HEARTHOLD_OLLAMA_URL: ${HEARTHOLD_OLLAMA_URL:-http://ollama:11434}
   HEARTHOLD_CLASSIFIER_MODEL: ${HEARTHOLD_CLASSIFIER_MODEL:-qwen2.5:3b}
   # The node's Sovereign — the DID the member's Signet logs in as. The Warden serves THIS identity's
