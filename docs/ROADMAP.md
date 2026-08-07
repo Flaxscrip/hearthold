@@ -25,12 +25,33 @@ Emissary acts autonomously), with an *automatic Signet step-up* for anything at 
   exposes only its actor's verb set as a façade over the control-plane routes. Retired the stale
   `hearthold_forge` (→ removed `/api/forge`) for `hearthold_invoke` (→ `/api/invoke`) — closing an audit-4
   standing finding — and added `grant_capability`, `accept_capability`, `delegate`, and a keymaster-direct
-  `verify_card`. (`smoke-agent-mcp-roles`) Deferred: the Verifier's full challenge/response verify (needs a
-  DIDComm request/present, not just a resolve-and-check); the MCP still can't bypass the monitor or human gate.
-- **Phase 4 — permissions center.** Capability inventory + revoke at the Signet; read-only mirror in the Table.
-- **Phase 5 — onboarding + Emissary-as-delegator.** Baseline grant wired into device setup alongside
-  `warden delegate`; multi-hop attenuation (the retained `attenuation.ts` / `capability-chain.ts` primitive) so
-  the Emissary can attenuate-and-hand-off a further-narrowed capability to a third party.
+  `verify_card`. Verified two ways: `smoke-agent-mcp-roles` (profile partition) and `e2e-agent-mcp-dispatch`
+  (the real MCP protocol — list tools per role, a keymaster-direct call end to end, a façade verb routing to the
+  right control URL). Manual: `docs/agent-mcp.md` + an Artifact rendering. The Verifier's live present-to-me
+  verify is a deliberate boundary, not a gap — it needs a DIDComm-participant lifecycle + Hearthold's transport,
+  which the augment avoids; it lives in the verifier CLI until there's a verifier control-plane to façade. The
+  MCP never bypasses the monitor or the human gate.
+- **Phase 4 — permissions center.** ✅ The Sovereign records each grant (`CapabilityGrantStore`), lists it with
+  its state (active/expired/revoked), and revokes it by flipping the status bit — which the Warden's
+  revocation-by-default check refuses at the next invocation. CLI (`sovereign capabilities` /
+  `capability:revoke`), control routes (`GET /api/capabilities`, `POST /api/revoke-capability`, and
+  `authorize-capability` now records), MCP verbs (`list_capabilities`, `revoke_capability`), and the Table
+  mirror contract in control-types. Also fixed a multi-wallet bug this exposed: a `did:cid` schema is registered
+  ONCE and resolved + reused sphere-wide (one canonical schema, many issuers) — the earlier code had each wallet
+  register its own, so the Sovereign issued against a schema DID the Warden's challenge didn't request. The
+  issuer now reuses the canonical schema DID (`config.authorizationSchemaDid` / `HEARTHOLD_AUTHORIZATION_SCHEMA_DID`). (`e2e-permissions-center`: grant →
+  list → invoke → revoke → deny.)
+- **Phase 5 — onboarding + Emissary-as-delegator.**
+  - **Part A — onboarding.** ✅ Ships via the two grants' sensible defaults (`warden delegate` for submit +
+    `sovereign capability:grant` at LOW/90-day baseline for prove), over CLI or control plane. Documented in
+    `docs/onboarding.md`.
+  - **Part B — multi-hop delegation.** ◀ **designed, gated — not wired.** The chain machinery
+    (`capability-chain.ts`) is hardened + unit-tested (`e2e-capability-chain`), but wiring it into the live
+    monitor must first reach parity with the single-hop VC path (Warden-minted challenge, holder proof,
+    per-hop revocation, human gate, caveat-shape validation) and pass an adversarial suite. That integration is
+    where audits 2–3 found their defects, so it earns its own workstream + red-team pass rather than a rushed
+    commit. Full design + parity bar + test plan in `docs/multihop-delegation.md`. Single-hop stays the shipped,
+    graded path until multi-hop clears the gate.
 
 ## Phase 3 — per-actor MCP servers (detail)
 

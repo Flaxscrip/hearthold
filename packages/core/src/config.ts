@@ -116,6 +116,16 @@ export interface HearthholdConfig {
    */
   requireRevocableCapabilities: boolean;
   /**
+   * The canonical HearthholdAuthorization schema DID the ISSUER (Sovereign) mints scope capabilities against.
+   * A `did:cid` schema is registered ONCE — its registrant is the Controller — and is resolvable + reusable by
+   * any issuer within the same registry sphere (local / hyperswarm). So the model is *one canonical schema,
+   * many issuers*: the Warden registers it, and the Sovereign resolves and reuses that one DID for issuance (a
+   * verifier's challenge matches on the schema DID). This config distributes that canonical DID to the issuer
+   * (env `HEARTHOLD_AUTHORIZATION_SCHEMA_DID` = the Warden's registered schema); unset ⇒ the issuer registers
+   * its own, which is only valid when issuer and verifier share a wallet (single-wallet dev).
+   */
+  authorizationSchemaDid?: string;
+  /**
    * CGPR autonomy threshold (Phase 2): an external Consent-Gated Preference request whose disclosure is at or
    * below this sensitivity clears **autonomously** (no per-request Signet consent); above it, the gateway steps
    * up to the Sovereign's Signet. Default **LOW**, deliberately STRICTER than the internal `requiresHumanAt` —
@@ -246,6 +256,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): HearthholdConf
     confirmAtOrBelow: parseSensitivity(env.HEARTHOLD_CONFIRM_AT_OR_BELOW, Sensitivity.SEALED),
     requiresHumanAt: parseSensitivity(env.HEARTHOLD_REQUIRES_HUMAN_AT, Sensitivity.MEDIUM),
     requireRevocableCapabilities: env.HEARTHOLD_REQUIRE_REVOCABLE !== 'false' && env.HEARTHOLD_REQUIRE_REVOCABLE !== '0',
+    ...(env.HEARTHOLD_AUTHORIZATION_SCHEMA_DID ? { authorizationSchemaDid: env.HEARTHOLD_AUTHORIZATION_SCHEMA_DID } : {}),
     cgprAutonomousAtOrBelow: parseSensitivity(env.HEARTHOLD_CGPR_AUTONOMOUS_AT, Sensitivity.LOW),
     controlHost: env.HEARTHOLD_CONTROL_HOST ?? '127.0.0.1',
     controlAllowOrigins: (env.HEARTHOLD_CONTROL_ALLOW_ORIGIN ?? '')

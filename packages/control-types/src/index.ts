@@ -719,3 +719,30 @@ export interface AuthorizeCapabilityRequest {
 export type AuthorizeCapabilityResponse =
   | { granted: true; credentialDid: string; schemaDid: string }
   | { granted: false; declined: true };
+
+/** A grant in the Sovereign's capability inventory — the "permissions center" (Phase 4). */
+export interface CapabilityGrantView {
+  credentialDid: string;
+  holder: string;
+  target: string;
+  kinds?: string[];
+  ceiling: number;
+  expires: string;
+  issuedAt: string;
+  state: 'active' | 'expired' | 'revoked';
+  revokedAt?: string;
+}
+
+/** Sovereign/Signet daemon `GET /api/capabilities` — the inventory the Table mirrors read-only. */
+export interface CapabilitiesResponse {
+  capabilities: CapabilityGrantView[];
+}
+
+/** Sovereign/Signet daemon `POST /api/revoke-capability` — flip a grant's status bit (Warden denies at use). */
+export interface RevokeCapabilityRequest {
+  credentialDid: string;
+}
+export interface RevokeCapabilityResponse {
+  revoked: boolean;
+  reason?: string;
+}

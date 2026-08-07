@@ -12,8 +12,6 @@ import {
   DidCommTransport,
   IDENTITY_NAME,
   startControlServer,
-  issueScopeCapability,
-  ensureAuthorizationSchema,
   Sensitivity,
   type HearthholdConfig,
   type KeymasterHandle,
@@ -26,10 +24,15 @@ import type {
   LoginSignRequest,
   AuthorizeCapabilityRequest,
   AuthorizeCapabilityResponse,
+  CapabilitiesResponse,
+  CapabilityGrantView,
+  RevokeCapabilityRequest,
+  RevokeCapabilityResponse,
 } from '@hearthold/control-types';
 
 import { makeSovereignHandler } from './handler.js';
 import { HttpGate } from './http-gate.js';
+import { CapabilityGrantStore, grantCapability, revokeCapability, grantState, type CapabilityGrant } from './capability-grants.js';
 
 export async function runSovereignControl(
   handle: KeymasterHandle,
@@ -42,6 +45,7 @@ export async function runSovereignControl(
   }
   const id = await ensureIdentity(handle, config);
   const gate = new HttpGate(config.signetPin);
+  const grants = new CapabilityGrantStore(handle.dataFolder);
 
   const transport = new DidCommTransport(handle, IDENTITY_NAME.sovereign, config.nodeUrl);
   await transport.ready();
@@ -123,21 +127,35 @@ export async function runSovereignControl(
         });
         if (!assertion) return { granted: false, declined: true };
 
-        const schemaDid = await ensureAuthorizationSchema(handle);
-        const credentialDid = await issueScopeCapability({
-          issuer: handle,
-          issuerName: id.name,
-          holder: req.emissaryDid,
-          schemaDid,
-          config,
-          scope: {
-            invocationTarget: target,
-            authority: { operations: ['prove'], resources: [target] },
-            caveats: { ceiling, owner: id.did, expires: validUntil, ...(kinds ? { kinds } : {}) },
-          },
-          validUntil,
+        // Recorded in the inventory so it can be listed + revoked (Phase 4).
+        const grant = await grantCapability(handle, id.name, id.did, config, { holder: req.emissaryDid, target, ...(kinds ? { kinds } : {}), ceiling, days }, grants);
+        server.emit('capability-granted', { credentialDid: grant.credentialDid, holder: grant.holder });
+        return { granted: true, credentialDid: grant.credentialDid, schemaDid: grant.schemaDid };
+      },
+
+      // The permissions center: list the capabilities the Sovereign has granted (the Table mirrors this
+      // read-only), and revoke one — which flips its status bit so the Warden refuses it at the next invocation.
+      'GET /api/capabilities': async (): Promise<CapabilitiesResponse> => {
+        const list = await grants.list();
+        const view = (g: CapabilityGrant): CapabilityGrantView => ({
+          credentialDid: g.credentialDid,
+          holder: g.holder,
+          target: g.target,
+          ...(g.kinds ? { kinds: g.kinds } : {}),
+          ceiling: g.ceiling,
+          expires: g.expires,
+          issuedAt: g.issuedAt,
+          state: grantState(g),
+          ...(g.revokedAt ? { revokedAt: g.revokedAt } : {}),
         });
-        return { granted: true, credentialDid, schemaDid };
+        return { capabilities: list.map(view) };
+      },
+      'POST /api/revoke-capability': async ({ body }): Promise<RevokeCapabilityResponse> => {
+        const { credentialDid } = (body ?? {}) as RevokeCapabilityRequest;
+        if (!credentialDid) throw new Error('credentialDid is required');
+        const r = await revokeCapability(handle, id.name, grants, credentialDid);
+        if (r.revoked) server.emit('capability-revoked', { credentialDid });
+        return r;
       },
     },
     onListening: (p) =>

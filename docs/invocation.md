@@ -116,7 +116,10 @@ tests actually do:
 1. **Issue.** The Sovereign issues the Emissary a `HearthholdAuthorization` VC whose `credentialSubject` **is**
    the capability — `{ invocationTarget, authority: {operations, resources}, caveats: {ceiling, owner,
    audience, expires, singleUse, requiresDischarge, status} }` (`issueScopeCapability`). The schema is
-   content-addressed, so every wallet derives the same schema DID (`ensureAuthorizationSchema`).
+   registered via `ensureAuthorizationSchema`. A `did:cid` schema is registered **once** (its registrant is the
+   Controller) and is resolvable + reusable sphere-wide, so the model is *one canonical schema, many issuers*:
+   the Warden registers it and the Sovereign resolves + reuses that DID for issuance — distributed via
+   `config.authorizationSchemaDid` / `HEARTHOLD_AUTHORIZATION_SCHEMA_DID`; single-wallet dev derives it locally.
 2. **Request.** The Warden's invocation challenge *requests that credential*, constrained to the Sovereign as
    issuer: `createChallenge({ credentials: [{ schema, issuers: [Sovereign] }] })` (via `requestProof`).
 3. **Present.** The Emissary answers with a presentation (`createResponse`) — the invocation carries only that

@@ -140,7 +140,10 @@ export async function resolveInvocation(
   // Validate the SHAPE of what we enforce at the trust boundary — the credential is signed-but-arbitrary JSON,
   // and a trusted issuer is not the same as a well-formed one (audit-4 §2). A missing `ceiling` would make
   // `sensitivity > undefined` false and silently disable the ceiling; a missing `resources` would throw a
-  // TypeError that surfaces as a hang, not a denial.
+  // TypeError that surfaces as a hang, not a denial. NOTE: Archon does NOT enforce a schema's shape — the
+  // keymaster (v0.6.2) never validates credential content against its schema's rules (proven by
+  // `scripts/probe-schema-validation.ts`; the schema is a DID filter + template only). So a consumer MUST
+  // validate the shape of what it reads here; the schema DID alone guarantees nothing about the fields.
   if (!claims.authority || !Array.isArray(claims.authority.operations) || !Array.isArray(claims.authority.resources) || !claims.caveats) {
     return { ok: false, reason: 'authorization credential is malformed (authority.operations/resources or caveats missing)' };
   }
