@@ -4,7 +4,7 @@ import {
   type HearthholdMessage,
   type WitnessSubmission,
   type SubmissionReceipt,
-  type EvidenceRequest,
+  type CapabilityInvocation,
   type KbRequestMessage,
   type KbLoginStartMessage,
   type KbLoginCompleteMessage,
@@ -16,6 +16,7 @@ import type { WardenService } from './service.js';
 import type { DelegationStore } from './delegations.js';
 import type { EvidenceService } from './evidence.js';
 import type { KbService } from './kb.js';
+import type { ChallengeStore } from './challenge-store.js';
 
 /**
  * Builds the Warden's inbound request handler. Authentication of `fromDid` is already done by the
@@ -41,6 +42,13 @@ export function makeWardenHandler(
    * The submit is ack'd immediately ("received & queued"); this runs later, when the artefact actually lands.
    */
   onStored?: (receipt: SubmissionReceipt, submission: WitnessSubmission, fromDid: string) => void,
+  /**
+   * Warden-minted challenge store (audit-3 §1). When supplied, submission delegations and invocations MUST
+   * answer a challenge this Warden minted — closing the bearer-token gap. Also enables the
+   * `hearthold/challenge-request` case an Emissary calls to obtain one. Omitted ⇒ the freshness check is
+   * skipped (direct-library tests that mint their own challenge via `requestProof`).
+   */
+  challenges?: ChallengeStore,
 ): RequestHandler {
   const deny = (reason: string): HearthholdMessage => ({
     type: 'hearthold/error',
@@ -54,19 +62,19 @@ export function makeWardenHandler(
   return async (message, fromDid) => {
     switch (message.type) {
       case 'hearthold/witness-submission': {
-        if (!(await delegations.isAuthorized(fromDid))) {
-          return deny('no valid delegation for this Emissary');
-        }
-        // Kind-enforcement (compartmentalized Emissaries): a submission whose kind isn't in THIS Emissary's
-        // delegated kinds is refused — fail-closed. So a text Emissary can't submit images and vice versa; a
-        // compromised Emissary's blast radius is capped at its own delegated path.
+        // Authorize by the PRESENTED delegation credential (verifyProof → kinds + member + proven holder +
+        // issuer-trust in one step). Kind-enforcement (compartmentalized Emissaries) stays: a submission whose
+        // kind isn't granted is refused, fail-closed.
         const kind = (message as WitnessSubmission).kind;
-        const grantedKinds = await delegations.kindsFor(fromDid);
+        const delegationProof = (message as WitnessSubmission).delegationProof;
+        if (!delegationProof) return deny('submission carries no delegation presentation — present your delegation credential');
+        const del = await delegations.verifyDelegationPresentation(delegationProof, fromDid, challenges?.gate('delegation'));
+        if (!del.ok) return deny(`delegation not proven: ${del.reason}`);
+        const grantedKinds = del.kinds;
+        const owner = del.member ?? defaultOwner;
         if (!grantedKinds.includes(kind)) {
           return deny(`this Emissary is not delegated for '${kind}' (granted: ${grantedKinds.join(', ') || 'none'})`);
         }
-        // Attribute the submission's OWNER: the member this Emissary serves, else the default Sovereign.
-        const owner = (await delegations.memberFor(fromDid)) ?? defaultOwner;
         // Ingestion gate: is THIS Emissary autofile-trusted (bypasses quarantine), and what's the floor?
         // Default (no policy) → quarantine everything (an Emissary may PROPOSE, only the Sovereign ADMITS).
         const autofileTrusted = ingest ? await ingest.isAutofileTrusted(fromDid) : false;
@@ -92,17 +100,39 @@ export function makeWardenHandler(
         };
       }
 
-      case 'hearthold/evidence-request': {
+      // The capability path: evidence is disclosed only by INVOKING a capability, verified at the point of use
+      // (the finding-A cure). There is no legacy requester-supplied-subjectDid `evidence-request` door.
+      case 'hearthold/invocation': {
         if (!evidence) {
-          return {
-            type: 'hearthold/evidence-response',
-            version: PROTOCOL_VERSION,
-            status: 'denied',
-            reason: 'evidence service not configured',
-          };
+          return { type: 'hearthold/evidence-response', version: PROTOCOL_VERSION, status: 'denied', reason: 'evidence service not configured' };
         }
-        const delegationValid = await delegations.isAuthorized(fromDid);
-        return evidence.handle(message as EvidenceRequest, fromDid, delegationValid);
+        return evidence.handleInvocation(message as CapabilityInvocation, fromDid, challenges?.gate('invocation'));
+      }
+
+      // Emissary asks for a fresh, Warden-minted challenge to present a delegation / scope VC against. The
+      // Warden picks the schema + trusted issuer (the audience binding); the Emissary answers with
+      // `createResponse` and sends the response as its `delegationProof` / invocation `presentation`.
+      case 'hearthold/challenge-request': {
+        if (!challenges) return deny('challenge service not configured');
+        const purpose = (message as { purpose?: 'invocation' | 'delegation' }).purpose;
+        if (purpose !== 'invocation' && purpose !== 'delegation') return deny('challenge-request needs a purpose of invocation|delegation');
+        try {
+          const challenge = await challenges.mintForPurpose(purpose);
+          // Self-provisioning: tell the Emissary which delegation VC(s) WE issued it to accept before
+          // presenting — the daemon pulls its grant here instead of relying on a delivery push at delegate time.
+          const acceptCredentials =
+            purpose === 'delegation'
+              ? (await delegations.list()).filter((d) => d.subjectDid === fromDid).map((d) => d.credentialDid)
+              : [];
+          return {
+            type: 'hearthold/challenge-response',
+            version: PROTOCOL_VERSION,
+            challenge,
+            ...(acceptCredentials.length > 0 ? { acceptCredentials } : {}),
+          };
+        } catch (e) {
+          return deny(`cannot mint a ${purpose} challenge: ${e instanceof Error ? e.message : String(e)}`);
+        }
       }
 
       // Knowledge Base — the KB service authenticates + authorizes end-to-end (the requester's own

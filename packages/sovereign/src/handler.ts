@@ -13,13 +13,14 @@ import {
   type RulesetSignRequestMessage,
   type MemberAckRequestMessage,
   type PartitionRewrapRequestMessage,
+  type DischargeRequestMessage,
   type EvidenceApprovalStatement,
   type Ruleset,
   type SignedRuleset,
   type KeymasterHandle,
 } from '@hearthold/core';
 
-import type { ApprovalGate } from './signet.js';
+import { signDischarge, type ApprovalGate } from './signet.js';
 
 /**
  * The Sovereign's inbound handler. Two disclosures, both gated by the Signet's `ApprovalGate` (a
@@ -47,6 +48,7 @@ const HANDLED_TYPES = new Set<string>([
   'hearthold/member-ack-request',
   'hearthold/partition-rewrap-request',
   'hearthold/kb-approval-request',
+  'hearthold/discharge-request',
 ]);
 
 export function makeSovereignHandler(
@@ -179,6 +181,18 @@ export function makeSovereignHandler(
         approved: !!humanProof,
         reason: humanProof ? undefined : 'declined by the Sovereign',
       };
+    }
+
+    // Consent discharge (invocation step-up): the Warden asks THIS owner to co-sign a sensitive disclosure,
+    // bound to the act's txn. `signDischarge` runs the owner's OWN fresh proof-of-human gate (never the
+    // governor's, never the requesting agent's) and signs the discharge; a decline returns approved:false.
+    if (message.type === 'hearthold/discharge-request') {
+      const m = message as DischargeRequestMessage;
+      const idName = await active.keymaster.getCurrentId();
+      if (!idName) return { type: 'hearthold/discharge-response', version: PROTOCOL_VERSION, approved: false, reason: 'no current identity at the Signet' };
+      const discharge = await signDischarge(active, idName, gate, m.request);
+      if (!discharge) return { type: 'hearthold/discharge-response', version: PROTOCOL_VERSION, approved: false, reason: 'declined by the Signet' };
+      return { type: 'hearthold/discharge-response', version: PROTOCOL_VERSION, approved: true, discharge };
     }
 
     return null;

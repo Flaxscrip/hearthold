@@ -26,7 +26,8 @@ import { AutofileStore } from './autofile-store.js';
 import { VaultStore } from './store.js';
 import { WardenService } from './service.js';
 import { DelegationStore } from './delegations.js';
-import { EvidenceService } from './evidence.js';
+import { EvidenceService, makeDidcommDischargeRequester } from './evidence.js';
+import { ChallengeStore } from './challenge-store.js';
 import { RecallService, OllamaEmbedder } from './recall.js';
 import { makeDidcommActionApprover, makeDidcommRulesetSigner } from './kb.js';
 import { KbConfigStore, buildKbServices, initKbAssurance, setKbAssurance, readKbAssurance, provisionMemberPartition, enableMemberPartitions } from './kb-config.js';
@@ -240,8 +241,13 @@ async function main(): Promise<void> {
       const handler = makeWardenHandler(
         new WardenService(handle, createClassifier(config), makeEmbedder(config), createVisionCaptioner(config)),
         new DelegationStore(handle),
-        new EvidenceService(handle, config),
+        // Consent channel to the owner's Signet (§3) + Warden-minted challenge store (§1).
+        new EvidenceService(handle, config, makeDidcommDischargeRequester(transport)),
         kbs,
+        config.sovereignDid,
+        undefined,
+        undefined,
+        new ChallengeStore(handle, config.registry, config.sovereignDid),
       );
       const stop = await transport.serve(handler);
       process.stdout.write(

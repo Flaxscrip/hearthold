@@ -38,6 +38,8 @@ export interface AuthoritySet {
 export interface AuthoritySetPayload {
   authoritySet: AuthoritySet;
   salt: string;
+  /** Opaque capability-layer caveats bound into the commitment (attenuation.ts never interprets them). */
+  caveats?: unknown;
 }
 
 /** Set-normalize: dedupe + sort each dimension, so a commitment is order- and multiplicity-independent. */
@@ -90,8 +92,10 @@ export function freshSalt(): string {
  * commitment alone (no salt), the authority set is NOT recoverable by enumeration — the salt dominates the
  * preimage. Recompute-and-compare on disclosure binds the revealed set to the committed one.
  */
-export function commit(authoritySet: AuthoritySet, salt: string): string {
-  return sha256Hex(canonicalize({ authoritySet: normalizeAuthoritySet(authoritySet), salt }));
+export function commit(authoritySet: AuthoritySet, salt: string, caveats?: unknown): string {
+  const preimage: Record<string, unknown> = { authoritySet: normalizeAuthoritySet(authoritySet), salt };
+  if (caveats !== undefined) preimage.caveats = caveats; // absent ⇒ byte-identical to the 2-arg commitment
+  return sha256Hex(canonicalize(preimage));
 }
 
 // ── The pic block (cleartext, resolvable) ────────────────────────────────────────────────────────────
@@ -108,6 +112,9 @@ export interface PrevPin {
 /** The attenuating actor's signed claim that this hop's authority is a subset of its parent's. */
 export interface AttenuationAssertion {
   issuer: string;
+  /** The DID this hop is delegated to — issuer-attested (covered by the signature), so the holder is read
+   *  from the CHAIN, not a wire body. A verifier binds the invoking caller to this via challenge/response. */
+  holder: string;
   statement: string;
   lineageId: string;
   counter: number;
@@ -137,6 +144,8 @@ export interface IssuedVc {
   counter: number;
   authoritySet: AuthoritySet;
   salt: string;
+  /** The capability-layer caveats committed with this hop (opaque here; see capability-chain.ts). */
+  caveats?: unknown;
   authorityCommitment: string;
   /** THIS credential pinned at the version that carries its pic — what a child embeds as prevCredential. */
   pin: PrevPin;
@@ -150,6 +159,8 @@ export interface IssueVcArgs {
   /** DID the authoritySet payload is pairwise-encrypted to. */
   holder: string;
   authoritySet: AuthoritySet;
+  /** Opaque caveats to bind into the commitment (the capability layer supplies and interprets these). */
+  caveats?: unknown;
   registry: string;
   /** Omit for the origin (counter 0, lineageId := the origin's own DID). */
   parent?: IssuedVc;
@@ -182,7 +193,7 @@ export async function issueVc(args: IssueVcArgs): Promise<IssuedVc> {
 
   const authoritySet = normalizeAuthoritySet(args.authoritySet);
   const salt = freshSalt();
-  const authorityCommitment = commit(authoritySet, salt);
+  const authorityCommitment = commit(authoritySet, salt, args.caveats);
 
   if (args.parent && !args.skipSubsetGuard && !isSubset(authoritySet, args.parent.authoritySet)) {
     throw new Error(
@@ -201,12 +212,17 @@ export async function issueVc(args: IssueVcArgs): Promise<IssuedVc> {
   const prevCredential = args.overridePrev !== undefined ? args.overridePrev : args.parent ? args.parent.pin : null;
 
   // 1. Encrypt the payload → the VC's Asset DID. Its didDocumentData is the cipher; controller = issuer.
-  const vcDid = await km.encryptJSON({ authoritySet, salt }, args.holder, { registry: args.registry });
+  const vcDid = await km.encryptJSON(
+    { authoritySet, salt, ...(args.caveats !== undefined ? { caveats: args.caveats } : {}) },
+    args.holder,
+    { registry: args.registry },
+  );
   const lineageId = args.overrideLineageId ?? (args.parent ? args.parent.lineageId : vcDid);
 
   // 2. Sign the attenuation assertion (forgeable: signed by forgeAssertionWith if the test asks).
   const assertionBody: AttenuationAssertion = {
     issuer: issuerDid,
+    holder: args.holder,
     statement: ATTENUATION_STATEMENT,
     lineageId,
     counter,
@@ -224,7 +240,17 @@ export async function issueVc(args: IssueVcArgs): Promise<IssuedVc> {
   const meta = doc.didDocumentMetadata as { versionId?: string; versionSequence?: string };
   const pin: PrevPin = { did: vcDid, versionId: meta.versionId ?? '', versionSequence: Number(meta.versionSequence ?? 0) };
 
-  return { vcDid, lineageId, counter, authoritySet, salt, authorityCommitment, pin, holder: args.holder };
+  return {
+    vcDid,
+    lineageId,
+    counter,
+    authoritySet,
+    salt,
+    ...(args.caveats !== undefined ? { caveats: args.caveats } : {}),
+    authorityCommitment,
+    pin,
+    holder: args.holder,
+  };
 }
 
 // ── Verifier (standalone; public resolution + signature verification only) ───────────────────────────────
@@ -237,6 +263,13 @@ export interface VerifyOptions {
   /** Stronger check: vcDid → revealed {authoritySet, salt} (from challenge/response or holder decrypt). */
   disclosed?: Record<string, AuthoritySetPayload>;
   maxHops?: number;
+  /** Require EVERY hop to be disclosed, so authority + caveats are bound to the commitment (no structural-
+   *  only accept). Reject any hop missing from `disclosed`. Use when the result must be enforced, not merely
+   *  proven well-formed. */
+  requireDisclosure?: boolean;
+  /** Optional caveat-narrowing predicate applied to adjacent disclosed hops `(child, parent) → ok?`. Injected
+   *  by the capability layer (attenuation stays generic — it never interprets caveats). */
+  caveatNarrows?: (child: unknown, parent: unknown) => boolean;
 }
 
 export interface VerifyResult {
@@ -247,6 +280,11 @@ export interface VerifyResult {
   vc?: string;
   counter?: number;
   chainLength?: number;
+  /** The leaf hop's issuer-attested holder DID (from its signed assertion) — the caller to bind by proof. */
+  holder?: string;
+  /** The leaf's commitment-bound authority + caveats (present when the leaf was disclosed). Enforce THESE. */
+  leafAuthoritySet?: AuthoritySet;
+  leafCaveats?: unknown;
 }
 
 const signerOf = (a: AttenuationAssertion): string => (a.proof?.verificationMethod ?? '').split('#')[0] ?? '';
@@ -276,6 +314,8 @@ export async function verifyAttenuationChain(leafVcDid: string, opts: VerifyOpti
   // What the CHILD just processed asked of the node we are about to load (pin + the child's own pic/did).
   let expectFromChild: { pin: PrevPin; childPic: PicBlock; childDid: string } | null = null;
   let length = 0;
+  let leafHolder: string | undefined;
+  let leafReveal: AuthoritySetPayload | undefined;
 
   for (let step = 0; step < maxHops; step++) {
     const doc = await km.resolveDID(did, useVersion !== undefined ? { versionSequence: useVersion } : undefined);
@@ -311,8 +351,15 @@ export async function verifyAttenuationChain(leafVcDid: string, opts: VerifyOpti
 
     // disclosure binding for THIS hop: the revealed set must hash to the committed value.
     const reveal = disclosed[did];
-    if (reveal && commit(reveal.authoritySet, reveal.salt) !== pic.authorityCommitment) {
+    if (opts.requireDisclosure && !reveal) {
+      return reject('hop is not disclosed (required for enforcement — bind authority + caveats)', '(disclosure)', did, pic.counter);
+    }
+    if (reveal && commit(reveal.authoritySet, reveal.salt, reveal.caveats) !== pic.authorityCommitment) {
       return reject('disclosed authoritySet+salt does not match the authorityCommitment', '(commit)', did, pic.counter);
+    }
+    if (step === 0) {
+      leafHolder = asrt.holder;
+      leafReveal = reveal;
     }
 
     // Cross-hop checks: the child we just processed vs THIS parent.
@@ -331,6 +378,9 @@ export async function verifyAttenuationChain(leafVcDid: string, opts: VerifyOpti
       if (reveal && childReveal && !isSubset(childReveal.authoritySet, reveal.authoritySet)) {
         return reject('disclosed child authoritySet ⊄ parent authoritySet', '(⊆)', expectFromChild.childDid, child.counter);
       }
+      if (reveal && childReveal && opts.caveatNarrows && !opts.caveatNarrows(childReveal.caveats, reveal.caveats)) {
+        return reject('disclosed child caveats widen the parent', '(caveats)', expectFromChild.childDid, child.counter);
+      }
     }
 
     length++;
@@ -342,7 +392,7 @@ export async function verifyAttenuationChain(leafVcDid: string, opts: VerifyOpti
       if (opts.expectedRootIssuer && controller !== opts.expectedRootIssuer) {
         return reject(`origin controller ${controller} != expected root issuer ${opts.expectedRootIssuer}`, '(root)', did, pic.counter);
       }
-      return { ok: true, chainLength: length };
+      return { ok: true, chainLength: length, holder: leafHolder, leafAuthoritySet: leafReveal?.authoritySet, leafCaveats: leafReveal?.caveats };
     }
 
     expectFromChild = { pin: pic.prevCredential, childPic: pic, childDid: did };

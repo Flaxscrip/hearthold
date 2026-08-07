@@ -170,9 +170,12 @@ export class CgprService {
     const custody = enforceKeyCustody({ ruleset: keyCustody, audience: req.audience, mintedBy: 'warden' });
     if (!custody.ok) return deny(custody.reason);
 
-    // 3. The Warden authors the consent text — never the requesting agent (constraint #4, §7.7).
+    // 3. The Warden authors the consent text — never the requesting agent (constraint #4, §7.7). Sanitize the
+    // requester-supplied `purpose` before it reaches the human's screen: strip control/format chars and
+    // newlines and cap the length, so it cannot inject into or overflow the Warden-authored line.
+    const safePurpose = req.purpose.replace(/[\p{Cc}\p{Cf}]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
     const reason =
-      `Disclose ${req.scopes.join(', ')} to ${req.audience.slice(0, 24)}… for: ${req.purpose} — ` +
+      `Disclose ${req.scopes.join(', ')} to ${req.audience.slice(0, 24)}… for: ${safePurpose} — ` +
       `backed by ${assembled.group.count} witnessed ${kind} observation(s)`;
 
     const claim = `Holds preferences: ${req.scopes.join(', ')}`;

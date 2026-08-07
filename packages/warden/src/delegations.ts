@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { KeymasterHandle, WitnessKind } from '@hearthold/core';
+import { verifyProof, ensureDelegationSchema } from '@hearthold/core';
 
 /**
  * The kinds a legacy delegation (recorded before per-path kind-scoping) is treated as granting — the set the
@@ -70,28 +71,35 @@ export class DelegationStore {
     await writeFile(this.file, JSON.stringify(all, null, 2), 'utf8');
   }
 
-  /** The household member (Sovereign) an Emissary submits for, or undefined (single-Sovereign). */
-  async memberFor(emissaryDid: string): Promise<string | undefined> {
-    return (await this.readAll()).find((r) => r.subjectDid === emissaryDid)?.memberDid;
-  }
-
   /**
-   * The witness kinds this Emissary is delegated to submit (the compartment). Undefined recorded kinds ⇒
-   * `LEGACY_DELEGATION_KINDS` (an old text delegation, never image). Returns `[]` for an unknown Emissary.
+   * Authorize a submission by a PRESENTED delegation credential (the VC path, replacing the local ACL). The
+   * Emissary answers the Warden's credential-request challenge with its held delegation; `verifyProof` returns
+   * the `kinds` + `member` claims, the proven holder (`responder`), and issuer-trust (the Warden signed it) in
+   * one step — no `delegations.json` lookup, and the VC's own `validUntil`/revocation apply. Fail-closed.
    */
-  async kindsFor(emissaryDid: string): Promise<WitnessKind[]> {
-    // The MOST RECENT delegation for this Emissary wins — a re-delegation supersedes an earlier scope.
-    const recs = (await this.readAll()).filter((r) => r.subjectDid === emissaryDid);
-    const rec = recs[recs.length - 1];
-    if (!rec) return [];
-    return rec.kinds ?? LEGACY_DELEGATION_KINDS;
-  }
-
-  /** Authorized iff we issued this DID a delegation whose credential still resolves (not revoked). */
-  async isAuthorized(subjectDid: string): Promise<boolean> {
-    const rec = (await this.readAll()).find((r) => r.subjectDid === subjectDid);
-    if (!rec) return false;
-    const vc = await this.warden.keymaster.getCredential(rec.credentialDid).catch(() => null);
-    return vc != null;
+  async verifyDelegationPresentation(
+    presentation: string,
+    expectedHolder: string,
+    /** Assert the presentation answered a Warden-minted challenge (audit-3 §1). The handler passes
+     *  `ChallengeStore.gate('delegation')`; omit only in a direct-library test. */
+    requireChallenge?: (challenge: string) => boolean,
+  ): Promise<{ ok: true; kinds: WitnessKind[]; member?: string } | { ok: false; reason: string }> {
+    if (!presentation) return { ok: false, reason: 'no delegation presentation' };
+    const km = this.warden.keymaster;
+    const currentId = await km.getCurrentId().catch(() => undefined);
+    const wardenDid = currentId ? (await km.resolveDID(currentId)).didDocument?.id ?? '' : '';
+    if (!wardenDid) return { ok: false, reason: 'warden identity unavailable' };
+    const schema = await ensureDelegationSchema(this.warden);
+    const proof = await verifyProof(this.warden, presentation, { trustedIssuers: [wardenDid], schema }).catch(
+      (e: unknown) => ({ ok: false as const, challenge: '', disclosed: [], reason: `presentation not verifiable: ${e instanceof Error ? e.message : String(e)}` }),
+    );
+    if (!proof.ok || !proof.responder) return { ok: false, reason: proof.reason ?? 'delegation presentation not verified' };
+    if (proof.responder !== expectedHolder) return { ok: false, reason: 'presenter is not the delegate (holder mismatch)' };
+    if (requireChallenge && !requireChallenge(proof.challenge)) return { ok: false, reason: 'delegation presentation did not answer a fresh Warden-minted challenge' };
+    // Bind the caller to the credential subject — possession of the delegation VC is not authority.
+    const subject = proof.disclosed[0]?.subject;
+    if (!subject || subject !== proof.responder) return { ok: false, reason: 'presenter does not control the delegation subject' };
+    const claims = (proof.disclosed[0]?.claims ?? {}) as { kinds?: WitnessKind[]; member?: string };
+    return { ok: true, kinds: claims.kinds ?? LEGACY_DELEGATION_KINDS, member: claims.member };
   }
 }

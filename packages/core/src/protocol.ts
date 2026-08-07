@@ -8,6 +8,8 @@
 import type { Sensitivity, DisclosureMode } from './security.js';
 import type { SpendApprovalDetail } from './escalation.js';
 import type { CipherPublicJwk } from './payload.js';
+import type { CapabilityInvocation, Discharge } from './capability.js';
+import type { DischargeRequest } from './invocation-monitor.js';
 import type { GatekeeperEvent } from '@didcid/gatekeeper/types';
 
 export const PROTOCOL_VERSION = '0.4.0' as const;
@@ -28,6 +30,12 @@ export interface WitnessSubmission {
   ciphertext: string;
   /** Optional sensitivity the Emissary proposes; the Warden's classifier decides authoritatively. */
   proposedSensitivity?: Sensitivity;
+  /**
+   * A `createResponse` DID presenting the Emissary's delegation credential in answer to the Warden's
+   * challenge. Authorizes the submission by a PRESENTED credential (kinds + member + proven holder +
+   * issuer-trust via `verifyProof`) instead of a local ACL lookup. See docs/invocation.md §5.
+   */
+  delegationProof?: string;
 }
 
 /** Warden → Emissary: acknowledgement of a stored submission. */
@@ -70,17 +78,6 @@ export interface EvidenceRequest {
   disclosureMode: DisclosureMode;
   /** Which artefacts back the claim (kind + optional window). Required to assemble evidence. */
   spec?: EvidenceClaimSpec;
-  /**
-   * The APPROVER of the disclosure — whose proof-of-human co-signs the mint (the forger). Also the default
-   * credential-binding subject. Defaults to the Warden's configured Sovereign.
-   */
-  subjectDid?: string;
-  /**
-   * Bind the minted scroll to THIS DID instead of the approver (forge-FOR-a-recipient): the scroll's content
-   * is encrypted to `recipientDid`, so that recipient can decrypt/read it — while the APPROVER (`subjectDid`)
-   * still co-signs the disclosure at their own Signet. Absent ⇒ bound to the approver (forge for self).
-   */
-  recipientDid?: string;
   /** How long the minted proof should stay valid (`validUntil`). Defaults to the Warden's setting. */
   validForMinutes?: number;
   /** Third-party `issued` credentials (by DID) the Sovereign holds, to compose into the proof. */
@@ -534,6 +531,54 @@ export interface CredentialDeliveryAckMessage {
   ingestedArtefactId?: string;
 }
 
+// ── Emissary → Warden: request a fresh, Warden-minted challenge to present against ──────────────────
+//
+// The credential-request ceremony needs the VERIFIER to mint the challenge (the audience binding). The
+// presenter asks the Warden for one, answers it with `createResponse`, and sends the response as its
+// `delegationProof` / invocation `presentation`. The Warden asserts the answered challenge is the one it
+// minted (fresh, single-use / TTL-bound) — audit-3 §1. Without this, a presentation is a bearer token.
+
+export interface ChallengeRequestMessage {
+  type: 'hearthold/challenge-request';
+  version: typeof PROTOCOL_VERSION;
+  /** What the presentation is for — selects the schema + trusted issuer the challenge requires. */
+  purpose: 'invocation' | 'delegation';
+}
+
+export interface ChallengeResponseMessage {
+  type: 'hearthold/challenge-response';
+  version: typeof PROTOCOL_VERSION;
+  /** The Warden-minted challenge DID to answer with `createResponse`. */
+  challenge: string;
+  /**
+   * For a `delegation` challenge: the delegation credential DID(s) the Warden has issued to THIS caller that
+   * it should `acceptCredential` before presenting — so an Emissary self-provisions its held delegation when
+   * it fetches a challenge, rather than needing a separate delivery push to a possibly-offline daemon.
+   */
+  acceptCredentials?: string[];
+}
+
+// ── Warden → owner's Signet: obtain a consent discharge for a sensitive disclosure ──────────────────
+//
+// The direct control-plane channel (the Emissary is never on it — §7.7). The Warden authors the request; the
+// Signet runs the owner's fresh proof-of-human gate and, on approval, signs a discharge bound to the act's txn.
+
+export interface DischargeRequestMessage {
+  type: 'hearthold/discharge-request';
+  version: typeof PROTOCOL_VERSION;
+  /** The Warden-authored discharge request (act txn, predicate, the owner to sign, human-readable reason). */
+  request: DischargeRequest;
+}
+
+export interface DischargeResponseMessage {
+  type: 'hearthold/discharge-response';
+  version: typeof PROTOCOL_VERSION;
+  approved: boolean;
+  /** The signed consent, present iff approved — bound to `request.txn`/`predicate` and signed by `request.by`. */
+  discharge?: Discharge;
+  reason?: string;
+}
+
 export interface ErrorMessage {
   type: 'hearthold/error';
   version: typeof PROTOCOL_VERSION;
@@ -545,6 +590,7 @@ export type HearthholdMessage =
   | SubmissionReceipt
   | EvidenceRequest
   | EvidenceResponse
+  | CapabilityInvocation
   | ProofRequestMessage
   | ProofPresentationMessage
   | ApprovalRequestMessage
@@ -570,4 +616,8 @@ export type HearthholdMessage =
   | CgprRelayResponseMessage
   | CredentialDeliveryMessage
   | CredentialDeliveryAckMessage
+  | ChallengeRequestMessage
+  | ChallengeResponseMessage
+  | DischargeRequestMessage
+  | DischargeResponseMessage
   | ErrorMessage;

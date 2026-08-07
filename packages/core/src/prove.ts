@@ -33,6 +33,12 @@ export interface ProofRequest {
 export interface DisclosedCredential {
   credentialDid: string;
   issuer: string;
+  /**
+   * The credential SUBJECT DID (`credentialSubject.id`) — the party the issuer granted this to. A caller that
+   * authorizes by holder MUST assert `subject === responder`, else possession of the VC plaintext (a copied
+   * wallet, a shared data root) is authority. Empty if the VC carried no subject id.
+   */
+  subject: string;
   /** `issued` (external issuer), `witnessed` (Warden-derived), or `composite` (both). */
   trustClass: 'issued' | 'witnessed' | 'composite';
   claims: Record<string, unknown>;
@@ -41,6 +47,12 @@ export interface DisclosedCredential {
 export interface ProofResult {
   ok: boolean;
   responder?: string;
+  /**
+   * The challenge DID this response answered (`ChallengeResponse.challenge`). A verifier that minted the
+   * challenge asserts this equals one it minted and burns it, binding the presentation to this verifier and
+   * occasion (audience binding) so it can't be replayed as a bearer token. Empty if the response named none.
+   */
+  challenge: string;
   disclosed: DisclosedCredential[];
   reason?: string;
 }
@@ -112,17 +124,20 @@ export async function verifyProof(
   }>;
   const disclosed: DisclosedCredential[] = vps.map((vp, i) => {
     const claims = { ...(vp.credentialSubject ?? {}) };
+    const subject = String((claims as { id?: unknown }).id ?? ''); // the DID the issuer granted this to
     delete (claims as { id?: unknown }).id;
     const tc = (claims as { trustClass?: string }).trustClass;
     return {
       credentialDid: creds[i]?.vc ?? '',
       issuer: String(vp.issuer ?? ''),
+      subject,
       trustClass: tc === 'witnessed' || tc === 'composite' ? tc : 'issued',
       claims,
     };
   });
 
-  const fail = (reason: string): ProofResult => ({ ok: false, responder: res.responder, disclosed, reason });
+  const challenge = String(res.challenge ?? '');
+  const fail = (reason: string): ProofResult => ({ ok: false, responder: res.responder, challenge, disclosed, reason });
 
   if (!opts.trustedIssuers && !opts.trustRegistry) {
     return fail('no trust source: provide trustedIssuers and/or a trustRegistry');
@@ -160,5 +175,5 @@ export async function verifyProof(
     }
     for (const t of txns) await opts.spentTxns.markSpent(t);
   }
-  return { ok: true, responder: res.responder, disclosed };
+  return { ok: true, responder: res.responder, challenge, disclosed };
 }

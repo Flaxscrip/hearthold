@@ -10,7 +10,7 @@
  * and the gate is where the proof-of-human level scales with sensitivity.
  */
 
-import type { HumanPresenceAssertion, SpendApprovalDetail } from '@hearthold/core';
+import type { HumanPresenceAssertion, SpendApprovalDetail, KeymasterHandle, Discharge, DischargeRequest } from '@hearthold/core';
 
 export interface ApprovalContext {
   /** The party the disclosure would go to (a verifier, or the Warden for an evidence approval). */
@@ -170,4 +170,32 @@ function readLine(): Promise<string> {
       resolve(d.toString().trim());
     });
   });
+}
+
+/**
+ * Produce a consent DISCHARGE for a third-party caveat: the designated party's Signet runs its proof-of-human
+ * gate over the Warden-authored request and, on approval, SIGNS a discharge bound to the act's `txn` (the
+ * macaroon holder-of-key proof). Returns null if the human declines. The signer (`idName`) must be `req.by`.
+ */
+export async function signDischarge(
+  handle: KeymasterHandle,
+  idName: string,
+  gate: ApprovalGate,
+  req: DischargeRequest,
+): Promise<Discharge | null> {
+  const assertion = await gate.approve({
+    requester: 'the Warden',
+    disclosure: {
+      claim: req.claim ?? req.predicate,
+      evidenceRoot: '',
+      requiredLevel: (req.sensitivity ?? 1) >= 2 ? 2 : 1,
+      reason: req.reason ?? `co-sign ${req.predicate}`,
+    },
+  });
+  if (!assertion) return null;
+  await handle.keymaster.setCurrentId(idName);
+  return (await handle.keymaster.addProof(
+    { by: req.by, txn: req.txn, predicate: req.predicate, level: assertion.level },
+    idName,
+  )) as Discharge;
 }
