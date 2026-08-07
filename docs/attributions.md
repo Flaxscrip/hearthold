@@ -6,8 +6,10 @@ implements it. This ledger grows as we build.
 
 ## Capability & invocation layer
 
-Design: `docs/invocation.md`. Implementation begins in `packages/core/src/capability.ts` (composing
-`packages/core/src/attenuation.ts`).
+Design: `docs/invocation.md`. The shipped mechanism is `packages/core/src/capability.ts` +
+`capability-vc.ts` + `invocation-monitor.ts` (a Sovereign-issued scope VC verified with `verifyProof`).
+`packages/core/src/attenuation.ts` (multi-hop chain attenuation) is **retained but not on the shipped path** —
+Phase 4, see `docs/invocation.md` §5.3.
 
 | Design | Author(s) / body | What we use | Where in our code |
 |---|---|---|---|
@@ -23,10 +25,33 @@ Design: `docs/invocation.md`. Implementation begins in `packages/core/src/capabi
 ## Foundations already in the tree
 - **Verifier-enforced attenuation over Archon `did:cid` Asset DIDs** — Hearthold's own
   `packages/core/src/attenuation.ts` (AuthoritySet ⊆ parent, salted commitments, version-pinned parent
-  pointers, signed subset assertions). The capability layer composes it.
+  pointers, signed subset assertions). Exercised by `e2e-capability-chain`; **reserved for Phase-4 multi-hop
+  delegation** and not called by the shipped single-hop invocation path.
 - **W3C Bitstring Status List** — `packages/core/src/status-list.ts` (revocation, fail-closed).
 - **Archon `did:cid`** (`@didcid/*`) — identity, DIDComm v2 **authcrypt** sender-authentication, Verifiable
   Credentials, groups, and temporal-proof resolution. See `~/archon`.
+
+## The keymaster contract (load-bearing assumptions)
+
+Moving the capability anchor to Archon's credential-request ceremony relocated trust into
+`@didcid/keymaster` rather than eliminating it. The invocation monitor performs **no cryptographic
+verification of its own** — it trusts `verifyResponse` to have done it. These properties of the dependency
+are therefore load-bearing; we state them as the contract Hearthold relies on. `did:cid` is content-addressed
+and the ceremony is standard VC challenge/response, so we have reasonable confidence in each, but they are the
+dependency's guarantees, not ours.
+
+| | Assumption | What defends us in-tree if it were false |
+|---|---|---|
+| **A1** | `createResponse` encrypts the response to the challenge's controller; `verifyResponse` requires decrypting as that controller. | The **Warden-minted challenge** gate (`ChallengeStore`, `invocation-monitor.ts`): a presentation must answer a challenge *we* minted, so a holder self-minting its own challenge (any schema/issuer) is refused even if A1 didn't already make it undecryptable. `e2e-invocation-challenge` asserts both. |
+| **A2** | Each VP's issuer signature is verified and a failing VP is omitted from `vps[]`. | Not independently re-verified in-tree — this one we *rely on*. `e2e-invocation-confused-deputy` (self-issued scope) exercises it end-to-end through the real ceremony. |
+| **A3** | `responder` derives from the response DID's create-op signature, not a body field. | The **subject binding** (`resolveInvocation`: `subject === responder`) plus the **authcrypt `fromDid === holder`** check mean a bypass would need to defeat two independent bindings, not one attacker-chosen string. `e2e-invocation-confused-deputy` A3/A4 cover replay and copied-VC. |
+| **A4** | `match`/`fulfilled`/`requested` are recomputed against the resolved challenge, not echoed from the response body. | Partially — the Warden-minted-challenge gate means an echoed `match` on a challenge we never minted is still refused. |
+| **A5** | Revoked/expired VCs are rejected by `verifyResponse`. | We do **not** rely on this: the monitor checks `caveats.expires` and the `credentialStatus` pointer itself (`status-list.ts`, fail-closed), independent of the verifier. |
+| **A6** | `metadata.authenticated` marks a genuinely sender-authenticated (authcrypt) envelope. | The transport infers authentication from `metadata.sender` presence (`transport.ts`); `metadata.authenticated` is not yet read. Tightening this to require the explicit flag is tracked hardening. |
+
+Two smaller anchor notes: `expectedRootIssuer` unset no longer yields a `trustedIssuers: ['']` that matches an
+empty issuer — `resolveInvocation` denies when it is empty. And `opts.schema` is enforced by the challenge the
+Warden mints (A1), not only as a trust-registry `resource`.
 
 ## Full citations
 - A. H. Karp, message to W3C public-credentials (Sep 2022):

@@ -164,65 +164,84 @@ proofs only use `proofPurpose: authentication` today. The `credentialSubject`:
 Attenuation is **monotonic**: a delegated capability may only narrow — actions ⊆ parent, `kinds` ⊆ parent,
 `ceiling` ≤ parent, `expires` ≤ parent. Never broaden.
 
-### 5.2 The invocation act
+### 5.2 The invocation act (as shipped)
 
-The Emissary invokes over an **authcrypt** envelope (sender already proven), presenting the capability chain
-and an act carried under a single-use `txn`, with a challenge/response holder proof (a per-act signature is a
-further hardening):
+The Emissary invokes over an **authcrypt** envelope (sender already proven). The wire carries **no capability
+body** — only the `presentation` (a `createResponse` DID answering the Warden's challenge) and the `act` under a
+single-use `txn`. The scope is read from the *verified* presentation, never from the wire (`capability.ts`
+`CapabilityInvocation`):
 
 ```jsonc
 {
   "type": "hearthold/invocation",
-  "capability": { /* the delegated capability, whole, chained to a Sovereign root */ },
+  "version": "0.4.0",
+  "presentation": "did:cid:<createResponse — answers the Warden's challenge, discloses the Sovereign's scope VC>",
   "act": {
     "action": "prove",
-    "target": "resided in FR during 2026-H1",
-    "args": { "reveal": [0,2], "validForMinutes": 10, "recipient": "did:cid:<verifier>" },
-    "nonce": "<warden-minted>",               // act-binding (mirrors SignedKbRequest)
-    "txn": "<uuid>"
+    "target": "hearthold:vault:location",
+    "args": { "claim": "resided in FR during 2026-H1", "spec": { "kind": "location" }, "reveal": [0,2] },
+    "nonce": "<uuid>",
+    "txn": "<uuid>"                            // single-use; burned on success
   },
-  "invocationProof": { /* Emissary signs act+nonce (a carried JWS); the invocation purpose is in the body */ },
-  "discharges": [ /* Signet discharge(s), bound to this txn, when a requiresDischarge caveat is present */ ]
+  "discharges": [ /* Signet discharge(s), bound to this txn, when consent is required */ ]
 }
 ```
 
-### 5.3 The Warden as reference monitor
+The `presentation` is minted by the Emissary answering a **Warden-minted challenge** (§5.3 step 1); the Emissary
+obtains one with `hearthold/challenge-request`. `act.nonce` is carried for future per-act signing but is not yet
+load-bearing — the anti-replay teeth are the Warden challenge (single-use) and the `txn` burn.
 
-Generalize `MeshWarden.admit` (already a genuine reference monitor: mandatory, per-request, version-pinned,
-fail-closed) into `verifyInvocation`. On every invocation, in order — **deny on any failure:**
+### 5.3 The Warden as reference monitor (as shipped)
 
-1. **Transport identity.** authcrypt `metadata.authenticated` ⇒ sender = Emissary DID. (Reject unauthenticated.)
-2. **Capability chain.** `verifyAttenuationChain(capability)` — walks to a Sovereign-signed root; each hop's
-   subset assertion verified; chain length bounded; not expired; **the leaf's `controller` == the
-   authenticated sender.**
-3. **Act ⊆ caveats.** `action ∈ allowedAction`; `target` within `invocationTarget`; requested `kind ∈
-   caveats.kinds`; artefact `sensitivity ≤ caveats.ceiling`; **owner scoping = `caveats.owner`** (not any
-   request field).
-4. **Discharge (consent).** If `requiresDischarge` is present, require a discharge signed by the **caveat's
-   designated Signet**, **bound to this `txn`** (the macaroon `PrepareForRequest` binding — this *is* the
-   `txn`-echo the audit found missing). Feed the achieved tier into `decideRelease`.
-5. **Status.** `credentialStatus` check on the capability (`status-list.ts`, fail-closed) — revoked ⇒ deny.
-6. **Freshness.** Nonce fresh + single-use burn (`single-use.ts`).
+`resolveInvocation` + `authorizeInvocation` (`invocation-monitor.ts`) are the mandatory, per-request,
+fail-closed monitor. On every invocation, in order — **deny on any failure:**
 
-Only then perform the act — and `assembleEvidence` is scoped to `caveats.owner` + `caveats.kinds` (not
+1. **Presentation + audience binding.** `verifyProof(presentation, { trustedIssuers: [Sovereign], schema:
+   HearthholdAuthorization })` — the disclosed scope VC must be Sovereign-issued and satisfy the challenge. The
+   answered challenge must be one the **Warden minted** (fresh, single-use — `ChallengeStore.gate`), so a
+   captured presentation is not a bearer token.
+2. **Holder control.** `responder` (proven by the response's own signature) must equal the credential
+   **subject** the Sovereign signed — possession of the VC plaintext is *not* authority — and the authcrypt
+   sender (`fromDid`) must equal that holder.
+3. **Act ⊆ authority.** `action ∈ authority.operations`; `target` within `authority.resources`. Designation is
+   authority — no ambient lookup, no wire body.
+4. **Status.** If the scope carries a `credentialStatus` pointer, resolve it fail-closed (`status-list.ts`) —
+   revoked or unavailable ⇒ deny.
+5. **Replay + lifetime.** `txn` unseen (burned on success); `caveats.expires` in the future; a `singleUse`
+   capability not already spent (burned on success).
+6. **Ceiling + kind.** The assembled `sensitivity ≤ caveats.ceiling`; the requested `spec.kind ∈ caveats.kinds`
+   (when scoped). Denials here are message-normalized so they don't leak that an artefact exists above the
+   holder's clearance.
+7. **Consent.** A `requiresDischarge` caveat **or** the Warden's sensitivity policy (`requiresHumanAt`, default
+   MEDIUM) requires a discharge signed by the **designated owner's Signet**, **bound to this `txn`+predicate**
+   (the macaroon `PrepareForRequest` binding). Obtained over the direct Warden↔Signet channel — the Emissary is
+   never on it.
+
+Only then is the act performed — and `assembleEvidence` is scoped to the **verified** `caveats.owner` (not
 `store.list()` over the whole vault).
+
+> **Not shipped (Phase 4).** `attenuation.ts` / `capability-chain.ts` (the salted-commitment, multi-hop
+> **delegation** chain — `verifyAttenuationChain`, per-hop subset assertions) is retained for Emissary→third-party
+> attenuation and has no call site on the shipped single-hop path. Where earlier drafts of this document described
+> a chain walk or a 256-bit disclosure salt as the enforcing mechanism, that was aspirational: the shipped monitor
+> is a single `verifyProof`, and the protection is sound by construction, not by a chain.
 
 ### 5.4 Why this closes finding A structurally
 
-The recipient and the approver are no longer strings the requester supplies. The **approver** is the Signet
-the capability's `requiresDischarge` caveat *designates* (the data owner's), and the discharge is **bound to
-the specific act** — so a captured/relayed approval can't be reused, and no requester can name themselves as
-approver. The **owner scoping** comes from `caveats.owner`, not `req.subjectDid`. Designation and authority
-are fused in the capability. The confused deputy has nowhere to stand.
+Everything the Warden enforces — `owner`, `ceiling`, `audience`, `kinds`, `status`, `requiresDischarge` — is read
+from `verifyProof`'s **issuer-signed disclosed claims**, never from a wire body (there isn't one). So altering a
+caveat, stripping the status pointer, deleting a discharge caveat, or naming yourself as owner/approver are not
+*refused* — they are *unconstructible*: you cannot forge the Sovereign's signature over a scope. The **holder**
+is the challenge/response `responder`, bound to the credential **subject** and to the authcrypt sender — so
+possession of a copied VC is not authority. The **approver** is the Signet the caveat (or the Warden policy)
+*designates*, and its discharge is bound to the act's `txn` — a captured approval can't be reused, and no
+requester can name themselves.
 
-**The binding rule (what makes this enforcing, not advisory).** Everything the Warden enforces is read from the
-*verified, commitment-bound chain* — never from `inv.capability.credentialSubject`, which is an unauthenticated
-wire object. The invocation must present the disclosure for **every** hop (the 256-bit salt that binds each
-commitment can only be produced by decrypting the hop — i.e. by holding it), and the caller is bound to the
-leaf's **issuer-signed holder DID** by Archon **challenge/response** (`verifyResponse`), not by a self-asserted
-`controller`. Omitting the disclosure, forging the body, stripping the status pointer, deleting a
-`requiresDischarge` caveat, or proving control of the *wrong* DID all fail closed — the red test
-`scripts/e2e-invocation-confused-deputy.ts` exercises each.
+The red tests exercise this against the real ceremony: `e2e-invocation-confused-deputy` (no presentation,
+self-issued scope, replay by a non-holder, a copied VC under the attacker's own DID — all refused);
+`e2e-invocation-challenge` (a replayed or self-minted challenge refused); `e2e-invocation-human-gate` /
+`e2e-invocation-discharge-didcomm` (a SEALED-ceiling capability with no caveat cannot disclose MEDIUM+ without
+the owner's live consent).
 
 ---
 
@@ -237,7 +256,7 @@ STANDING.**
 **After (capability / invocation).** Emissary holds a capability delegated by the Sovereign:
 `{invocationTarget: vault:<memberX>, allowedAction:[prove], caveats:{kinds:[location], ceiling:MEDIUM,
 owner:<memberX>, requiresDischarge:[{by:<memberX-signet>}]}}`. It invokes with a nonce-bound act. The Warden:
-authcrypt says it's the Emissary; the chain says the Sovereign granted `location ≤ MEDIUM over memberX`; the
+authcrypt says it's the Emissary; the verified scope VC says the Sovereign granted `location ≤ MEDIUM over memberX`; the
 act asks for `location` over memberX ✓; a MEDIUM disclosure needs a discharge from **memberX's** Signet bound
 to this txn — memberX approves; status ✓; nonce burned; evidence assembled **over memberX's location only**.
 An attacker with a delegation for `image` over memberY cannot form this request, cannot name memberX as
@@ -247,12 +266,14 @@ owner, and cannot supply the discharge. **The step-up cannot be bypassed and cro
 
 ## 7. Mapping to Karp's four criteria
 
-| Criterion | Before | After |
+Grades are the third audit's (2026-08-07), not our own.
+
+| Criterion | Before | After (shipped) |
 |---|---|---|
-| **1. The act is the signed object** | Request unsigned; approval portable across audience/recipient/TTL/mode. | The caller is bound to the chain's holder by challenge/response, the disclosure is commitment-bound, and each act is single-use by `txn`; the discharge is bound to that `txn`. *(A per-act signature over a Warden nonce is a further hardening.)* |
-| **2. Something has to ask permission** | `decideRelease` a pure probe; no revocation; no reference monitor on the disclosure path. | `verifyInvocation` is a mandatory reference monitor; `credentialStatus` fail-closed; consent via bound discharge. |
-| **3. Attenuation with teeth** | `attenuation.ts` unused; evidence path passed a boolean; whole-vault `list()`. | Chain verified at invocation; act ⊆ caveats; owner+kind scoping enforced Warden-side. |
-| **4. Designation is authority** | Every subject/recipient/approver named by string → confused deputy. | Authority is an unforgeable capability chained to a Sovereign root; the approver/owner are *designated by the capability*. |
+| **1. The act is the signed object** (C−) | Request unsigned; approval portable across audience/recipient/TTL/mode. | The presentation answers a single-use **Warden-minted** challenge and each act is single-use by `txn`; the discharge is bound to that `txn`+predicate. The act itself is not yet signed (`act.nonce` is carried, not enforced) — a per-act JWS is the remaining hardening. |
+| **2. Something has to ask permission** (B−) | `decideRelease` a pure probe; no revocation; no reference monitor on the disclosure path. | `resolveInvocation`/`authorizeInvocation` is one mandatory, fail-closed door; `credentialStatus` fail-closed; consent is a **Warden policy** (`requiresHumanAt`), not an issuer's option, obtained via a bound discharge over the wired Signet channel. |
+| **3. Attenuation with teeth** (B−) | `attenuation.ts` unused; evidence path passed a boolean; whole-vault `list()`. | Caveats come from an issuer-signed VC, so they bite: act ⊆ authority, `ceiling`, `kinds`, `expires`/`singleUse` all enforced at use; assembly scoped to the verified `owner`. Multi-hop chain attenuation is Phase 4 (§5.3). |
+| **4. Designation is authority** (B) | Every subject/recipient/approver named by string → confused deputy. | There is **no wire capability body to forge**; authority is a Sovereign-issued VC, the holder is the challenge/response responder bound to the credential subject, and the approver/owner are designated by the VC. |
 
 **Residuals, named honestly (Karp's register):**
 - **Ambient authority remains** in `config.sovereignDid` fallbacks and the localhost control plane (a local
