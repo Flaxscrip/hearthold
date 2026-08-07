@@ -29,6 +29,12 @@ export interface WitnessSubmission {
   ciphertext: string;
   /** Optional sensitivity the Emissary proposes; the Warden's classifier decides authoritatively. */
   proposedSensitivity?: Sensitivity;
+  /**
+   * A `createResponse` DID presenting the Emissary's delegation credential in answer to the Warden's
+   * challenge. Authorizes the submission by a PRESENTED credential (kinds + member + proven holder +
+   * issuer-trust via `verifyProof`) instead of a local ACL lookup. See docs/invocation.md §5.
+   */
+  delegationProof?: string;
 }
 
 /** Warden → Emissary: acknowledgement of a stored submission. */

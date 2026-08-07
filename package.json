@@ -30,6 +30,7 @@
     "registry": "node packages/registry/dist/index.js",
     "e2e": "npm run e2e:delegation && npm run e2e:submission",
     "e2e:delegation": "npm run build && node --experimental-strip-types scripts/e2e-delegation.ts",
+    "e2e:delegation-presentation": "npm run build && node --experimental-strip-types scripts/e2e-delegation-presentation.ts",
     "e2e:submission": "npm run build && node --experimental-strip-types scripts/e2e-submission.ts",
     "smoke:didcomm": "npm run build && node --experimental-strip-types scripts/didcomm-smoke.ts",
     "e2e:issued": "npm run build && node --experimental-strip-types scripts/e2e-issued.ts",

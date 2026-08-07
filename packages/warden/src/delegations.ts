@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { KeymasterHandle, WitnessKind } from '@hearthold/core';
+import { verifyProof, ensureDelegationSchema } from '@hearthold/core';
 
 /**
  * The kinds a legacy delegation (recorded before per-path kind-scoping) is treated as granting — the set the
@@ -93,5 +94,30 @@ export class DelegationStore {
     if (!rec) return false;
     const vc = await this.warden.keymaster.getCredential(rec.credentialDid).catch(() => null);
     return vc != null;
+  }
+
+  /**
+   * Authorize a submission by a PRESENTED delegation credential (the VC path, replacing the local ACL). The
+   * Emissary answers the Warden's credential-request challenge with its held delegation; `verifyProof` returns
+   * the `kinds` + `member` claims, the proven holder (`responder`), and issuer-trust (the Warden signed it) in
+   * one step — no `delegations.json` lookup, and the VC's own `validUntil`/revocation apply. Fail-closed.
+   */
+  async verifyDelegationPresentation(
+    presentation: string,
+    expectedHolder: string,
+  ): Promise<{ ok: true; kinds: WitnessKind[]; member?: string } | { ok: false; reason: string }> {
+    if (!presentation) return { ok: false, reason: 'no delegation presentation' };
+    const km = this.warden.keymaster;
+    const currentId = await km.getCurrentId().catch(() => undefined);
+    const wardenDid = currentId ? (await km.resolveDID(currentId)).didDocument?.id ?? '' : '';
+    if (!wardenDid) return { ok: false, reason: 'warden identity unavailable' };
+    const schema = await ensureDelegationSchema(this.warden);
+    const proof = await verifyProof(this.warden, presentation, { trustedIssuers: [wardenDid], schema }).catch(
+      (e: unknown) => ({ ok: false as const, disclosed: [], reason: `presentation not verifiable: ${e instanceof Error ? e.message : String(e)}` }),
+    );
+    if (!proof.ok || !proof.responder) return { ok: false, reason: proof.reason ?? 'delegation presentation not verified' };
+    if (proof.responder !== expectedHolder) return { ok: false, reason: 'presenter is not the delegate (holder mismatch)' };
+    const claims = (proof.disclosed[0]?.claims ?? {}) as { kinds?: WitnessKind[]; member?: string };
+    return { ok: true, kinds: claims.kinds ?? LEGACY_DELEGATION_KINDS, member: claims.member };
   }
 }

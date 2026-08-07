@@ -15,6 +15,11 @@ export interface DelegationScope {
   kinds: WitnessKind[];
   /** ISO timestamp after which the delegation is no longer valid. */
   validUntil: string;
+  /**
+   * The household member (Sovereign) this Emissary submits on behalf of — carried IN the credential so the
+   * owner is read from the presented delegation, not a local map. Absent ⇒ single-Sovereign (owner defaults).
+   */
+  member?: string;
 }
 
 /**
@@ -34,6 +39,7 @@ export async function issueDelegation(
     claims: {
       type: CredentialType.DELEGATION,
       kinds: scope.kinds,
+      ...(scope.member ? { member: scope.member } : {}),
     },
   });
   return warden.keymaster.issueCredential(bound, { schema: schemaDid, validUntil: scope.validUntil });

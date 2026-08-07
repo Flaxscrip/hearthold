@@ -3,6 +3,7 @@ import {
   type RequestHandler,
   type HearthholdMessage,
   type WitnessSubmission,
+  type WitnessKind,
   type SubmissionReceipt,
   type EvidenceRequest,
   type CapabilityInvocation,
@@ -56,23 +57,35 @@ export function makeWardenHandler(
   // supplied subjectDid. OFF by default over DIDComm; set HEARTHOLD_ALLOW_LEGACY_EVIDENCE=1 only to stage the
   // app migration to `hearthold/invocation`, and it logs loudly when used.
   const allowLegacyEvidence = process.env.HEARTHOLD_ALLOW_LEGACY_EVIDENCE === '1' || process.env.HEARTHOLD_ALLOW_LEGACY_EVIDENCE === 'true';
+  // Submissions authorize by a PRESENTED delegation credential; the local-ACL fallback is off by default
+  // (staged migration — set HEARTHOLD_ALLOW_LEGACY_DELEGATION=1 to keep the boolean-store path).
+  const allowLegacyDelegation = process.env.HEARTHOLD_ALLOW_LEGACY_DELEGATION === '1' || process.env.HEARTHOLD_ALLOW_LEGACY_DELEGATION === 'true';
 
   return async (message, fromDid) => {
     switch (message.type) {
       case 'hearthold/witness-submission': {
-        if (!(await delegations.isAuthorized(fromDid))) {
-          return deny('no valid delegation for this Emissary');
-        }
-        // Kind-enforcement (compartmentalized Emissaries): a submission whose kind isn't in THIS Emissary's
-        // delegated kinds is refused — fail-closed. So a text Emissary can't submit images and vice versa; a
-        // compromised Emissary's blast radius is capped at its own delegated path.
+        // Authorize by the PRESENTED delegation credential (verifyProof → kinds + member + proven holder +
+        // issuer-trust in one step). The legacy local-ACL lookup is off by default. Kind-enforcement
+        // (compartmentalized Emissaries) stays: a submission whose kind isn't granted is refused, fail-closed.
         const kind = (message as WitnessSubmission).kind;
-        const grantedKinds = await delegations.kindsFor(fromDid);
+        const delegationProof = (message as WitnessSubmission).delegationProof;
+        let grantedKinds: WitnessKind[];
+        let owner: string | undefined;
+        if (delegationProof) {
+          const del = await delegations.verifyDelegationPresentation(delegationProof, fromDid);
+          if (!del.ok) return deny(`delegation not proven: ${del.reason}`);
+          grantedKinds = del.kinds;
+          owner = del.member ?? defaultOwner;
+        } else if (allowLegacyDelegation) {
+          if (!(await delegations.isAuthorized(fromDid))) return deny('no valid delegation for this Emissary');
+          grantedKinds = await delegations.kindsFor(fromDid);
+          owner = (await delegations.memberFor(fromDid)) ?? defaultOwner;
+        } else {
+          return deny('submission carries no delegation presentation — present your delegation credential');
+        }
         if (!grantedKinds.includes(kind)) {
           return deny(`this Emissary is not delegated for '${kind}' (granted: ${grantedKinds.join(', ') || 'none'})`);
         }
-        // Attribute the submission's OWNER: the member this Emissary serves, else the default Sovereign.
-        const owner = (await delegations.memberFor(fromDid)) ?? defaultOwner;
         // Ingestion gate: is THIS Emissary autofile-trusted (bypasses quarantine), and what's the floor?
         // Default (no policy) → quarantine everything (an Emissary may PROPOSE, only the Sovereign ADMITS).
         const autofileTrusted = ingest ? await ingest.isAutofileTrusted(fromDid) : false;

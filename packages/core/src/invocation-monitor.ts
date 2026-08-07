@@ -75,7 +75,7 @@ export async function resolveInvocation(
   const proof = await verifyProof(ctx.keymaster, inv.presentation, {
     trustedIssuers: [ctx.expectedRootIssuer],
     schema: ctx.authorizationSchema,
-  });
+  }).catch((e: unknown) => ({ ok: false as const, disclosed: [], reason: `not verifiable: ${e instanceof Error ? e.message : String(e)}` }));
   if (!proof.ok) return { ok: false, reason: `capability presentation invalid: ${proof.reason ?? 'not verified'}` };
   if (!proof.responder) return { ok: false, reason: 'presentation has no responder (holder not proven)' };
 
