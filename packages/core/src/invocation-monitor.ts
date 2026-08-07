@@ -34,6 +34,12 @@ export interface InvocationContext {
   sensitivity?: Sensitivity;
   /** Transport-authenticated caller (authcrypt sender), when available — an additional binding to the holder. */
   fromDid?: string;
+  /**
+   * Assert the presentation answered a challenge WE minted (and burn it). Without this a presentation is a
+   * permanent bearer token — audit-3 §1. The Warden passes `ChallengeStore.gate('invocation')`; a caller that
+   * omits it (a direct-library test) skips the check, but the daemon path always supplies it.
+   */
+  requireChallenge?: (challenge: string) => boolean;
   /** Max-age for the StatusList cache (default: fresh resolve every invocation). */
   statusMaxAgeMs?: number;
 }
@@ -76,9 +82,14 @@ export async function resolveInvocation(
   const proof = await verifyProof(ctx.keymaster, inv.presentation, {
     trustedIssuers: [ctx.expectedRootIssuer],
     schema: ctx.authorizationSchema,
-  }).catch((e: unknown) => ({ ok: false as const, disclosed: [], reason: `not verifiable: ${e instanceof Error ? e.message : String(e)}` }));
+  }).catch((e: unknown) => ({ ok: false as const, challenge: '', disclosed: [], reason: `not verifiable: ${e instanceof Error ? e.message : String(e)}` }));
   if (!proof.ok) return { ok: false, reason: `capability presentation invalid: ${proof.reason ?? 'not verified'}` };
   if (!proof.responder) return { ok: false, reason: 'presentation has no responder (holder not proven)' };
+  // Freshness / audience binding: the presentation must answer a challenge WE minted (single-use, TTL-bound),
+  // not a self-minted or captured one. Burns the challenge. Fail-closed when a gate is configured.
+  if (ctx.requireChallenge && !ctx.requireChallenge(proof.challenge)) {
+    return { ok: false, reason: 'presentation did not answer a fresh Warden-minted challenge' };
+  }
 
   const authCred = proof.disclosed.find((d) => (d.claims as { type?: string }).type === AUTHORIZATION_TYPE) ?? proof.disclosed[0];
   if (!authCred) return { ok: false, reason: 'no authorization credential presented' };

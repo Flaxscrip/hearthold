@@ -56,6 +56,10 @@
       "types": "./dist/evidence.d.ts",
       "import": "./dist/evidence.js"
     },
+    "./challenge-store": {
+      "types": "./dist/challenge-store.d.ts",
+      "import": "./dist/challenge-store.js"
+    },
     "./cgpr": {
       "types": "./dist/cgpr.d.ts",
       "import": "./dist/cgpr.js"

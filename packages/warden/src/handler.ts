@@ -16,6 +16,7 @@ import type { WardenService } from './service.js';
 import type { DelegationStore } from './delegations.js';
 import type { EvidenceService } from './evidence.js';
 import type { KbService } from './kb.js';
+import type { ChallengeStore } from './challenge-store.js';
 
 /**
  * Builds the Warden's inbound request handler. Authentication of `fromDid` is already done by the
@@ -41,6 +42,13 @@ export function makeWardenHandler(
    * The submit is ack'd immediately ("received & queued"); this runs later, when the artefact actually lands.
    */
   onStored?: (receipt: SubmissionReceipt, submission: WitnessSubmission, fromDid: string) => void,
+  /**
+   * Warden-minted challenge store (audit-3 §1). When supplied, submission delegations and invocations MUST
+   * answer a challenge this Warden minted — closing the bearer-token gap. Also enables the
+   * `hearthold/challenge-request` case an Emissary calls to obtain one. Omitted ⇒ the freshness check is
+   * skipped (direct-library tests that mint their own challenge via `requestProof`).
+   */
+  challenges?: ChallengeStore,
 ): RequestHandler {
   const deny = (reason: string): HearthholdMessage => ({
     type: 'hearthold/error',
@@ -60,7 +68,7 @@ export function makeWardenHandler(
         const kind = (message as WitnessSubmission).kind;
         const delegationProof = (message as WitnessSubmission).delegationProof;
         if (!delegationProof) return deny('submission carries no delegation presentation — present your delegation credential');
-        const del = await delegations.verifyDelegationPresentation(delegationProof, fromDid);
+        const del = await delegations.verifyDelegationPresentation(delegationProof, fromDid, challenges?.gate('delegation'));
         if (!del.ok) return deny(`delegation not proven: ${del.reason}`);
         const grantedKinds = del.kinds;
         const owner = del.member ?? defaultOwner;
@@ -98,7 +106,22 @@ export function makeWardenHandler(
         if (!evidence) {
           return { type: 'hearthold/evidence-response', version: PROTOCOL_VERSION, status: 'denied', reason: 'evidence service not configured' };
         }
-        return evidence.handleInvocation(message as CapabilityInvocation, fromDid);
+        return evidence.handleInvocation(message as CapabilityInvocation, fromDid, challenges?.gate('invocation'));
+      }
+
+      // Emissary asks for a fresh, Warden-minted challenge to present a delegation / scope VC against. The
+      // Warden picks the schema + trusted issuer (the audience binding); the Emissary answers with
+      // `createResponse` and sends the response as its `delegationProof` / invocation `presentation`.
+      case 'hearthold/challenge-request': {
+        if (!challenges) return deny('challenge service not configured');
+        const purpose = (message as { purpose?: 'invocation' | 'delegation' }).purpose;
+        if (purpose !== 'invocation' && purpose !== 'delegation') return deny('challenge-request needs a purpose of invocation|delegation');
+        try {
+          const challenge = await challenges.mintForPurpose(purpose);
+          return { type: 'hearthold/challenge-response', version: PROTOCOL_VERSION, challenge };
+        } catch (e) {
+          return deny(`cannot mint a ${purpose} challenge: ${e instanceof Error ? e.message : String(e)}`);
+        }
       }
 
       // Knowledge Base — the KB service authenticates + authorizes end-to-end (the requester's own

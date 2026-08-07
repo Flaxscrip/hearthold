@@ -77,7 +77,13 @@ export class EvidenceService {
    * recipient come from the capability — never from the request — which closes the confused-deputy step-up
    * (finding A) and the whole-vault `store.list()` leak. This is the ONLY evidence-disclosure path.
    */
-  async handleInvocation(inv: CapabilityInvocation, fromDid: string): Promise<EvidenceResponse> {
+  async handleInvocation(
+    inv: CapabilityInvocation,
+    fromDid: string,
+    /** Assert the presentation answered a fresh Warden-minted challenge (audit-3 §1). The handler passes
+     *  `ChallengeStore.gate('invocation')`; a direct-library test may omit it. */
+    requireChallenge?: (challenge: string) => boolean,
+  ): Promise<EvidenceResponse> {
     const deny = (reason: string): EvidenceResponse => ({
       type: 'hearthold/evidence-response',
       version: PROTOCOL_VERSION,
@@ -99,6 +105,7 @@ export class EvidenceService {
       expectedRootIssuer: this.config.sovereignDid ?? '',
       authorizationSchema,
       spent: new FileSpentTxnStore(this.warden.dataFolder),
+      ...(requireChallenge ? { requireChallenge } : {}),
     };
     const resolved = await resolveInvocation(inv, ctx);
     if (!resolved.ok) return deny(`invocation refused: ${resolved.reason}`);

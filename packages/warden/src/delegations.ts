@@ -80,6 +80,9 @@ export class DelegationStore {
   async verifyDelegationPresentation(
     presentation: string,
     expectedHolder: string,
+    /** Assert the presentation answered a Warden-minted challenge (audit-3 §1). The handler passes
+     *  `ChallengeStore.gate('delegation')`; omit only in a direct-library test. */
+    requireChallenge?: (challenge: string) => boolean,
   ): Promise<{ ok: true; kinds: WitnessKind[]; member?: string } | { ok: false; reason: string }> {
     if (!presentation) return { ok: false, reason: 'no delegation presentation' };
     const km = this.warden.keymaster;
@@ -88,10 +91,11 @@ export class DelegationStore {
     if (!wardenDid) return { ok: false, reason: 'warden identity unavailable' };
     const schema = await ensureDelegationSchema(this.warden);
     const proof = await verifyProof(this.warden, presentation, { trustedIssuers: [wardenDid], schema }).catch(
-      (e: unknown) => ({ ok: false as const, disclosed: [], reason: `presentation not verifiable: ${e instanceof Error ? e.message : String(e)}` }),
+      (e: unknown) => ({ ok: false as const, challenge: '', disclosed: [], reason: `presentation not verifiable: ${e instanceof Error ? e.message : String(e)}` }),
     );
     if (!proof.ok || !proof.responder) return { ok: false, reason: proof.reason ?? 'delegation presentation not verified' };
     if (proof.responder !== expectedHolder) return { ok: false, reason: 'presenter is not the delegate (holder mismatch)' };
+    if (requireChallenge && !requireChallenge(proof.challenge)) return { ok: false, reason: 'delegation presentation did not answer a fresh Warden-minted challenge' };
     // Bind the caller to the credential subject — possession of the delegation VC is not authority.
     const subject = proof.disclosed[0]?.subject;
     if (!subject || subject !== proof.responder) return { ok: false, reason: 'presenter does not control the delegation subject' };

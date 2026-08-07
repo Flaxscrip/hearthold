@@ -530,6 +530,27 @@ export interface CredentialDeliveryAckMessage {
   ingestedArtefactId?: string;
 }
 
+// ── Emissary → Warden: request a fresh, Warden-minted challenge to present against ──────────────────
+//
+// The credential-request ceremony needs the VERIFIER to mint the challenge (the audience binding). The
+// presenter asks the Warden for one, answers it with `createResponse`, and sends the response as its
+// `delegationProof` / invocation `presentation`. The Warden asserts the answered challenge is the one it
+// minted (fresh, single-use / TTL-bound) — audit-3 §1. Without this, a presentation is a bearer token.
+
+export interface ChallengeRequestMessage {
+  type: 'hearthold/challenge-request';
+  version: typeof PROTOCOL_VERSION;
+  /** What the presentation is for — selects the schema + trusted issuer the challenge requires. */
+  purpose: 'invocation' | 'delegation';
+}
+
+export interface ChallengeResponseMessage {
+  type: 'hearthold/challenge-response';
+  version: typeof PROTOCOL_VERSION;
+  /** The Warden-minted challenge DID to answer with `createResponse`. */
+  challenge: string;
+}
+
 export interface ErrorMessage {
   type: 'hearthold/error';
   version: typeof PROTOCOL_VERSION;
@@ -567,4 +588,6 @@ export type HearthholdMessage =
   | CgprRelayResponseMessage
   | CredentialDeliveryMessage
   | CredentialDeliveryAckMessage
+  | ChallengeRequestMessage
+  | ChallengeResponseMessage
   | ErrorMessage;
