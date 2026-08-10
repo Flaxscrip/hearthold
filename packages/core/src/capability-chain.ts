@@ -106,6 +106,22 @@ export function discloseChain(...handles: CapabilityHandle[]): Record<string, Au
   );
 }
 
+/**
+ * A capability held as a chain hop: this holder's own `handle` (its leaf — invocable AND further-delegable) plus
+ * every ANCESTOR hop's disclosure (root → parent), so a presenter can disclose the whole chain to the verifier
+ * without decrypting any private VC. Transferred pairwise between agents (`hearthold/chain-grant`). Empty
+ * `ancestorDisclosures` ⇒ a root grant.
+ */
+export interface ChainCapabilityGrant {
+  handle: CapabilityHandle;
+  ancestorDisclosures: Record<string, AuthoritySetPayload>;
+}
+
+/** The full disclosure map to present when invoking a held grant: ancestors ∪ this leaf's own reveal. */
+export function disclosedFor(grant: ChainCapabilityGrant): Record<string, AuthoritySetPayload> {
+  return { ...grant.ancestorDisclosures, ...discloseChain(grant.handle) };
+}
+
 /** Pure: does every adjacent pair (ordered leaf→root) narrow its parent's caveats? */
 export function caveatsChainNarrows(orderedLeafToRoot: Caveats[]): boolean {
   for (let i = 0; i < orderedLeafToRoot.length - 1; i++) {

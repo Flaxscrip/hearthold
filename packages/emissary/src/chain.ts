@@ -10,10 +10,12 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
 
 import {
   delegateCapability,
-  discloseChain,
+  disclosedFor,
   ensureCapabilityStatusContext,
   allocateIndex,
   STATUS_LIST_LENGTH,
@@ -21,9 +23,9 @@ import {
   type KeymasterHandle,
   type Transport,
   type HearthholdConfig,
-  type CapabilityHandle,
   type CapabilitySpec,
-  type AuthoritySetPayload,
+  type ChainCapabilityGrant,
+  type ChainGrantMessage,
   type CapabilityInvocation,
   type SignedHolderProof,
   type EvidenceResponse,
@@ -31,14 +33,8 @@ import {
   type ChallengeResponseMessage,
 } from '@hearthold/core';
 
-/** A capability this Emissary HOLDS as a chain hop: its own handle + every ancestor hop's disclosure. */
-export interface ChainCapabilityGrant {
-  /** This hop's handle — invocable, and usable as the parent for a further `delegateOnward`. */
-  handle: CapabilityHandle;
-  /** Ancestor hops' revealed `{authoritySet, salt, caveats}` (root → parent), keyed by Asset DID. The holder
-   *  adds its own leaf reveal at present time (`disclosedFor`). Empty for a root grant. */
-  ancestorDisclosures: Record<string, AuthoritySetPayload>;
-}
+export type { ChainCapabilityGrant } from '@hearthold/core';
+export { disclosedFor } from '@hearthold/core';
 
 /** A hop this Emissary ISSUED to a delegate — kept so the issuer can revoke it (its own kill-switch over its child). */
 export interface IssuedHop {
@@ -47,11 +43,6 @@ export interface IssuedHop {
   statusListCredential: string;
   statusListIndex: number;
   issuedAt: string;
-}
-
-/** The full disclosure map to present when invoking a held grant: ancestors ∪ this leaf's own reveal. */
-export function disclosedFor(grant: ChainCapabilityGrant): Record<string, AuthoritySetPayload> {
-  return { ...grant.ancestorDisclosures, ...discloseChain(grant.handle) };
 }
 
 /**
@@ -86,10 +77,10 @@ export async function delegateOnward(args: {
     child: childSpec,
     registry: args.config.registry,
   });
-  // The delegate's ancestor set = our ancestors ∪ our own (now-parent) hop's reveal.
+  // The delegate's ancestor set = our ancestors ∪ our own (now-parent) hop's reveal = disclosedFor(parent).
   const grant: ChainCapabilityGrant = {
     handle: childHandle,
-    ancestorDisclosures: { ...args.parent.ancestorDisclosures, ...discloseChain(args.parent.handle) },
+    ancestorDisclosures: disclosedFor(args.parent),
   };
   const issued: IssuedHop = {
     childVcDid: childHandle.issued.vcDid,
@@ -153,4 +144,77 @@ export async function chainInvokeEvidence(
   if (reply.type === 'hearthold/evidence-response') return reply as EvidenceResponse;
   if (reply.type === 'hearthold/error') return reply as ErrorMessage;
   return { type: 'hearthold/error', version: PROTOCOL_VERSION, reason: `unexpected reply ${reply.type}` };
+}
+
+/**
+ * Hand a chain grant to its recipient over DIDComm (fire-and-forget — authcrypt authenticates the sender; the
+ * recipient's daemon persists it in its `HeldChainStore`). Used by a Sovereign to seed a ROOT grant to an
+ * Emissary, and by a delegator to transfer a delegated child hop to its delegate.
+ */
+export async function transferChainGrant(
+  handle: KeymasterHandle,
+  senderName: string,
+  toDid: string,
+  grant: ChainCapabilityGrant,
+): Promise<void> {
+  const msg: ChainGrantMessage = { type: 'hearthold/chain-grant', version: PROTOCOL_VERSION, grant };
+  await handle.keymaster.sendDidComm({ type: msg.type, thid: randomUUID(), body: msg }, toDid, { name: senderName });
+}
+
+/**
+ * File-backed store of the chain-capabilities this Emissary HOLDS (grants it received) and the hops it has
+ * ISSUED to delegates (kept so it can revoke them). Lives beside the wallet in the agent's data folder. Keyed by
+ * leaf Asset DID; most-recent grant wins for the "invoke my capability" convenience (`latest`).
+ */
+export class HeldChainStore {
+  private readonly grantsFile: string;
+  private readonly issuedFile: string;
+  constructor(private readonly dataFolder: string) {
+    this.grantsFile = join(dataFolder, 'held-chains.json');
+    this.issuedFile = join(dataFolder, 'issued-hops.json');
+  }
+  private async readGrants(): Promise<ChainCapabilityGrant[]> {
+    try {
+      return JSON.parse(await readFile(this.grantsFile, 'utf8')) as ChainCapabilityGrant[];
+    } catch {
+      return [];
+    }
+  }
+  async put(grant: ChainCapabilityGrant): Promise<void> {
+    await mkdir(this.dataFolder, { recursive: true });
+    const all = (await this.readGrants()).filter((g) => g.handle.issued.vcDid !== grant.handle.issued.vcDid);
+    all.push(grant);
+    await writeFile(this.grantsFile, JSON.stringify(all, null, 2), 'utf8');
+  }
+  async list(): Promise<ChainCapabilityGrant[]> {
+    return this.readGrants();
+  }
+  async get(leafVcDid: string): Promise<ChainCapabilityGrant | undefined> {
+    return (await this.readGrants()).find((g) => g.handle.issued.vcDid === leafVcDid);
+  }
+  /** The most recently received grant — the default for a "prove with my capability" invoke. */
+  async latest(): Promise<ChainCapabilityGrant | undefined> {
+    const all = await this.readGrants();
+    return all[all.length - 1];
+  }
+
+  private async readIssued(): Promise<IssuedHop[]> {
+    try {
+      return JSON.parse(await readFile(this.issuedFile, 'utf8')) as IssuedHop[];
+    } catch {
+      return [];
+    }
+  }
+  async putIssued(hop: IssuedHop): Promise<void> {
+    await mkdir(this.dataFolder, { recursive: true });
+    const all = (await this.readIssued()).filter((h) => h.childVcDid !== hop.childVcDid);
+    all.push(hop);
+    await writeFile(this.issuedFile, JSON.stringify(all, null, 2), 'utf8');
+  }
+  async listIssued(): Promise<IssuedHop[]> {
+    return this.readIssued();
+  }
+  async getIssued(childVcDid: string): Promise<IssuedHop | undefined> {
+    return (await this.readIssued()).find((h) => h.childVcDid === childVcDid);
+  }
 }

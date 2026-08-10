@@ -9,6 +9,7 @@ import type { Sensitivity, DisclosureMode } from './security.js';
 import type { SpendApprovalDetail } from './escalation.js';
 import type { CipherPublicJwk } from './payload.js';
 import type { CapabilityInvocation, Discharge } from './capability.js';
+import type { ChainCapabilityGrant } from './capability-chain.js';
 import type { DischargeRequest } from './invocation-monitor.js';
 import type { GatekeeperEvent } from '@didcid/gatekeeper/types';
 
@@ -579,6 +580,17 @@ export interface DischargeResponseMessage {
   reason?: string;
 }
 
+/**
+ * Delegator → delegate's Emissary: hand over a held chain-capability (the child hop + its ancestor disclosures)
+ * so the recipient can invoke it (and further-delegate). authcrypt authenticates the delegator as sender at the
+ * transport layer. The recipient persists it in its HeldChainStore. Also how a Sovereign seeds a ROOT grant.
+ */
+export interface ChainGrantMessage {
+  type: 'hearthold/chain-grant';
+  version: typeof PROTOCOL_VERSION;
+  grant: ChainCapabilityGrant;
+}
+
 export interface ErrorMessage {
   type: 'hearthold/error';
   version: typeof PROTOCOL_VERSION;
@@ -586,6 +598,7 @@ export interface ErrorMessage {
 }
 
 export type HearthholdMessage =
+  | ChainGrantMessage
   | WitnessSubmission
   | SubmissionReceipt
   | EvidenceRequest

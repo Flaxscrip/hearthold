@@ -83,6 +83,7 @@
     "e2e:capability-chain": "npm run build && node --experimental-strip-types scripts/e2e-capability-chain.ts",
     "e2e:multihop": "npm run build && node --experimental-strip-types scripts/e2e-multihop-confused-deputy.ts",
     "e2e:chain-delegate": "npm run build && node --experimental-strip-types scripts/e2e-chain-delegate-invoke.ts",
+    "e2e:chain-family": "npm run build && node --experimental-strip-types scripts/e2e-chain-family.ts",
     "e2e:invocation-evidence": "npm run build && node --experimental-strip-types scripts/e2e-invocation-evidence.ts",
     "e2e:invocation-discharge": "npm run build && node --experimental-strip-types scripts/e2e-invocation-discharge.ts",
     "e2e:invocation-revoke": "npm run build && node --experimental-strip-types scripts/e2e-invocation-revoke.ts",
