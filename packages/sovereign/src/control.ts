@@ -23,6 +23,8 @@ import {
   type RequestHandler,
   type HopRegisteredMessage,
   type HopRevokedMessage,
+  type FlowEvent,
+  type FlowEventMessage,
 } from '@hearthold/core';
 import type {
   SignetStatus,
@@ -78,6 +80,9 @@ export async function runSovereignControl(
   }
   const grants = new CapabilityGrantStore(handle.dataFolder);
   const lineage = new LineageStore(handle.dataFolder);
+  // The A2A flow log the Sovereign watches — a bounded live ring (recent-first via the route). In memory: it's a
+  // live stream, not durable state (the lineage forest is the durable record).
+  const flowLog: FlowEvent[] = [];
 
   const transport = new DidCommTransport(handle, IDENTITY_NAME.sovereign, config.nodeUrl);
   await transport.ready();
@@ -238,6 +243,10 @@ export async function runSovereignControl(
         if (!leafVcDid) throw new Error('leafVcDid is required');
         return { lineage: await reconstructLineage(handle, leafVcDid) };
       },
+
+      // The A2A flow watch: recent capability-exercise events across the family — who → whom, under what
+      // authority, and the outcome (never the disclosed content). The SSE 'flow' stream pushes them live.
+      'GET /api/flow': async () => ({ flow: [...flowLog].reverse().slice(0, 100) }),
     },
     onListening: (p) =>
       process.stdout.write(
@@ -261,6 +270,14 @@ export async function runSovereignControl(
       const m = message as HopRevokedMessage;
       await lineage.markRevoked(m.childVcDid);
       server.emit('lineage', { event: 'revoked', childVcDid: m.childVcDid, from: fromDid });
+      return null;
+    }
+    if (message.type === 'hearthold/flow-event') {
+      const m = message as FlowEventMessage;
+      const flow = { ...m.flow, from: m.flow.from || fromDid };
+      flowLog.push(flow);
+      if (flowLog.length > 200) flowLog.shift();
+      server.emit('flow', { flow });
       return null;
     }
     return baseHandler(message, fromDid);

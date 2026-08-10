@@ -30,6 +30,8 @@ import {
   type ChainGrantMessage,
   type HopRegisteredMessage,
   type HopRevokedMessage,
+  type FlowEvent,
+  type FlowEventMessage,
   type CapabilityInvocation,
   type SignedHolderProof,
   type EvidenceResponse,
@@ -223,6 +225,16 @@ export async function reportHopRegistered(
 /** Report to the governing Sovereign that a hop this Emissary issued was revoked (mark it in the watch). */
 export async function reportHopRevoked(handle: KeymasterHandle, senderName: string, sovereignDid: string, childVcDid: string): Promise<void> {
   const msg: HopRevokedMessage = { type: 'hearthold/hop-revoked', version: PROTOCOL_VERSION, childVcDid };
+  await handle.keymaster.sendDidComm({ type: msg.type, thid: randomUUID(), body: msg }, sovereignDid, { name: senderName });
+}
+
+/**
+ * Report an A2A message-flow event to the governing Sovereign's watch (item 5, Slice B) — an agent exercising a
+ * capability: who → whom, under what authority, and the outcome. Envelope-only, never the disclosed content.
+ * Fire-and-forget, best-effort (a watch that's down never blocks the act).
+ */
+export async function reportFlow(handle: KeymasterHandle, senderName: string, sovereignDid: string, flow: Omit<FlowEvent, 'ts'>): Promise<void> {
+  const msg: FlowEventMessage = { type: 'hearthold/flow-event', version: PROTOCOL_VERSION, flow: { ...flow, ts: new Date().toISOString() } };
   await handle.keymaster.sendDidComm({ type: msg.type, thid: randomUUID(), body: msg }, sovereignDid, { name: senderName });
 }
 

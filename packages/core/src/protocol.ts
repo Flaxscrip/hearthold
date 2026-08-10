@@ -612,6 +612,35 @@ export interface HopRevokedMessage {
   childVcDid: string;
 }
 
+/**
+ * The A2A message-flow the Sovereign WATCHES (item 5, Slice B) — "watch the encrypted messages pass". An agent
+ * reports to its governing Sovereign each time it exercises a capability: who → whom, under what authority, and
+ * the OUTCOME — never the disclosed content (that goes to the audience, not the governor). Monitoring, not
+ * surveillance: the Sovereign governs the flow + authority, and reads the content only when it was disclosed to
+ * it (a readable, co-signed pass). Envelope-only by construction.
+ */
+export interface FlowEvent {
+  /** The agent that acted (sender). */
+  from: string;
+  /** The counterparty — the Warden for an invocation, a recipient for a card pass. */
+  to: string;
+  /** `invocation` | `chain-invocation` | `card-pass` | … */
+  kind: string;
+  /** The capability governing the act, when applicable (e.g. the chain leaf's Asset DID). */
+  governingCapabilityDid?: string;
+  /** The witness kind disclosed — metadata, never the claim's content. */
+  witnessKind?: string;
+  /** The outcome the governor may see: `granted` | `denied`. */
+  decision?: string;
+  ts: string;
+}
+
+export interface FlowEventMessage {
+  type: 'hearthold/flow-event';
+  version: typeof PROTOCOL_VERSION;
+  flow: FlowEvent;
+}
+
 export interface ErrorMessage {
   type: 'hearthold/error';
   version: typeof PROTOCOL_VERSION;
@@ -622,6 +651,7 @@ export type HearthholdMessage =
   | ChainGrantMessage
   | HopRegisteredMessage
   | HopRevokedMessage
+  | FlowEventMessage
   | WitnessSubmission
   | SubmissionReceipt
   | EvidenceRequest

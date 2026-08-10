@@ -148,7 +148,8 @@
     "e2e:agent-cosign": "npm run build && node --experimental-strip-types scripts/e2e-agent-cosign.ts",
     "e2e:image-face": "npm run build && node --experimental-strip-types scripts/e2e-image-face.ts",
     "e2e:agent-gate": "npm run build && node --experimental-strip-types scripts/e2e-agent-gate.ts",
-    "e2e:watch-lineage": "npm run build && node --experimental-strip-types scripts/e2e-watch-lineage.ts"
+    "e2e:watch-lineage": "npm run build && node --experimental-strip-types scripts/e2e-watch-lineage.ts",
+    "e2e:watch-flow": "npm run build && node --experimental-strip-types scripts/e2e-watch-flow.ts"
   },
   "engines": {
     "node": ">=22"

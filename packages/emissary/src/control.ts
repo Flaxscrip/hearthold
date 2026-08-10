@@ -54,7 +54,7 @@ import {
   type HeldResponse,
 } from '@hearthold/control-types';
 import { invokeEvidence } from './invoke.js';
-import { HeldChainStore, delegateHeldOnward, chainInvokeEvidence, transferChainGrant, reportHopRegistered, reportHopRevoked } from './chain.js';
+import { HeldChainStore, delegateHeldOnward, chainInvokeEvidence, transferChainGrant, reportHopRegistered, reportHopRevoked, reportFlow } from './chain.js';
 
 const bareDid = (s: string | undefined): string => String(s ?? '').split('#')[0] ?? '';
 const sensName = (s: number): SensitivityName => SENSITIVITY_NAMES[s] ?? 'SEALED';
@@ -302,6 +302,11 @@ export async function runEmissaryControl(
         } else {
           job.resolve({ status: 'denied', reason: reply.type === 'hearthold/error' ? reply.reason : reply.reason ?? 'denied' });
         }
+        // Watch: report the disclosure flow to the governing Sovereign (envelope + authority + outcome, no content).
+        if (sovereignDid) {
+          const decision = reply.type === 'hearthold/evidence-response' && reply.status === 'granted' ? 'granted' : 'denied';
+          await reportFlow(handle, id.name, sovereignDid, { from: id.did, to: config.wardenDid ?? '', kind: 'invocation', witnessKind: job.spec.kind, decision }).catch(() => undefined);
+        }
       }
       // Drain queued CHAIN invocations on the sole drainer (challenge-request + invocation legs), same as invoke.
       while (running && chainInvokeQueue.length > 0) {
@@ -321,6 +326,11 @@ export async function runEmissaryControl(
           job.resolve({ status: 'granted', credentialDid: reply.credentialDid, schemaDid: reply.schemaDid, ...(reply.graph ? { graph: reply.graph } : {}) });
         } else {
           job.resolve({ status: 'denied', reason: reply.type === 'hearthold/error' ? reply.reason : reply.reason ?? 'denied' });
+        }
+        // Watch: report the chain disclosure flow to the Sovereign — under WHICH capability (the leaf) it acted.
+        if (sovereignDid) {
+          const decision = reply.type === 'hearthold/evidence-response' && reply.status === 'granted' ? 'granted' : 'denied';
+          await reportFlow(handle, id.name, sovereignDid, { from: id.did, to: config.wardenDid ?? '', kind: 'chain-invocation', governingCapabilityDid: grant.handle.issued.vcDid, witnessKind: job.kind, decision }).catch(() => undefined);
         }
       }
       let inbound: Awaited<ReturnType<typeof handle.keymaster.receiveDidComm>> = [];
