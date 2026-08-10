@@ -35,6 +35,7 @@ import type {
 
 import { makeSovereignHandler } from './handler.js';
 import { HttpGate } from './http-gate.js';
+import { AgentGate, type SignetGate } from './signet.js';
 import { CapabilityGrantStore, grantCapability, mintRootGrant, revokeCapability, grantState, type CapabilityGrant } from './capability-grants.js';
 
 export async function runSovereignControl(
@@ -43,11 +44,18 @@ export async function runSovereignControl(
   port: number,
   reopen?: () => Promise<KeymasterHandle>,
 ): Promise<void> {
-  if (!config.signetPin) {
-    throw new Error('HEARTHOLD_SIGNET_PIN is required for control — it gates each disclosure');
+  const agentMode = config.gateMode === 'agent';
+  if (!agentMode && !config.signetPin) {
+    throw new Error('HEARTHOLD_SIGNET_PIN is required for control in human mode — it gates each disclosure (or set HEARTHOLD_GATE_MODE=agent for an AI-agent Sovereign that self-approves within its allowance)');
   }
   const id = await ensureIdentity(handle, config);
-  const gate = new HttpGate(config.signetPin);
+  // The gate: a human PIN (HttpGate) or an AI agent's self-approval within its parent-signed allowance
+  // (AgentGate — no PIN, receipts). Both satisfy SignetGate, so the routes + status/snapshot are identical.
+  const gate: SignetGate = agentMode
+    ? new AgentGate((ctx, approved) => {
+        process.stderr.write(`[agent-signet] ${approved ? 'self-approved' : 'refused'} ${ctx.action?.action ?? 'act'}${ctx.action?.summary ? ` — ${ctx.action.summary}` : ''}\n`);
+      })
+    : new HttpGate(config.signetPin ?? '');
   const grants = new CapabilityGrantStore(handle.dataFolder);
 
   const transport = new DidCommTransport(handle, IDENTITY_NAME.sovereign, config.nodeUrl);

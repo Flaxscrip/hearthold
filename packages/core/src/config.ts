@@ -78,6 +78,13 @@ export interface HearthholdConfig {
   /** Signet: PIN that gates the Sovereign's approval of a disclosure (the first proof-of-human). */
   signetPin?: string;
   /**
+   * How `sovereign control`'s gate authorizes: `human` (default) = HttpGate — a person approves each act with the
+   * PIN (proof-of-human). `agent` = AgentGate — an AI-agent Sovereign SELF-APPROVES within its parent-signed
+   * allowance (no PIN, receipts), keeping standing autonomy while exposing the HTTP surface; above-allowance acts
+   * escalate to the parent's Signet via the Warden's ladder. env `HEARTHOLD_GATE_MODE`.
+   */
+  gateMode: 'human' | 'agent';
+  /**
    * Step-up (Signet approval) timeout in ms, per assurance level. The default 180s can lapse for a live
    * human tap, so it is configurable; clamped to a hard cap so a session can never hang indefinitely.
    */
@@ -244,6 +251,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): HearthholdConf
     embeddingModel: env.HEARTHOLD_EMBEDDING_MODEL ?? DEFAULT_EMBEDDING_MODEL,
     indexMode: env.HEARTHOLD_INDEX === 'off' ? 'off' : 'ollama',
     signetPin: env.HEARTHOLD_SIGNET_PIN,
+    gateMode: env.HEARTHOLD_GATE_MODE === 'agent' ? 'agent' : 'human',
     stepUpTimeoutMs: {
       factor1: resolveTimeout(env.HEARTHOLD_STEPUP_TIMEOUT_FACTOR1_MS, stepUpBase),
       factor2: resolveTimeout(env.HEARTHOLD_STEPUP_TIMEOUT_FACTOR2_MS, stepUpBase),

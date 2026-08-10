@@ -146,7 +146,8 @@
     "e2e:spend-receipts": "npm run build && node --experimental-strip-types scripts/e2e-spend-receipts.ts",
     "e2e:agent-mcp": "npm run build && node --experimental-strip-types scripts/e2e-agent-mcp.ts",
     "e2e:agent-cosign": "npm run build && node --experimental-strip-types scripts/e2e-agent-cosign.ts",
-    "e2e:image-face": "npm run build && node --experimental-strip-types scripts/e2e-image-face.ts"
+    "e2e:image-face": "npm run build && node --experimental-strip-types scripts/e2e-image-face.ts",
+    "e2e:agent-gate": "npm run build && node --experimental-strip-types scripts/e2e-agent-gate.ts"
   },
   "engines": {
     "node": ">=22"

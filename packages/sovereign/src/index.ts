@@ -121,8 +121,14 @@ async function main(): Promise<void> {
       break;
     }
     case 'control': {
-      const port = Number(process.argv[3] ?? process.env.HEARTHOLD_CONTROL_PORT ?? 4311);
-      await runSovereignControl(handle, config, port, reopenSovereign);
+      const portArg = process.argv[3] && !process.argv[3].startsWith('-') ? process.argv[3] : undefined;
+      const port = Number(portArg ?? process.env.HEARTHOLD_CONTROL_PORT ?? 4311);
+      // `--gate agent` runs the control surface as an AI-agent Sovereign's Signet (self-approve within the
+      // parent-signed allowance, no PIN) — keeps standing autonomy while exposing the HTTP surface for the
+      // agent-MCP / Table. Default is the human PIN gate (HttpGate). Also settable via HEARTHOLD_GATE_MODE.
+      const gi = process.argv.indexOf('--gate');
+      const ctlConfig = gi >= 0 && process.argv[gi + 1] === 'agent' ? { ...config, gateMode: 'agent' as const } : config;
+      await runSovereignControl(handle, ctlConfig, port, reopenSovereign);
       break;
     }
     // The AGENT's Signet — the third member of an AI-agent Sovereign's trinity (docs/agent-family.md). Serves

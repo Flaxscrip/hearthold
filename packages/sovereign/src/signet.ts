@@ -10,7 +10,10 @@
  * and the gate is where the proof-of-human level scales with sensitivity.
  */
 
+import { randomUUID } from 'node:crypto';
+
 import { dischargeDigest, type HumanPresenceAssertion, type SpendApprovalDetail, type KeymasterHandle, type Discharge, type DischargeRequest } from '@hearthold/core';
+import type { PendingApproval, ApprovalHistoryEntry } from '@hearthold/control-types';
 
 export interface ApprovalContext {
   /** The party the disclosure would go to (a verifier, or the Warden for an evidence approval). */
@@ -57,6 +60,19 @@ export interface ApprovalContext {
 export interface ApprovalGate {
   /** Approve a disclosure: return a human-presence assertion, or null to deny. */
   approve(ctx: ApprovalContext): Promise<HumanPresenceAssertion | null>;
+}
+
+/**
+ * The control-plane surface `sovereign control` drives (a superset of `ApprovalGate`): the HUMAN path (`HttpGate`)
+ * parks each act as a pending approval a GUI resolves with the PIN; the AGENT path (`AgentGate`) self-approves
+ * synchronously, so nothing ever pends. Both expose the same shape so the daemon can run either gate.
+ */
+export interface SignetGate extends ApprovalGate {
+  emit: (type: string, data: unknown) => void;
+  listPending(): PendingApproval[];
+  listHistory(): ApprovalHistoryEntry[];
+  pendingCount(): number;
+  decide(id: string, approve: boolean, pin?: string): { decision: 'approved' | 'denied' };
 }
 
 /**
@@ -114,7 +130,11 @@ export class DenyGate implements ApprovalGate {
  * `onDecision` is the receipt hook — the parent's observation feed / an audit log (evidence pointed inward).
  * An optional `permit` predicate can refuse a within-scope act the agent's own policy rejects (fail closed).
  */
-export class AgentGate implements ApprovalGate {
+export class AgentGate implements SignetGate {
+  /** Wired to the control server's `emit` (a receipt feed) when this gate backs `sovereign control`. */
+  emit: (type: string, data: unknown) => void = () => {};
+  private readonly history: ApprovalHistoryEntry[] = [];
+
   constructor(
     private readonly onDecision?: (ctx: ApprovalContext, approved: boolean) => void | Promise<void>,
     private readonly permit?: (ctx: ApprovalContext) => boolean | Promise<boolean>,
@@ -123,10 +143,27 @@ export class AgentGate implements ApprovalGate {
   async approve(ctx: ApprovalContext): Promise<HumanPresenceAssertion | null> {
     const ok = this.permit ? await this.permit(ctx) : true;
     await this.onDecision?.(ctx, ok);
+    const entry: ApprovalHistoryEntry = { id: randomUUID(), requester: ctx.requester, decision: ok ? 'approved' : 'denied', method: 'agent', level: 1, at: new Date().toISOString() };
+    this.history.push(entry);
+    this.emit(ok ? 'approval-approved' : 'approval-denied', { id: entry.id, decision: entry.decision, agent: true });
     if (!ok) return null;
     // Proof-of-AGENT: the agent's own key deliberately co-signs a within-scope act. Method names it as an
     // agent assertion (not human presence); level 1 is the agent's standing authority.
     return { method: 'agent', level: 1, timestamp: new Date().toISOString() };
+  }
+
+  // Control-plane surface: an AgentGate self-approves synchronously, so nothing ever pends.
+  listPending(): PendingApproval[] {
+    return [];
+  }
+  pendingCount(): number {
+    return 0;
+  }
+  listHistory(): ApprovalHistoryEntry[] {
+    return [...this.history].reverse().slice(0, 50);
+  }
+  decide(): { decision: 'approved' | 'denied' } {
+    throw new Error('this Signet runs in AGENT mode — it self-approves within the parent-signed allowance; there is nothing to decide');
   }
 }
 
