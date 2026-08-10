@@ -90,6 +90,15 @@ export async function runEmissaryControl(
   type PendingChainInvoke = { leafVcDid?: string; claim: string; kind: string; reveal?: number[]; resolve: (r: InvokeResponse) => void };
   const chainInvokeQueue: PendingChainInvoke[] = [];
 
+  // Authority-mutating writes (delegate a slice of family authority onward / revoke a hop) are CO-SIGNED by the
+  // governing Sovereign BEFORE they run — the structural gate that keeps the keyless routes from being an
+  // unauthenticated grab of family authority (audit-5). The co-sign is a request/reply on the sole mailbox
+  // drainer, so the route enqueues and the loop performs on approval (AgentGate auto-approves in-scope; human PINs).
+  type PendingWrite =
+    | { kind: 'delegate'; req: DelegateCapabilityRequest; resolve: (r: DelegateCapabilityResponse) => void; reject: (e: Error) => void }
+    | { kind: 'revoke-hop'; childVcDid: string; resolve: (r: RevokeHopResponse) => void; reject: (e: Error) => void };
+  const writeQueue: PendingWrite[] = [];
+
   // The Warden-minted delegation challenge the daemon answers to authorize each submission (audit-3 §1/§5).
   // Reusable within the Warden's TTL, so we fetch it through the loop (the sole mailbox drainer — no receive
   // contention) and cache it; the submit route only answers it with `createResponse`. The Warden also hands
@@ -222,30 +231,8 @@ export async function runEmissaryControl(
       'POST /api/delegate-capability': async ({ body }): Promise<DelegateCapabilityResponse> => {
         const req = (body ?? {}) as DelegateCapabilityRequest;
         if (!req.holderDid) throw new Error('holderDid is required');
-        const { grant, issued } = await delegateHeldOnward({
-          issuer: handle,
-          issuerName: id.name,
-          config,
-          held,
-          holderDid: req.holderDid,
-          ...(req.ceiling !== undefined ? { ceiling: req.ceiling as Sensitivity } : {}),
-          ...(req.kinds ? { kinds: req.kinds as WitnessKind[] } : {}),
-          ...(req.target ? { target: req.target } : {}),
-          ...(req.leafVcDid ? { leafVcDid: req.leafVcDid } : {}),
-        });
-        await held.putIssued(issued);
-        await transferChainGrant(handle, id.name, req.holderDid, grant);
-        // Report the new hop to the governing Sovereign's watch (best-effort; never blocks the delegation).
-        if (sovereignDid) {
-          await reportHopRegistered(handle, id.name, sovereignDid, {
-            childVcDid: issued.childVcDid,
-            parentVcDid: grant.handle.capability.parentCapability ?? '',
-            holder: req.holderDid,
-            counter: grant.handle.issued.counter,
-          }).catch(() => undefined);
-        }
-        server.emit('delegated', { childVcDid: issued.childVcDid, holder: req.holderDid });
-        return { childVcDid: issued.childVcDid, holder: req.holderDid, statusListIndex: issued.statusListIndex };
+        // Co-signed by the governing Sovereign before it runs (loop-queued — see the drain below).
+        return new Promise<DelegateCapabilityResponse>((resolve, reject) => writeQueue.push({ kind: 'delegate', req, resolve, reject }));
       },
 
       // Present a HELD chain to the Warden and get evidence (the multi-hop analog of /api/invoke). Loop-queued.
@@ -263,11 +250,8 @@ export async function runEmissaryControl(
       'POST /api/revoke-hop': async ({ body }): Promise<RevokeHopResponse> => {
         const { childVcDid } = (body ?? {}) as RevokeHopRequest;
         if (!childVcDid) throw new Error('childVcDid is required');
-        const hop = await held.getIssued(childVcDid);
-        if (!hop) throw new Error('no issued hop with that childVcDid — this Emissary did not delegate it');
-        await revokeStatusIndex(handle, id.name, hop.statusListCredential, hop.statusListIndex);
-        if (sovereignDid) await reportHopRevoked(handle, id.name, sovereignDid, childVcDid).catch(() => undefined);
-        return { revoked: true, childVcDid };
+        // Co-signed by the governing Sovereign before it runs (loop-queued — see the drain below).
+        return new Promise<RevokeHopResponse>((resolve, reject) => writeQueue.push({ kind: 'revoke-hop', childVcDid, resolve, reject }));
       },
     },
     onListening: (p) =>
@@ -331,6 +315,61 @@ export async function runEmissaryControl(
         if (sovereignDid) {
           const decision = reply.type === 'hearthold/evidence-response' && reply.status === 'granted' ? 'granted' : 'denied';
           await reportFlow(handle, id.name, sovereignDid, { from: id.did, to: config.wardenDid ?? '', kind: 'chain-invocation', governingCapabilityDid: grant.handle.issued.vcDid, witnessKind: job.kind, decision }).catch(() => undefined);
+        }
+      }
+      // Drain authority-mutating writes: co-sign with the governing Sovereign, then perform on approval.
+      while (running && writeQueue.length > 0) {
+        const job = writeQueue.shift();
+        if (!job) break;
+        if (!sovereignDid) {
+          job.reject(new Error('no governing Sovereign configured (HEARTHOLD_SOVEREIGN_DID) to authorize this act'));
+          continue;
+        }
+        const action =
+          job.kind === 'delegate'
+            ? { action: 'delegate-capability', resource: job.req.holderDid ?? '', summary: `Delegate an attenuated slice of family authority to ${job.req.holderDid}` }
+            : { action: 'revoke-hop', resource: job.childVcDid, summary: `Revoke a hop this Emissary delegated (${job.childVcDid.slice(0, 24)}…)` };
+        let approved = false;
+        try {
+          const rep = await transport.request(sovereignDid, { type: 'hearthold/action-approval-request', version: PROTOCOL_VERSION, action }, { timeoutMs: 310_000 });
+          approved = rep.type === 'hearthold/action-approval-response' && rep.approved;
+        } catch {
+          approved = false;
+        }
+        if (!approved) {
+          job.reject(new Error('declined by the governing Sovereign'));
+          continue;
+        }
+        try {
+          if (job.kind === 'delegate') {
+            const { grant, issued } = await delegateHeldOnward({
+              issuer: handle,
+              issuerName: id.name,
+              config,
+              held,
+              holderDid: job.req.holderDid,
+              ...(job.req.ceiling !== undefined ? { ceiling: job.req.ceiling as Sensitivity } : {}),
+              ...(job.req.kinds ? { kinds: job.req.kinds as WitnessKind[] } : {}),
+              ...(job.req.target ? { target: job.req.target } : {}),
+              ...(job.req.leafVcDid ? { leafVcDid: job.req.leafVcDid } : {}),
+            });
+            await held.putIssued(issued);
+            await transferChainGrant(handle, id.name, job.req.holderDid, grant);
+            await reportHopRegistered(handle, id.name, sovereignDid, { childVcDid: issued.childVcDid, parentVcDid: grant.handle.capability.parentCapability ?? '', holder: job.req.holderDid, counter: grant.handle.issued.counter }).catch(() => undefined);
+            server.emit('delegated', { childVcDid: issued.childVcDid, holder: job.req.holderDid });
+            job.resolve({ childVcDid: issued.childVcDid, holder: job.req.holderDid, statusListIndex: issued.statusListIndex });
+          } else {
+            const hop = await held.getIssued(job.childVcDid);
+            if (!hop) {
+              job.reject(new Error('no issued hop with that childVcDid — this Emissary did not delegate it'));
+              continue;
+            }
+            await revokeStatusIndex(handle, id.name, hop.statusListCredential, hop.statusListIndex);
+            await reportHopRevoked(handle, id.name, sovereignDid, job.childVcDid).catch(() => undefined);
+            job.resolve({ revoked: true, childVcDid: job.childVcDid });
+          }
+        } catch (e) {
+          job.reject(e instanceof Error ? e : new Error(String(e)));
         }
       }
       let inbound: Awaited<ReturnType<typeof handle.keymaster.receiveDidComm>> = [];

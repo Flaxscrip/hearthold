@@ -641,6 +641,24 @@ export interface FlowEventMessage {
   flow: FlowEvent;
 }
 
+/**
+ * Emissary → its governing Sovereign: ask to co-sign an authority-mutating act (delegate a slice of family
+ * authority onward, or revoke a hop) BEFORE performing it. The Sovereign's gate decides — a human PINs, an
+ * AI-agent Sovereign's AgentGate self-approves within its parent-signed allowance. This is what keeps the keyless
+ * delegate/revoke routes from being an unauthenticated grab of family authority (audit-5).
+ */
+export interface ActionApprovalRequestMessage {
+  type: 'hearthold/action-approval-request';
+  version: typeof PROTOCOL_VERSION;
+  action: { action: string; resource: string; summary: string };
+}
+
+export interface ActionApprovalResponseMessage {
+  type: 'hearthold/action-approval-response';
+  version: typeof PROTOCOL_VERSION;
+  approved: boolean;
+}
+
 export interface ErrorMessage {
   type: 'hearthold/error';
   version: typeof PROTOCOL_VERSION;
@@ -652,6 +670,8 @@ export type HearthholdMessage =
   | HopRegisteredMessage
   | HopRevokedMessage
   | FlowEventMessage
+  | ActionApprovalRequestMessage
+  | ActionApprovalResponseMessage
   | WitnessSubmission
   | SubmissionReceipt
   | EvidenceRequest

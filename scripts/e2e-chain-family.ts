@@ -22,11 +22,11 @@ import { DelegationStore } from '@hearthold/warden/delegations';
 import { ChallengeStore } from '@hearthold/warden/challenge-store';
 import { makeWardenHandler } from '@hearthold/warden/handler';
 import { runEmissaryControl } from '@hearthold/emissary/control';
-import { transferChainGrant } from '@hearthold/emissary/chain';
-import { CapabilityGrantStore, mintRootGrant } from '@hearthold/sovereign/capability-grants';
+import { runSovereignControl } from '@hearthold/sovereign/control';
 
 const A = 4370; // delegator daemon
 const B = 4371; // delegate daemon
+const SOV = 4372; // the governing Sovereign (agent-mode watch + co-sign)
 const line = (m: string): void => process.stdout.write(`${m}\n`);
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 let failures = 0;
@@ -64,25 +64,19 @@ async function main(): Promise<void> {
   const now = new Date().toISOString();
   await store.put({ id: 'art-fr', kind: 'location', observedAt: now, storedAt: now, sensitivity: Sensitivity.LOW, ciphertext: 'x', metadata: { witness: 'device-A' }, owner: sovId.did });
 
-  // Sovereign mints a ROOT held by the delegator Emissary (the production seed path: mintRootGrant records it +
-  // returns the transferable grant; the Sovereign hands it over DIDComm).
-  const grants = new CapabilityGrantStore(sovereign.dataFolder);
-  const { grant: rootGrant } = await mintRootGrant(sovereign, sovId.name, sovId.did, base, { holder: delId.did, ceiling: Sensitivity.SEALED }, grants);
-
-  // Warden serves; both Emissary daemons boot; the Sovereign gets a transport to hand out the root.
+  // Warden serves; the Sovereign watches + co-signs in AGENT mode; both Emissary daemons boot pointing at both.
   const challenges = new ChallengeStore(warden, base.registry, sovId.did);
   const handler = makeWardenHandler(new WardenService(warden), new DelegationStore(warden), new EvidenceService(warden, cfg), undefined, sovId.did, undefined, undefined, challenges);
   const wardenTransport = new DidCommTransport(warden, wardenId.name, base.nodeUrl);
   await wardenTransport.ready();
   const stopWarden = await wardenTransport.serve(handler, { pollMs: 1000 });
-  const sovTransport = new DidCommTransport(sovereign, sovId.name, base.nodeUrl);
-  await sovTransport.ready();
-  await runEmissaryControl(delegator, { ...delCfg, wardenDid: wardenId.did }, A);
-  await runEmissaryControl(delegate, { ...subCfg, wardenDid: wardenId.did }, B);
+  await runSovereignControl(sovereign, { ...base, gateMode: 'agent', signetPin: undefined }, SOV);
+  await runEmissaryControl(delegator, { ...delCfg, wardenDid: wardenId.did, sovereignDid: sovId.did }, A);
+  await runEmissaryControl(delegate, { ...subCfg, wardenDid: wardenId.did, sovereignDid: sovId.did }, B);
 
   try {
     line(`\n════ the Sovereign seeds the delegator with a ROOT over DIDComm ════`);
-    await transferChainGrant(sovereign, sovId.name, delId.did, rootGrant);
+    await post(SOV, '/api/mint-root', { emissaryDid: delId.did, ceiling: 'SEALED' });
     let seeded = false;
     for (let i = 0; i < 20 && !seeded; i++) {
       const h = await get<{ held: { leafVcDid: string }[] }>(A, '/api/held');

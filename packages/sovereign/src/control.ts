@@ -25,6 +25,7 @@ import {
   type HopRevokedMessage,
   type FlowEvent,
   type FlowEventMessage,
+  type ActionApprovalRequestMessage,
 } from '@hearthold/core';
 import type {
   SignetStatus,
@@ -295,6 +296,13 @@ export async function runSovereignControl(
       if (flowLog.length > 200) flowLog.shift();
       server.emit('flow', { flow });
       return null;
+    }
+    if (message.type === 'hearthold/action-approval-request') {
+      // A family agent asks to co-sign an authority-mutating act (delegate / revoke a hop) before performing it.
+      // The gate decides — a human PINs, an AI-agent Sovereign's AgentGate self-approves within its allowance.
+      const m = message as ActionApprovalRequestMessage;
+      const assertion = await gate.approve({ requester: fromDid, action: m.action });
+      return { type: 'hearthold/action-approval-response', version: PROTOCOL_VERSION, approved: !!assertion };
     }
     return baseHandler(message, fromDid);
   };
