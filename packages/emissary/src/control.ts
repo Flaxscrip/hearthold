@@ -54,7 +54,7 @@ import {
   type HeldResponse,
 } from '@hearthold/control-types';
 import { invokeEvidence } from './invoke.js';
-import { HeldChainStore, delegateHeldOnward, chainInvokeEvidence, transferChainGrant } from './chain.js';
+import { HeldChainStore, delegateHeldOnward, chainInvokeEvidence, transferChainGrant, reportHopRegistered, reportHopRevoked } from './chain.js';
 
 const bareDid = (s: string | undefined): string => String(s ?? '').split('#')[0] ?? '';
 const sensName = (s: number): SensitivityName => SENSITIVITY_NAMES[s] ?? 'SEALED';
@@ -235,6 +235,15 @@ export async function runEmissaryControl(
         });
         await held.putIssued(issued);
         await transferChainGrant(handle, id.name, req.holderDid, grant);
+        // Report the new hop to the governing Sovereign's watch (best-effort; never blocks the delegation).
+        if (sovereignDid) {
+          await reportHopRegistered(handle, id.name, sovereignDid, {
+            childVcDid: issued.childVcDid,
+            parentVcDid: grant.handle.capability.parentCapability ?? '',
+            holder: req.holderDid,
+            counter: grant.handle.issued.counter,
+          }).catch(() => undefined);
+        }
         server.emit('delegated', { childVcDid: issued.childVcDid, holder: req.holderDid });
         return { childVcDid: issued.childVcDid, holder: req.holderDid, statusListIndex: issued.statusListIndex };
       },
@@ -257,6 +266,7 @@ export async function runEmissaryControl(
         const hop = await held.getIssued(childVcDid);
         if (!hop) throw new Error('no issued hop with that childVcDid — this Emissary did not delegate it');
         await revokeStatusIndex(handle, id.name, hop.statusListCredential, hop.statusListIndex);
+        if (sovereignDid) await reportHopRevoked(handle, id.name, sovereignDid, childVcDid).catch(() => undefined);
         return { revoked: true, childVcDid };
       },
     },

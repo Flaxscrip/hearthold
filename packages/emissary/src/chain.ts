@@ -28,6 +28,8 @@ import {
   type WitnessKind,
   type ChainCapabilityGrant,
   type ChainGrantMessage,
+  type HopRegisteredMessage,
+  type HopRevokedMessage,
   type CapabilityInvocation,
   type SignedHolderProof,
   type EvidenceResponse,
@@ -201,6 +203,27 @@ export async function transferChainGrant(
 ): Promise<void> {
   const msg: ChainGrantMessage = { type: 'hearthold/chain-grant', version: PROTOCOL_VERSION, grant };
   await handle.keymaster.sendDidComm({ type: msg.type, thid: randomUUID(), body: msg }, toDid, { name: senderName });
+}
+
+/**
+ * Report a hop this Emissary just delegated onward to its governing Sovereign, so the Sovereign's WATCH can
+ * render the live lineage forest (item 5). Fire-and-forget, envelope-only (child/parent/holder/counter — no
+ * caveats). Best-effort: a watch that isn't up must never block a delegation.
+ */
+export async function reportHopRegistered(
+  handle: KeymasterHandle,
+  senderName: string,
+  sovereignDid: string,
+  hop: { childVcDid: string; parentVcDid: string; holder: string; counter: number },
+): Promise<void> {
+  const msg: HopRegisteredMessage = { type: 'hearthold/hop-registered', version: PROTOCOL_VERSION, ...hop };
+  await handle.keymaster.sendDidComm({ type: msg.type, thid: randomUUID(), body: msg }, sovereignDid, { name: senderName });
+}
+
+/** Report to the governing Sovereign that a hop this Emissary issued was revoked (mark it in the watch). */
+export async function reportHopRevoked(handle: KeymasterHandle, senderName: string, sovereignDid: string, childVcDid: string): Promise<void> {
+  const msg: HopRevokedMessage = { type: 'hearthold/hop-revoked', version: PROTOCOL_VERSION, childVcDid };
+  await handle.keymaster.sendDidComm({ type: msg.type, thid: randomUUID(), body: msg }, sovereignDid, { name: senderName });
 }
 
 /**

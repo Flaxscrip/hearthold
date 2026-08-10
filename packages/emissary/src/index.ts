@@ -23,7 +23,7 @@ import { makeKbRelayHandler } from './kb-relay.js';
 import { startKbPortalServer } from './kb-portal-server.js';
 import { runEmissaryControl } from './control.js';
 import { invokeEvidence } from './invoke.js';
-import { HeldChainStore, delegateHeldOnward, chainInvokeEvidence, transferChainGrant } from './chain.js';
+import { HeldChainStore, delegateHeldOnward, chainInvokeEvidence, transferChainGrant, reportHopRegistered, reportHopRevoked } from './chain.js';
 
 const HELP = `Hearthold Emissary — Companion
 
@@ -234,6 +234,9 @@ async function main(): Promise<void> {
       const transport = new DidCommTransport(handle, IDENTITY_NAME.emissary, config.nodeUrl);
       await transport.ready();
       await transferChainGrant(handle, id.name, holderDid, grant);
+      if (config.sovereignDid) {
+        await reportHopRegistered(handle, id.name, config.sovereignDid, { childVcDid: issued.childVcDid, parentVcDid: grant.handle.capability.parentCapability ?? '', holder: holderDid, counter: grant.handle.issued.counter }).catch(() => undefined);
+      }
       process.stdout.write(`✓ Delegated an attenuated child hop to ${holderDid.slice(0, 32)}…\n  child: ${issued.childVcDid}\n  → cut it later:  emissary revoke-hop ${issued.childVcDid}\n`);
       break;
     }
@@ -266,6 +269,7 @@ async function main(): Promise<void> {
       const hop = await held.getIssued(childVcDid);
       if (!hop) throw new Error('no issued hop with that childVcDid — this Emissary did not delegate it');
       await revokeStatusIndex(handle, id.name, hop.statusListCredential, hop.statusListIndex);
+      if (config.sovereignDid) await reportHopRevoked(handle, id.name, config.sovereignDid, childVcDid).catch(() => undefined);
       process.stdout.write(`✓ Revoked the hop delegated to ${hop.holder.slice(0, 32)}… — the delegate's chain is denied at its next invocation\n`);
       break;
     }

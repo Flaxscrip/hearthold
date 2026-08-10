@@ -16,9 +16,13 @@ import {
   startControlServer,
   Sensitivity,
   PROTOCOL_VERSION,
+  reconstructLineage,
   type HearthholdConfig,
   type KeymasterHandle,
   type WitnessKind,
+  type RequestHandler,
+  type HopRegisteredMessage,
+  type HopRevokedMessage,
 } from '@hearthold/core';
 import type {
   SignetStatus,
@@ -39,6 +43,7 @@ import { makeSovereignHandler } from './handler.js';
 import { HttpGate } from './http-gate.js';
 import { AgentGate, type SignetGate } from './signet.js';
 import { CapabilityGrantStore, grantCapability, mintRootGrant, revokeCapability, grantState, type CapabilityGrant } from './capability-grants.js';
+import { LineageStore } from './lineage-store.js';
 
 export async function runSovereignControl(
   handle: KeymasterHandle,
@@ -72,6 +77,7 @@ export async function runSovereignControl(
     );
   }
   const grants = new CapabilityGrantStore(handle.dataFolder);
+  const lineage = new LineageStore(handle.dataFolder);
 
   const transport = new DidCommTransport(handle, IDENTITY_NAME.sovereign, config.nodeUrl);
   await transport.ready();
@@ -189,7 +195,9 @@ export async function runSovereignControl(
           req.emissaryDid,
           { name: id.name },
         );
+        await lineage.record({ vcDid: record.credentialDid, parentVcDid: null, issuer: id.did, holder: record.holder, counter: 0, ts: new Date().toISOString() });
         server.emit('root-minted', { rootVcDid: record.credentialDid, holder: record.holder });
+        server.emit('lineage', { event: 'root-minted', vcDid: record.credentialDid, holder: record.holder });
         return { minted: true, rootVcDid: record.credentialDid, holder: record.holder };
       },
 
@@ -217,6 +225,19 @@ export async function runSovereignControl(
         if (r.revoked) server.emit('capability-revoked', { credentialDid });
         return r;
       },
+
+      // The WATCH (item 5): the live delegation forest I govern — roots I minted + hops the family's Emissaries
+      // reported, each with its holder, depth, and revoked state. Provenance only; the SSE 'lineage' stream
+      // pushes mint/delegate/revoke live. The Table renders the tree.
+      'GET /api/lineage': async () => ({ forest: await lineage.forest() }),
+
+      // Independently VERIFY a reported leaf against the PUBLIC chain (zero decryption) — reconstruct its lineage
+      // by resolution and confirm the structure. A registration is a hint; this is the proof.
+      'POST /api/reconstruct-lineage': async ({ body }) => {
+        const { leafVcDid } = (body ?? {}) as { leafVcDid?: string };
+        if (!leafVcDid) throw new Error('leafVcDid is required');
+        return { lineage: await reconstructLineage(handle, leafVcDid) };
+      },
     },
     onListening: (p) =>
       process.stdout.write(
@@ -226,7 +247,25 @@ export async function runSovereignControl(
   });
   gate.emit = server.emit;
 
-  const stop = await transport.serve(makeSovereignHandler(handle, gate, reopen));
+  // Intercept the family's WATCH reports (fire-and-forget, return null) before the base handler: an Emissary
+  // registers a hop it delegated / revoked, and we fold it into the live lineage forest + push an SSE event.
+  const baseHandler = makeSovereignHandler(handle, gate, reopen, config.wardenDid);
+  const handler: RequestHandler = async (message, fromDid) => {
+    if (message.type === 'hearthold/hop-registered') {
+      const m = message as HopRegisteredMessage;
+      await lineage.record({ vcDid: m.childVcDid, parentVcDid: m.parentVcDid || null, issuer: fromDid, holder: m.holder, counter: m.counter, ts: new Date().toISOString() });
+      server.emit('lineage', { event: 'delegated', childVcDid: m.childVcDid, parentVcDid: m.parentVcDid, holder: m.holder, from: fromDid });
+      return null;
+    }
+    if (message.type === 'hearthold/hop-revoked') {
+      const m = message as HopRevokedMessage;
+      await lineage.markRevoked(m.childVcDid);
+      server.emit('lineage', { event: 'revoked', childVcDid: m.childVcDid, from: fromDid });
+      return null;
+    }
+    return baseHandler(message, fromDid);
+  };
+  const stop = await transport.serve(handler);
   const shutdown = (): void => {
     stop();
     server.close();

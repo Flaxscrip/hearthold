@@ -591,6 +591,27 @@ export interface ChainGrantMessage {
   grant: ChainCapabilityGrant;
 }
 
+/**
+ * Emissary → its governing Sovereign: register a hop it just delegated onward, so the Sovereign's WATCH can
+ * render the live delegation forest (item 5). Envelope-only provenance — child/parent/holder/counter, never
+ * caveats or secrets. The Sovereign can independently verify it against the public chain (`reconstructLineage`).
+ */
+export interface HopRegisteredMessage {
+  type: 'hearthold/hop-registered';
+  version: typeof PROTOCOL_VERSION;
+  childVcDid: string;
+  parentVcDid: string;
+  holder: string;
+  counter: number;
+}
+
+/** Emissary → its governing Sovereign: a hop it issued was revoked — mark it in the watch. */
+export interface HopRevokedMessage {
+  type: 'hearthold/hop-revoked';
+  version: typeof PROTOCOL_VERSION;
+  childVcDid: string;
+}
+
 export interface ErrorMessage {
   type: 'hearthold/error';
   version: typeof PROTOCOL_VERSION;
@@ -599,6 +620,8 @@ export interface ErrorMessage {
 
 export type HearthholdMessage =
   | ChainGrantMessage
+  | HopRegisteredMessage
+  | HopRevokedMessage
   | WitnessSubmission
   | SubmissionReceipt
   | EvidenceRequest

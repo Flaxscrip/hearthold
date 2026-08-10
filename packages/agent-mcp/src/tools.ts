@@ -323,6 +323,13 @@ export const HEARTHOLD_TOOLS: HeartholdTool[] = [
     handler: (ctx) => control(ctx, ctx.control.signetUrl, 'Signet', 'GET', '/api/capabilities'),
   },
   {
+    name: 'hearthold_lineage',
+    description:
+      'The live delegation forest I govern (the watch) — roots I minted + hops the family’s Emissaries delegated onward, nested as a tree with each hop’s holder, depth, and revoked state. Provenance only, no secrets. This is how I see who holds authority over what, and where to cut.',
+    inputSchema: NO_ARGS,
+    handler: (ctx) => control(ctx, ctx.control.signetUrl, 'Signet', 'GET', '/api/lineage'),
+  },
+  {
     name: 'hearthold_revoke_capability',
     description: 'Revoke a scope capability I granted — flips its status bit so the Warden refuses it at the very next invocation (revocation-by-default). Immediate and irreversible.',
     inputSchema: { type: 'object', properties: { credentialDid: { type: 'string' } }, required: ['credentialDid'], additionalProperties: false },
@@ -382,7 +389,7 @@ export const HEARTHOLD_TOOLS: HeartholdTool[] = [
  */
 const PROFILES: Record<Exclude<HeartholdRole, 'full'>, string[]> = {
   warden: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_recall', 'hearthold_list_inbound', 'hearthold_triage', 'hearthold_confirm_triage', 'hearthold_delegate', 'hearthold_pass_card', 'hearthold_accept_card', 'hearthold_decline_card'],
-  sovereign: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_grant_capability', 'hearthold_mint_root', 'hearthold_list_capabilities', 'hearthold_revoke_capability', 'hearthold_pending_approvals', 'hearthold_decide'],
+  sovereign: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_grant_capability', 'hearthold_mint_root', 'hearthold_list_capabilities', 'hearthold_lineage', 'hearthold_revoke_capability', 'hearthold_pending_approvals', 'hearthold_decide'],
   emissary: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_contribute', 'hearthold_invoke', 'hearthold_accept_capability', 'hearthold_delegate_capability', 'hearthold_chain_invoke', 'hearthold_revoke_hop', 'hearthold_held'],
   verifier: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_verify_card'],
 };
