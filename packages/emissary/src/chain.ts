@@ -133,6 +133,13 @@ export async function delegateHeldOnward(args: {
         ceiling: args.ceiling ?? pc.ceiling,
         ...(pc.owner ? { owner: pc.owner } : {}),
         ...(args.kinds ? { kinds: args.kinds } : pc.kinds ? { kinds: pc.kinds } : {}),
+        // Carry the parent's remaining constraints through — dropping them would either silently WIDEN
+        // (singleUse) or fail caveatsNarrow (expires/audience/requiresDischarge). A delegate attenuates, never
+        // sheds. `status` is added below by delegateOnward (a fresh one from the delegator's own list).
+        ...(pc.expires ? { expires: pc.expires } : {}),
+        ...(pc.audience ? { audience: pc.audience } : {}),
+        ...(pc.singleUse ? { singleUse: pc.singleUse } : {}),
+        ...(pc.requiresDischarge ? { requiresDischarge: pc.requiresDischarge } : {}),
       },
     },
   });
@@ -186,7 +193,9 @@ export async function chainInvokeEvidence(
       args: { claim: spec.claim, spec: { kind: spec.kind }, ...(spec.reveal && spec.reveal.length > 0 ? { reveal: spec.reveal } : {}) },
     },
   };
-  const reply = await transport.request(wardenDid, inv);
+  // Outlast the owner's consent step-up (Warden ~170s + Signet up to 300s) so a human-gated chain disclosure can
+  // complete instead of the reply landing in a dropped thread (audit-5).
+  const reply = await transport.request(wardenDid, inv, { timeoutMs: 310_000 });
   if (reply.type === 'hearthold/evidence-response') return reply as EvidenceResponse;
   if (reply.type === 'hearthold/error') return reply as ErrorMessage;
   return { type: 'hearthold/error', version: PROTOCOL_VERSION, reason: `unexpected reply ${reply.type}` };

@@ -110,9 +110,10 @@ async function main(): Promise<void> {
   line('\n════ VERIFIER CATCHES a forged (raw-minted) authority widening ════');
   // Bypass delegateCapability: raw-mint a child of the Emissary hop that ADDS a resource, forcing past the
   // issuance guard. The verifier must REJECT at (⊆).
+  // Issued by the EMISSARY (emiCap's holder) so it passes the delegator binding and reaches the (⊆) gate.
   const forgedAuth = await issueVc({
-    issuer: sovereign,
-    issuerName: sovId.name,
+    issuer: emissary,
+    issuerName: emiId.name,
     holder: emiId.did,
     authoritySet: { operations: ['prove'], resources: [VAULT, 'secret-scope'] },
     caveats: normalizeCaveats(emiCaveats),
@@ -134,8 +135,8 @@ async function main(): Promise<void> {
   // alone would accept (authority ⊆); verifyCapabilityChain's caveat-narrowing pass must REJECT.
   const widenedCaveats: Caveats = { ceiling: Sensitivity.HIGH, owner: sovId.did, requiresDischarge: [{ by: sovId.did, predicate: 'cosign(act)' }] };
   const forgedCav = await issueVc({
-    issuer: sovereign,
-    issuerName: sovId.name,
+    issuer: emissary,
+    issuerName: emiId.name,
     holder: emiId.did,
     authoritySet: { operations: ['prove'], resources: [VAULT] },
     caveats: normalizeCaveats(widenedCaveats),

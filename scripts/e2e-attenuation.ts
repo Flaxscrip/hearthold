@@ -58,7 +58,10 @@ async function main(): Promise<void> {
   const attackerDid = (await warden.keymaster.resolveDID(attacker)).didDocument?.id ?? '';
   await warden.keymaster.setCurrentId(wardenId.name);
 
-  const V = { keymaster: verifierNode as KeymasterHandle, expectedRootIssuer: wardenId.did };
+  // This suite tests the generic attenuation MECHANICS with ONE attenuator (the Warden) minting every hop for a
+  // SEPARATE holder — deliberately, so the holder can decrypt its own payload in the disclosure test. That is not
+  // a per-holder delegation chain, so it opts out of the delegator binding (which the capability path requires).
+  const V = { keymaster: verifierNode as KeymasterHandle, expectedRootIssuer: wardenId.did, requireDelegatorBinding: false };
   const disclose = (...vs: IssuedVc[]): Record<string, AuthoritySetPayload> =>
     Object.fromEntries(vs.map((v) => [v.vcDid, { authoritySet: v.authoritySet, salt: v.salt }]));
   const mint = (a: Parameters<typeof issueVc>[0]): Promise<IssuedVc> =>

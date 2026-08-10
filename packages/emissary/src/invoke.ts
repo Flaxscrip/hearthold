@@ -73,7 +73,10 @@ export async function invokeEvidence(
       args: { claim: spec.claim, spec: { kind }, ...(spec.reveal && spec.reveal.length > 0 ? { reveal: spec.reveal } : {}) },
     },
   };
-  const reply = await transport.request(wardenDid, inv);
+  // A MEDIUM+ claim blocks while the Warden gets the owner's consent — the Warden's discharge wait is ~170s and
+  // the Signet's gate up to 300s, so the invocation leg MUST outlast them, or the human approves into a dropped
+  // thread and the minted credential is lost (audit-5). Wait past the Signet's ceiling.
+  const reply = await transport.request(wardenDid, inv, { timeoutMs: 310_000 });
   if (reply.type === 'hearthold/evidence-response') return reply as EvidenceResponse;
   if (reply.type === 'hearthold/error') return reply as ErrorMessage;
   return { type: 'hearthold/error', version: PROTOCOL_VERSION, reason: `unexpected reply ${reply.type}` };

@@ -72,6 +72,12 @@ export async function delegateCapability(args: {
   child: CapabilitySpec;
   registry: string;
 }): Promise<CapabilityHandle> {
+  // Only the HOLDER of the parent may delegate it onward — the issuance-time mirror of the verifier's delegator
+  // binding (attenuation.ts, the sibling-hop forge guard). The issuer's DID must equal the parent's controller.
+  const issuerDid = (await args.issuer.keymaster.resolveDID(args.issuerName)).didDocument?.id ?? '';
+  if (issuerDid !== args.parent.capability.controller) {
+    throw new Error('delegation refused: only the holder of the parent capability may delegate it onward');
+  }
   const childCap: HearthholdCapability = {
     authorizationType: 'capability',
     id: 'urn:pending', // replaced with the minted Asset DID below

@@ -277,6 +277,14 @@ export interface VerifyOptions {
    *  stays generic and never interprets caveats). Called for each disclosed hop with `(caveats, hopController)`
    *  where hopController is the hop's issuer. Fail-closed: a revoked or unavailable hop rejects the whole chain. */
   checkHopStatus?: (caveats: unknown, hopController: string) => Promise<'ok' | 'revoked' | 'unavailable' | 'no-status'>;
+  /**
+   * Enforce the DELEGATION invariant: each hop must be issued by the parent hop's issuer-attested `holder`.
+   * **ON by default** — a well-formed delegation chain has this property, and without it anyone who has seen an
+   * ancestor's disclosed salt can mint a SIBLING hop carrying the parent's full authority (the sibling-hop forge).
+   * Set `false` ONLY for a non-delegation attenuation chain — e.g. a single attenuator minting hops for a
+   * separate holder (the generic-mechanics tests) — never on a real capability path.
+   */
+  requireDelegatorBinding?: boolean;
 }
 
 export interface VerifyResult {
@@ -393,6 +401,15 @@ export async function verifyAttenuationChain(leafVcDid: string, opts: VerifyOpti
       }
       if (child.lineageId !== pic.lineageId) {
         return reject(`lineage mismatch: child ${child.lineageId} vs parent ${pic.lineageId}`, '(lineage)', expectFromChild.childDid, child.counter);
+      }
+      // Bind the child hop to its DELEGATOR: it must be issued by the party THIS (parent) hop was delegated to
+      // (`asrt.holder`, the parent's issuer-attested holder). Without this, anyone who has ever seen an ancestor's
+      // disclosed salt — every downstream delegate, and the Warden on every invocation — could mint a SIBLING of
+      // that hop under their own DID carrying the parent's full authority, and pass every other check (they copy
+      // the parent's set, so subset + caveat-narrow trivially hold). Designation ≡ authority: only the delegate
+      // the parent NAMED may extend the chain. `child.attenuationAssertion` is already signature-verified (e).
+      if (opts.requireDelegatorBinding !== false && signerOf(child.attenuationAssertion) !== asrt.holder) {
+        return reject('child hop is not issued by the parent hop’s attested delegate (sibling-hop forge)', '(delegator)', expectFromChild.childDid, child.counter);
       }
       const childReveal = disclosed[expectFromChild.childDid];
       if (reveal && childReveal && !isSubset(childReveal.authoritySet, reveal.authoritySet)) {

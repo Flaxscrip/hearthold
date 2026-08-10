@@ -232,14 +232,22 @@ function expiresWithin(child: string | undefined, parent: string | undefined): b
  *   - `expires`: child ≤ parent (a delegate may not outlive its grant)
  *   - `kinds`: parent unset (any) → child may set any; parent bounded → child must be bounded AND ⊆ parent
  *     (a delegate cannot add a witness kind it was not granted — the compartment only narrows)
+ *   - `singleUse` / `status`: monotonic — a child may not remove a burn-once constraint nor a revocation pointer
  *   - `requiresDischarge`: child ⊇ parent (a delegate may ADD consent gates, never remove one)
  * The `AuthoritySet` subset is `isSubset` (attenuation.ts); this covers the caveats it does not.
  */
 export function caveatsNarrow(child: Caveats, parent: Caveats): boolean {
+  // Ceiling must be NUMERIC at both ends and only narrow. A missing/non-numeric ceiling is a widening escape
+  // (`undefined > 1` is false), so reject it at EVERY hop — not only at the leaf shape check (audit-5).
+  if (typeof child.ceiling !== 'number' || typeof parent.ceiling !== 'number') return false;
   if (child.ceiling > parent.ceiling) return false;
   if (parent.owner !== undefined && child.owner !== parent.owner) return false;
   if (parent.audience !== undefined && child.audience !== parent.audience) return false;
   if (!expiresWithin(child.expires, parent.expires)) return false;
+  // A delegate may not REMOVE a burn-once constraint, nor drop the revocation pointer a parent carried
+  // (can't become permanently irrevocable under a revocable ancestor). Both are monotonic like requiresDischarge.
+  if (parent.singleUse && !child.singleUse) return false;
+  if (parent.status !== undefined && child.status === undefined) return false;
   // Kind compartment: a bounded parent may only be narrowed — the child must be bounded and every child kind
   // must appear in the parent's set. An unbounded (absent) parent is "any", so any child set narrows it. Without
   // this a delegate could ADD a witness kind it was never granted (multi-hop kinds-widening escape).

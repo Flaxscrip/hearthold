@@ -197,6 +197,28 @@ async function main(): Promise<void> {
   });
   check('DENIED — kinds-widening (a child adds a witness kind the parent never granted)', !kw.ok && kw.check === '(caveats)', kw.reason ?? '');
 
+  // ★ Sibling-hop forge (audit-5 CRITICAL): the sub-agent has seen root's disclosed salt (it holds the child).
+  // It raw-mints a SIBLING of the child — a child of ROOT under its OWN DID carrying ROOT's FULL authority.
+  // Counter, commitment, lineage, subset all pass (it copied root) — but the delegator binding must REFUSE it:
+  // the sibling isn't issued by root's attested delegate (the Emissary that holds root).
+  const forgedSibling = await issueVc({
+    issuer: subagent,
+    issuerName: subId.name,
+    holder: subId.did,
+    authoritySet: root.issued.authoritySet,
+    caveats: normalizeCaveats({ ceiling: Sensitivity.SEALED, owner: sovId.did }),
+    parent: root.issued,
+    registry: reg,
+    skipSubsetGuard: true,
+  });
+  const forge = await verifyCapabilityChain(forgedSibling.vcDid, {
+    keymaster: warden,
+    expectedRootIssuer: sovId.did,
+    disclosed: { [forgedSibling.vcDid]: { authoritySet: forgedSibling.authoritySet, salt: forgedSibling.salt, caveats: forgedSibling.caveats }, ...discloseChain(root) },
+    requireFullDisclosure: true,
+  });
+  check('★ DENIED — sibling-hop forge (a hop not issued by the parent’s attested delegate)', !forge.ok && forge.check === '(delegator)', forge.reason ?? '');
+
   line('\n════ ★ THE KILL-SWITCH: the Sovereign revokes the ROOT hop ════');
   await revokeStatusIndex(sovereign, sovId.name, sovStatus.statusListCredential, rootIdx);
   const killed = await invoke({ ...leaf, disclosed: fullDisclosure() });
