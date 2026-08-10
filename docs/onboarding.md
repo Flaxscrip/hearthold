@@ -56,3 +56,19 @@ reference the *Warden's* schema DID, not one it registers itself. Two steps:
 The Sovereign then issues each grant against that DID; the Warden's invocation challenge requests the same DID;
 `verifyResponse` matches. Regression-locked by `e2e-invoke-schema-alignment` (mismatch denies, aligned grants).
 Single-wallet dev needs none of this (issuer and verifier share a wallet). See `docs/invocation.md`.
+
+## Where the vault lives — the 7th Capital is in the WARDEN, and the invocation must target it
+
+A disclosure (`invoke` / `chain-invoke`) that finds no matching artefact returns the leak-safe *"not authorized to
+disclose the requested claim"* — deliberately indistinguishable from a ceiling denial, so a below-clearance holder
+can't probe what exists. In a multi-wallet deployment that same message is what you get when the artefact simply
+**isn't in the vault the reference-monitor Warden reads**. Two invariants keep this from biting:
+
+- **The vault file is per-role and per-dataRoot:** `EvidenceService` reads `VaultStore(warden.dataFolder)` where
+  `warden.dataFolder = <HEARTHOLD_DATA_ROOT>/warden`. So the 7th Capital lives in
+  **`<monitorWarden.dataRoot>/warden/vault.json`** — the `warden` subfolder, *not* the data-root itself.
+- **Custody ≠ ownership:** an artefact's `owner` is the **Sovereign** whose data it is; its **custodian** is the
+  **Warden** that holds the file. Those are different DIDs by design. Seed each artefact into the *Warden's* vault
+  with `owner` = the Sovereign that minted the governing capability (`caveats.owner`), and point the invoking
+  Emissary's `HEARTHOLD_WARDEN_DID` at that same Warden. Confirm with `warden status` → `dataFolder` +
+  `artefactCount`.
