@@ -8,16 +8,10 @@
  *   HEARTHOLD_DATA_ROOT=$(mktemp -d) HEARTHOLD_NODE_URL=http://flaxlap.local:4222 HEARTHOLD_REGISTRY=local \
  *   node --experimental-strip-types scripts/e2e-chain-family.ts
  */
-import { randomUUID } from 'node:crypto';
-
 import {
   loadConfig,
   openKeymaster,
   ensureIdentity,
-  mintRootCapability,
-  ensureCapabilityStatusContext,
-  allocateIndex,
-  STATUS_LIST_LENGTH,
   DidCommTransport,
   Sensitivity,
 } from '@hearthold/core';
@@ -28,7 +22,8 @@ import { DelegationStore } from '@hearthold/warden/delegations';
 import { ChallengeStore } from '@hearthold/warden/challenge-store';
 import { makeWardenHandler } from '@hearthold/warden/handler';
 import { runEmissaryControl } from '@hearthold/emissary/control';
-import { HeldChainStore, type ChainCapabilityGrant } from '@hearthold/emissary/chain';
+import { transferChainGrant } from '@hearthold/emissary/chain';
+import { CapabilityGrantStore, mintRootGrant } from '@hearthold/sovereign/capability-grants';
 
 const A = 4370; // delegator daemon
 const B = 4371; // delegate daemon
@@ -52,7 +47,6 @@ const get = async <T,>(port: number, path: string): Promise<T> =>
 async function main(): Promise<void> {
   const base = loadConfig();
   const pass = 'hearthold-chain-family-e2e';
-  const VAULT = 'hearthold:vault';
 
   const warden = await openKeymaster('warden', base, pass);
   const sovereign = await openKeymaster('sovereign', base, pass);
@@ -70,34 +64,33 @@ async function main(): Promise<void> {
   const now = new Date().toISOString();
   await store.put({ id: 'art-fr', kind: 'location', observedAt: now, storedAt: now, sensitivity: Sensitivity.LOW, ciphertext: 'x', metadata: { witness: 'device-A' }, owner: sovId.did });
 
-  // Sovereign mints a ROOT held by the delegator Emissary, and seeds it into the delegator's HeldChainStore
-  // (the daemon path; in production the Sovereign transfers it over DIDComm — same `hearthold/chain-grant`).
-  const sovStatus = await ensureCapabilityStatusContext(sovereign, sovId.name, base);
-  const rootIdx = (await allocateIndex(sovereign, sovId.name, sovStatus.allocationRecord, randomUUID(), STATUS_LIST_LENGTH)).index;
-  const root = await mintRootCapability({
-    issuer: sovereign,
-    issuerName: sovId.name,
-    holder: delId.did,
-    capability: {
-      invocationTarget: VAULT,
-      authority: { operations: ['prove', 'submit'], resources: [VAULT] },
-      caveats: { ceiling: Sensitivity.SEALED, owner: sovId.did, status: { statusListCredential: sovStatus.statusListCredential, statusListIndex: rootIdx } },
-    },
-    registry: base.registry,
-  });
-  const rootGrant: ChainCapabilityGrant = { handle: root, ancestorDisclosures: {} };
-  await new HeldChainStore(delegator.dataFolder).put(rootGrant);
+  // Sovereign mints a ROOT held by the delegator Emissary (the production seed path: mintRootGrant records it +
+  // returns the transferable grant; the Sovereign hands it over DIDComm).
+  const grants = new CapabilityGrantStore(sovereign.dataFolder);
+  const { grant: rootGrant } = await mintRootGrant(sovereign, sovId.name, sovId.did, base, { holder: delId.did, ceiling: Sensitivity.SEALED }, grants);
 
-  // Warden serves; both Emissary daemons boot.
+  // Warden serves; both Emissary daemons boot; the Sovereign gets a transport to hand out the root.
   const challenges = new ChallengeStore(warden, base.registry, sovId.did);
   const handler = makeWardenHandler(new WardenService(warden), new DelegationStore(warden), new EvidenceService(warden, cfg), undefined, sovId.did, undefined, undefined, challenges);
   const wardenTransport = new DidCommTransport(warden, wardenId.name, base.nodeUrl);
   await wardenTransport.ready();
   const stopWarden = await wardenTransport.serve(handler, { pollMs: 1000 });
+  const sovTransport = new DidCommTransport(sovereign, sovId.name, base.nodeUrl);
+  await sovTransport.ready();
   await runEmissaryControl(delegator, { ...delCfg, wardenDid: wardenId.did }, A);
   await runEmissaryControl(delegate, { ...subCfg, wardenDid: wardenId.did }, B);
 
   try {
+    line(`\n════ the Sovereign seeds the delegator with a ROOT over DIDComm ════`);
+    await transferChainGrant(sovereign, sovId.name, delId.did, rootGrant);
+    let seeded = false;
+    for (let i = 0; i < 20 && !seeded; i++) {
+      const h = await get<{ held: { leafVcDid: string }[] }>(A, '/api/held');
+      seeded = (h.held?.length ?? 0) > 0;
+      if (!seeded) await sleep(1000);
+    }
+    check('the delegator received + persisted its ROOT grant over DIDComm', seeded);
+
     line(`\n════ delegator holds a root; delegates onward to the delegate over DIDComm ════`);
     const del = await post<{ childVcDid: string }>(A, '/api/delegate-capability', { holderDid: subId.did, ceiling: Sensitivity.LOW, kinds: ['location'] });
     check('POST /api/delegate-capability → an attenuated child hop minted + transferred', !!del.childVcDid, del.childVcDid?.slice(0, 24));

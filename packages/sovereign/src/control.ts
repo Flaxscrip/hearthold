@@ -7,12 +7,15 @@
  * SSE stream the Signet Approver app drives.
  */
 
+import { randomUUID } from 'node:crypto';
+
 import {
   ensureIdentity,
   DidCommTransport,
   IDENTITY_NAME,
   startControlServer,
   Sensitivity,
+  PROTOCOL_VERSION,
   type HearthholdConfig,
   type KeymasterHandle,
   type WitnessKind,
@@ -32,7 +35,7 @@ import type {
 
 import { makeSovereignHandler } from './handler.js';
 import { HttpGate } from './http-gate.js';
-import { CapabilityGrantStore, grantCapability, revokeCapability, grantState, type CapabilityGrant } from './capability-grants.js';
+import { CapabilityGrantStore, grantCapability, mintRootGrant, revokeCapability, grantState, type CapabilityGrant } from './capability-grants.js';
 
 export async function runSovereignControl(
   handle: KeymasterHandle,
@@ -131,6 +134,40 @@ export async function runSovereignControl(
         const grant = await grantCapability(handle, id.name, id.did, config, { holder: req.emissaryDid, target, ...(kinds ? { kinds } : {}), ceiling, days }, grants);
         server.emit('capability-granted', { credentialDid: grant.credentialDid, holder: grant.holder });
         return { granted: true, credentialDid: grant.credentialDid, schemaDid: grant.schemaDid };
+      },
+
+      // Seed an agent's Emissary with a ROOT chain-capability (the family root of authority) and hand it over
+      // DIDComm, so the agent can invoke AND delegate onward. Signet-gated — the human authorizes creating a new
+      // root of authority for an agent. Recorded so it lists + revokes like any grant (revoke = cut the agent).
+      'POST /api/mint-root': async ({ body }) => {
+        const req = (body ?? {}) as { emissaryDid?: string; ceiling?: string; kinds?: string[]; target?: string };
+        if (!req.emissaryDid) throw new Error('emissaryDid is required');
+        const CEIL: Record<string, Sensitivity> = { PUBLIC: Sensitivity.PUBLIC, LOW: Sensitivity.LOW, MEDIUM: Sensitivity.MEDIUM, HIGH: Sensitivity.HIGH, SEALED: Sensitivity.SEALED };
+        const ceilingLabel = (req.ceiling ?? 'MEDIUM').toUpperCase();
+        const ceiling = CEIL[ceilingLabel];
+        if (ceiling === undefined) throw new Error(`unknown ceiling '${req.ceiling}' — use PUBLIC|LOW|MEDIUM|HIGH|SEALED`);
+        const target = req.target ?? 'hearthold:vault';
+        const kinds = req.kinds && req.kinds.length > 0 ? (req.kinds as WitnessKind[]) : undefined;
+
+        const assertion = await gate.approve({
+          requester: 'the Table',
+          action: {
+            action: 'mint-root-capability',
+            resource: req.emissaryDid,
+            summary: `Seed this agent's Emissary with a ROOT capability over ${target} to PROVE ${kinds ? kinds.join('/') : 'any'} facts ≤ ${ceilingLabel} (it may then delegate onward)`,
+          },
+        });
+        if (!assertion) return { minted: false, declined: true };
+
+        const { grant, record } = await mintRootGrant(handle, id.name, id.did, config, { holder: req.emissaryDid, target, ...(kinds ? { kinds } : {}), ceiling }, grants);
+        // Hand the root to the agent's Emissary over DIDComm (fire-and-forget; it persists on its next poll).
+        await handle.keymaster.sendDidComm(
+          { type: 'hearthold/chain-grant', thid: randomUUID(), body: { type: 'hearthold/chain-grant', version: PROTOCOL_VERSION, grant } },
+          req.emissaryDid,
+          { name: id.name },
+        );
+        server.emit('root-minted', { rootVcDid: record.credentialDid, holder: record.holder });
+        return { minted: true, rootVcDid: record.credentialDid, holder: record.holder };
       },
 
       // The permissions center: list the capabilities the Sovereign has granted (the Table mirrors this

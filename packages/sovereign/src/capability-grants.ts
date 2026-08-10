@@ -18,6 +18,7 @@ import {
   ensureCapabilityStatusContext,
   ensureAuthorizationSchema,
   issueScopeCapability,
+  mintRootCapability,
   allocateIndex,
   revokeStatusIndex,
   STATUS_LIST_LENGTH,
@@ -25,6 +26,7 @@ import {
   type HearthholdConfig,
   type Sensitivity,
   type WitnessKind,
+  type ChainCapabilityGrant,
 } from '@hearthold/core';
 
 export interface CapabilityGrant {
@@ -139,6 +141,64 @@ export async function grantCapability(
   };
   await store.put(grant);
   return grant;
+}
+
+export interface RootGrantSpec {
+  /** The agent's Emissary DID that will HOLD (invoke + further-delegate) this root. */
+  holder: string;
+  target?: string;
+  kinds?: WitnessKind[];
+  ceiling: Sensitivity;
+  /** Operations the holder may exercise/re-delegate. Default `['prove','submit']` — prove facts, and the
+   *  delegate side narrows to `prove` when handing onward. */
+  operations?: string[];
+}
+
+/**
+ * Mint a ROOT chain-capability held by `spec.holder` (an agent's Emissary), with a revocable status from the
+ * Sovereign's list, recorded in the inventory so it lists + revokes like any grant. Returns the transferable
+ * `ChainCapabilityGrant` (the caller sends it to the holder over DIDComm as a `hearthold/chain-grant`) + its
+ * record. This is the family root-of-authority: the Sovereign seeds an agent, which then delegates onward.
+ *
+ * NB: the root caveats carry NO `expires` (unbounded) so a child without an expiry can still narrow it
+ * (`caveatsNarrow`); the record's `expires` is a far-future display value only. Revocation is by status bit.
+ */
+export async function mintRootGrant(
+  sovereign: KeymasterHandle,
+  issuerName: string,
+  sovereignDid: string,
+  config: HearthholdConfig,
+  spec: RootGrantSpec,
+  store: CapabilityGrantStore,
+): Promise<{ grant: ChainCapabilityGrant; record: CapabilityGrant }> {
+  const target = spec.target ?? 'hearthold:vault';
+  const ctx = await ensureCapabilityStatusContext(sovereign, issuerName, config);
+  const { index } = await allocateIndex(sovereign, issuerName, ctx.allocationRecord, randomUUID(), STATUS_LIST_LENGTH);
+  const root = await mintRootCapability({
+    issuer: sovereign,
+    issuerName,
+    holder: spec.holder,
+    capability: {
+      invocationTarget: target,
+      authority: { operations: spec.operations ?? ['prove', 'submit'], resources: [target] },
+      caveats: { ceiling: spec.ceiling, owner: sovereignDid, ...(spec.kinds ? { kinds: spec.kinds } : {}), status: { statusListCredential: ctx.statusListCredential, statusListIndex: index } },
+    },
+    registry: config.registry,
+  });
+  const record: CapabilityGrant = {
+    credentialDid: root.issued.vcDid,
+    holder: spec.holder,
+    target,
+    ...(spec.kinds ? { kinds: spec.kinds } : {}),
+    ceiling: spec.ceiling,
+    expires: new Date(Date.now() + 3650 * 24 * 60 * 60 * 1000).toISOString(), // display only — the root is unbounded
+    schemaDid: '', // a root is an Asset-DID chain, not a schema'd VC
+    statusListCredential: ctx.statusListCredential,
+    statusListIndex: index,
+    issuedAt: new Date().toISOString(),
+  };
+  await store.put(record);
+  return { grant: { handle: root, ancestorDisclosures: {} }, record };
 }
 
 /** Revoke a granted capability by DID: flip its status bit and mark the record. Fails closed on an unknown DID. */
