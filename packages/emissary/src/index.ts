@@ -12,7 +12,10 @@ import {
   DidCommTransport,
   IDENTITY_NAME,
   PROTOCOL_VERSION,
+  revokeStatusIndex,
   type WitnessSubmission,
+  type Sensitivity,
+  type WitnessKind,
 } from '@hearthold/core';
 
 import { makeEmissaryProjectorHandler } from './handler.js';
@@ -20,6 +23,7 @@ import { makeKbRelayHandler } from './kb-relay.js';
 import { startKbPortalServer } from './kb-portal-server.js';
 import { runEmissaryControl } from './control.js';
 import { invokeEvidence } from './invoke.js';
+import { HeldChainStore, delegateHeldOnward, chainInvokeEvidence, transferChainGrant } from './chain.js';
 
 const HELP = `Hearthold Emissary — Companion
 
@@ -207,6 +211,62 @@ async function main(): Promise<void> {
         process.stderr.write(`✗ ${reply.reason}\n`);
         process.exitCode = 1;
       }
+      break;
+    }
+    case 'delegate-capability': {
+      const holderDid = process.argv[3];
+      if (!holderDid || holderDid.includes('=')) throw new Error('usage: emissary delegate-capability <holderDid> [ceiling=LOW] [kinds=location,book] [target=…] [leaf=<vcDid>]');
+      const opts: Record<string, string> = {};
+      for (const kv of process.argv.slice(4).filter((a) => a.includes('='))) { const eq = kv.indexOf('='); opts[kv.slice(0, eq)] = kv.slice(eq + 1); }
+      const CEIL: Record<string, number> = { PUBLIC: 0, LOW: 1, MEDIUM: 2, HIGH: 3, SEALED: 4 };
+      const ceiling = opts.ceiling ? CEIL[opts.ceiling.toUpperCase()] : undefined;
+      if (opts.ceiling && ceiling === undefined) throw new Error(`unknown ceiling '${opts.ceiling}' — PUBLIC|LOW|MEDIUM|HIGH|SEALED`);
+      const kinds = opts.kinds ? (opts.kinds.split(',').map((s) => s.trim()).filter(Boolean) as WitnessKind[]) : undefined;
+      const held = new HeldChainStore(handle.dataFolder);
+      const { grant, issued } = await delegateHeldOnward({
+        issuer: handle, issuerName: id.name, config, held, holderDid,
+        ...(ceiling !== undefined ? { ceiling: ceiling as Sensitivity } : {}),
+        ...(kinds ? { kinds } : {}),
+        ...(opts.target ? { target: opts.target } : {}),
+        ...(opts.leaf ? { leafVcDid: opts.leaf } : {}),
+      });
+      await held.putIssued(issued);
+      const transport = new DidCommTransport(handle, IDENTITY_NAME.emissary, config.nodeUrl);
+      await transport.ready();
+      await transferChainGrant(handle, id.name, holderDid, grant);
+      process.stdout.write(`✓ Delegated an attenuated child hop to ${holderDid.slice(0, 32)}…\n  child: ${issued.childVcDid}\n  → cut it later:  emissary revoke-hop ${issued.childVcDid}\n`);
+      break;
+    }
+    case 'chain-invoke': {
+      const claim = process.argv.slice(3).filter((a) => !a.includes('=')).join(' ');
+      const opts: Record<string, string> = {};
+      for (const kv of process.argv.slice(3).filter((a) => a.includes('='))) { const eq = kv.indexOf('='); opts[kv.slice(0, eq)] = kv.slice(eq + 1); }
+      if (!claim) throw new Error('usage: emissary chain-invoke <claim…> [kind=location] [leaf=<vcDid>]');
+      const wardenDid = config.wardenDid;
+      if (!wardenDid) throw new Error('HEARTHOLD_WARDEN_DID is required for chain-invoke');
+      const held = new HeldChainStore(handle.dataFolder);
+      const grant = opts.leaf ? await held.get(opts.leaf) : await held.latest();
+      if (!grant) throw new Error('this Emissary holds no chain capability to present (get one via delegate-capability or a Sovereign mint-root)');
+      const transport = new DidCommTransport(handle, IDENTITY_NAME.emissary, config.nodeUrl);
+      await transport.ready();
+      const reply = await chainInvokeEvidence(handle, id.name, transport, wardenDid, grant, { claim, kind: opts.kind ?? 'location' });
+      if (reply.type === 'hearthold/evidence-response' && reply.status === 'granted') {
+        if (reply.credentialDid) await handle.keymaster.acceptCredential(reply.credentialDid).catch(() => undefined);
+        process.stdout.write(`✓ Chain invocation GRANTED\n  claim:      ${reply.graph?.claim ?? claim}\n  credential: ${reply.credentialDid}\n  schema:     ${reply.schemaDid}\n`);
+      } else {
+        process.stderr.write(`✗ Chain invocation denied: ${reply.reason}\n`);
+        process.exitCode = 1;
+      }
+      break;
+    }
+    case 'revoke-hop': {
+      const childVcDid = process.argv[3];
+      if (!childVcDid) throw new Error('usage: emissary revoke-hop <childVcDid>');
+      const held = new HeldChainStore(handle.dataFolder);
+      const hop = await held.getIssued(childVcDid);
+      if (!hop) throw new Error('no issued hop with that childVcDid — this Emissary did not delegate it');
+      await revokeStatusIndex(handle, id.name, hop.statusListCredential, hop.statusListIndex);
+      process.stdout.write(`✓ Revoked the hop delegated to ${hop.holder.slice(0, 32)}… — the delegate's chain is denied at its next invocation\n`);
       break;
     }
     case 'control': {

@@ -31,6 +31,8 @@ import type {
   CapabilityGrantView,
   RevokeCapabilityRequest,
   RevokeCapabilityResponse,
+  MintRootRequest,
+  MintRootResponse,
 } from '@hearthold/control-types';
 
 import { makeSovereignHandler } from './handler.js';
@@ -160,8 +162,8 @@ export async function runSovereignControl(
       // Seed an agent's Emissary with a ROOT chain-capability (the family root of authority) and hand it over
       // DIDComm, so the agent can invoke AND delegate onward. Signet-gated — the human authorizes creating a new
       // root of authority for an agent. Recorded so it lists + revokes like any grant (revoke = cut the agent).
-      'POST /api/mint-root': async ({ body }) => {
-        const req = (body ?? {}) as { emissaryDid?: string; ceiling?: string; kinds?: string[]; target?: string };
+      'POST /api/mint-root': async ({ body }): Promise<MintRootResponse> => {
+        const req = (body ?? {}) as MintRootRequest;
         if (!req.emissaryDid) throw new Error('emissaryDid is required');
         const CEIL: Record<string, Sensitivity> = { PUBLIC: Sensitivity.PUBLIC, LOW: Sensitivity.LOW, MEDIUM: Sensitivity.MEDIUM, HIGH: Sensitivity.HIGH, SEALED: Sensitivity.SEALED };
         const ceilingLabel = (req.ceiling ?? 'MEDIUM').toUpperCase();

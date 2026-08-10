@@ -120,6 +120,76 @@ export interface DelegateResponse {
   credentialDid: string;
 }
 
+// ── Multi-hop chain capabilities (Phase 5B) — the Emissary + Sovereign daemon routes ────────────────────
+
+/** `POST :4312/api/delegate-capability` — hand a narrower slice of a HELD capability onward to another agent. */
+export interface DelegateCapabilityRequest {
+  /** The DID of the agent's Emissary to delegate to. */
+  holderDid: string;
+  /** Child ceiling (0 PUBLIC … 4 SEALED); must be ≤ the held capability's. */
+  ceiling?: number;
+  /** Witness kinds the child may prove; must be ⊆ the held capability's. */
+  kinds?: WitnessKindName[];
+  /** Invocation target; within the held capability's (default: the same). */
+  target?: string;
+  /** Which held capability to delegate from (default: the most-recently held). */
+  leafVcDid?: string;
+}
+export interface DelegateCapabilityResponse {
+  childVcDid: string;
+  holder: string;
+  statusListIndex: number;
+}
+
+/** `POST :4312/api/chain-invoke` — present a HELD chain to prove a fact (the multi-hop analog of invoke). */
+export interface ChainInvokeRequest {
+  claim: string;
+  kind: string;
+  /** Which held chain to present (default: the latest). */
+  leafVcDid?: string;
+  reveal?: number[];
+}
+
+/** `POST :4312/api/revoke-hop` — a delegator's kill-switch over a hop it issued. */
+export interface RevokeHopRequest {
+  childVcDid: string;
+}
+export interface RevokeHopResponse {
+  revoked: boolean;
+  childVcDid: string;
+}
+
+/** `GET :4312/api/held` — the chain capabilities this Emissary holds + the hops it has issued onward. */
+export interface HeldChainView {
+  leafVcDid: string;
+  counter: number;
+  target: string;
+  ceiling: number;
+}
+export interface IssuedHopView {
+  childVcDid: string;
+  holder: string;
+  statusListCredential: string;
+  statusListIndex: number;
+  issuedAt: string;
+}
+export interface HeldResponse {
+  held: HeldChainView[];
+  issued: IssuedHopView[];
+}
+
+/** `POST :4311/api/mint-root` (Signet) — seed an agent's Emissary with a ROOT chain-capability. */
+export interface MintRootRequest {
+  emissaryDid: string;
+  /** Max sensitivity — PUBLIC|LOW|MEDIUM|HIGH|SEALED (default MEDIUM). */
+  ceiling?: string;
+  kinds?: WitnessKindName[];
+  target?: string;
+}
+export type MintRootResponse =
+  | { minted: true; rootVcDid: string; holder: string }
+  | { minted: false; declined: true };
+
 /** Ask the vault a question — private local RAG (nothing leaves the device). */
 export interface RecallRequest {
   query: string;

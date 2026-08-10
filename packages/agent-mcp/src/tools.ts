@@ -198,6 +198,70 @@ export const HEARTHOLD_TOOLS: HeartholdTool[] = [
     handler: (ctx, a) => control(ctx, ctx.control.emissaryUrl, 'Emissary', 'POST', '/api/accept-capability', { credentialDid: a.credentialDid }),
   },
   {
+    name: 'hearthold_delegate_capability',
+    description:
+      'Delegate an ATTENUATED slice of a capability I HOLD onward to another agent (the family multi-hop primitive). My Emissary mints a narrower child hop — prove-only, kinds ⊆ mine, ceiling ≤ mine — with a fresh revocation status I hold, and transfers it to the holder over DIDComm. Widening is refused at issuance. I can cut it later with revoke_hop.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        holderDid: { type: 'string', description: 'the DID of the agent’s Emissary to delegate to' },
+        ceiling: { type: 'number', description: 'max sensitivity of the child (0 PUBLIC…4 SEALED); must be ≤ mine' },
+        kinds: { type: 'array', items: { type: 'string' }, description: 'witness kinds the child may prove; must be ⊆ mine' },
+        target: { type: 'string', description: 'invocation target; within mine (default: same as the held capability)' },
+        leafVcDid: { type: 'string', description: 'which held capability to delegate from (default: the latest)' },
+      },
+      required: ['holderDid'],
+      additionalProperties: false,
+    },
+    handler: (ctx, a) => control(ctx, ctx.control.emissaryUrl, 'Emissary', 'POST', '/api/delegate-capability', { holderDid: a.holderDid, ceiling: a.ceiling, kinds: a.kinds, target: a.target, leafVcDid: a.leafVcDid }),
+  },
+  {
+    name: 'hearthold_chain_invoke',
+    description:
+      'Prove a fact by presenting a HELD chain capability (the multi-hop analog of invoke) — the Warden verifies the whole delegation chain + per-hop revocation, then mints issuer-attested evidence. A sensitive claim still steps up to the owner’s Signet. The audience is designated by the capability, never chosen here.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        claim: { type: 'string', description: 'the fact to prove' },
+        kind: { type: 'string', description: 'the witness kind backing it — must be within the leaf’s kinds' },
+        leafVcDid: { type: 'string', description: 'which held chain to present (default: the latest)' },
+        reveal: { type: 'array', items: { type: 'number' }, description: 'optional selective-disclosure leaf indices' },
+      },
+      required: ['claim', 'kind'],
+      additionalProperties: false,
+    },
+    handler: (ctx, a) => control(ctx, ctx.control.emissaryUrl, 'Emissary', 'POST', '/api/chain-invoke', { claim: a.claim, kind: a.kind, leafVcDid: a.leafVcDid, reveal: a.reveal }),
+  },
+  {
+    name: 'hearthold_revoke_hop',
+    description: 'Revoke a hop I delegated onward — my kill-switch over a child. Flips its status bit so the Warden refuses that delegate’s chain at the next invocation. Only works on hops I issued.',
+    inputSchema: { type: 'object', properties: { childVcDid: { type: 'string' } }, required: ['childVcDid'], additionalProperties: false },
+    handler: (ctx, a) => control(ctx, ctx.control.emissaryUrl, 'Emissary', 'POST', '/api/revoke-hop', { childVcDid: a.childVcDid }),
+  },
+  {
+    name: 'hearthold_held',
+    description: 'The chain capabilities I HOLD (invocable + further-delegable) and the hops I have ISSUED onward (revocable) — my lineage view.',
+    inputSchema: NO_ARGS,
+    handler: (ctx) => control(ctx, ctx.control.emissaryUrl, 'Emissary', 'GET', '/api/held'),
+  },
+  {
+    name: 'hearthold_mint_root',
+    description:
+      'Seed an agent’s Emissary with a ROOT chain-capability (the family root of authority) so it can invoke AND delegate onward. Signet-gated: the human (or an AI-agent Sovereign’s AgentGate) authorizes creating a new root of authority for an agent. Revoke the returned rootVcDid (via revoke_capability) to cut the whole agent.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        emissaryDid: { type: 'string', description: 'the agent’s Emissary DID that will hold the root' },
+        ceiling: { type: 'string', description: 'max sensitivity — PUBLIC|LOW|MEDIUM|HIGH|SEALED (default MEDIUM)' },
+        kinds: { type: 'array', items: { type: 'string' }, description: 'witness kinds (default: any)' },
+        target: { type: 'string', description: 'invocation target (default hearthold:vault)' },
+      },
+      required: ['emissaryDid'],
+      additionalProperties: false,
+    },
+    handler: (ctx, a) => control(ctx, ctx.control.signetUrl, 'Signet', 'POST', '/api/mint-root', { emissaryDid: a.emissaryDid, ceiling: a.ceiling, kinds: a.kinds, target: a.target }),
+  },
+  {
     name: 'hearthold_triage',
     description: 'My born-obsidian triage queue — proposals not yet admitted. Mirrors DataSource.triage.',
     inputSchema: NO_ARGS,
@@ -318,8 +382,8 @@ export const HEARTHOLD_TOOLS: HeartholdTool[] = [
  */
 const PROFILES: Record<Exclude<HeartholdRole, 'full'>, string[]> = {
   warden: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_recall', 'hearthold_list_inbound', 'hearthold_triage', 'hearthold_confirm_triage', 'hearthold_delegate', 'hearthold_pass_card', 'hearthold_accept_card', 'hearthold_decline_card'],
-  sovereign: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_grant_capability', 'hearthold_list_capabilities', 'hearthold_revoke_capability', 'hearthold_pending_approvals', 'hearthold_decide'],
-  emissary: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_contribute', 'hearthold_invoke', 'hearthold_accept_capability'],
+  sovereign: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_grant_capability', 'hearthold_mint_root', 'hearthold_list_capabilities', 'hearthold_revoke_capability', 'hearthold_pending_approvals', 'hearthold_decide'],
+  emissary: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_contribute', 'hearthold_invoke', 'hearthold_accept_capability', 'hearthold_delegate_capability', 'hearthold_chain_invoke', 'hearthold_revoke_hop', 'hearthold_held'],
   verifier: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_verify_card'],
 };
 

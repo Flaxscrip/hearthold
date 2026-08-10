@@ -46,9 +46,15 @@ import {
   type InvokeResponse,
   type AcceptCapabilityRequest,
   type AcceptCapabilityResponse,
+  type DelegateCapabilityRequest,
+  type DelegateCapabilityResponse,
+  type ChainInvokeRequest,
+  type RevokeHopRequest,
+  type RevokeHopResponse,
+  type HeldResponse,
 } from '@hearthold/control-types';
 import { invokeEvidence } from './invoke.js';
-import { HeldChainStore, delegateOnward, chainInvokeEvidence, disclosedFor, transferChainGrant } from './chain.js';
+import { HeldChainStore, delegateHeldOnward, chainInvokeEvidence, transferChainGrant } from './chain.js';
 
 const bareDid = (s: string | undefined): string => String(s ?? '').split('#')[0] ?? '';
 const sensName = (s: number): SensitivityName => SENSITIVITY_NAMES[s] ?? 'SEALED';
@@ -200,7 +206,7 @@ export async function runEmissaryControl(
       },
 
       // MULTI-HOP: what this Emissary holds + what it has issued onward (for a lineage view / revoke UI).
-      'GET /api/held': async () => ({
+      'GET /api/held': async (): Promise<HeldResponse> => ({
         held: (await held.list()).map((g) => ({
           leafVcDid: g.handle.issued.vcDid,
           counter: g.handle.issued.counter,
@@ -213,29 +219,19 @@ export async function runEmissaryControl(
       // Delegate an attenuated child of a HELD capability ONWARD to another agent, and transfer it over DIDComm.
       // The child is minted with a fresh revocation status from THIS Emissary's list — revoking it (POST
       // /api/revoke-hop) kills the delegate's subtree. Keyless: the Table/agent-MCP POSTs the intent.
-      'POST /api/delegate-capability': async ({ body }) => {
-        const req = (body ?? {}) as { holderDid?: string; ceiling?: number; kinds?: WitnessKind[]; target?: string; leafVcDid?: string };
+      'POST /api/delegate-capability': async ({ body }): Promise<DelegateCapabilityResponse> => {
+        const req = (body ?? {}) as DelegateCapabilityRequest;
         if (!req.holderDid) throw new Error('holderDid is required');
-        const parent = req.leafVcDid ? await held.get(req.leafVcDid) : await held.latest();
-        if (!parent) throw new Error('no held capability to delegate from — this Emissary holds no chain grant');
-        const target = req.target ?? parent.handle.capability.invocationTarget;
-        const parentAuthority = parent.handle.capability.authority;
-        const { grant, issued } = await delegateOnward({
+        const { grant, issued } = await delegateHeldOnward({
           issuer: handle,
           issuerName: id.name,
           config,
-          parent,
+          held,
           holderDid: req.holderDid,
-          child: {
-            invocationTarget: target,
-            // Narrow, never widen: intersect the requested/again-`prove` op set with the parent's.
-            authority: { operations: parentAuthority.operations.filter((o) => o === 'prove'), resources: [target] },
-            caveats: {
-              ceiling: (req.ceiling ?? parent.handle.capability.caveats.ceiling) as Sensitivity,
-              ...(parent.handle.capability.caveats.owner ? { owner: parent.handle.capability.caveats.owner } : {}),
-              ...(req.kinds ? { kinds: req.kinds } : parent.handle.capability.caveats.kinds ? { kinds: parent.handle.capability.caveats.kinds } : {}),
-            },
-          },
+          ...(req.ceiling !== undefined ? { ceiling: req.ceiling as Sensitivity } : {}),
+          ...(req.kinds ? { kinds: req.kinds as WitnessKind[] } : {}),
+          ...(req.target ? { target: req.target } : {}),
+          ...(req.leafVcDid ? { leafVcDid: req.leafVcDid } : {}),
         });
         await held.putIssued(issued);
         await transferChainGrant(handle, id.name, req.holderDid, grant);
@@ -245,18 +241,18 @@ export async function runEmissaryControl(
 
       // Present a HELD chain to the Warden and get evidence (the multi-hop analog of /api/invoke). Loop-queued.
       'POST /api/chain-invoke': async ({ body }): Promise<InvokeResponse> => {
-        const req = (body ?? {}) as { claim?: string; kind?: string; leafVcDid?: string; reveal?: number[] };
+        const req = (body ?? {}) as ChainInvokeRequest;
         if (!req.claim || !req.kind) throw new Error('claim and kind are required');
         if (!config.wardenDid) throw new Error('HEARTHOLD_WARDEN_DID is not set on the Emissary daemon');
         return new Promise<InvokeResponse>((resolve) =>
-          chainInvokeQueue.push({ ...(req.leafVcDid ? { leafVcDid: req.leafVcDid } : {}), claim: req.claim!, kind: req.kind!, ...(req.reveal ? { reveal: req.reveal } : {}), resolve }),
+          chainInvokeQueue.push({ ...(req.leafVcDid ? { leafVcDid: req.leafVcDid } : {}), claim: req.claim, kind: req.kind, ...(req.reveal ? { reveal: req.reveal } : {}), resolve }),
         );
       },
 
       // Revoke a hop THIS Emissary issued onward (its kill-switch over a child) — flips the status bit; the
       // Warden's per-hop check denies the delegate's chain at the next invocation.
-      'POST /api/revoke-hop': async ({ body }) => {
-        const { childVcDid } = (body ?? {}) as { childVcDid?: string };
+      'POST /api/revoke-hop': async ({ body }): Promise<RevokeHopResponse> => {
+        const { childVcDid } = (body ?? {}) as RevokeHopRequest;
         if (!childVcDid) throw new Error('childVcDid is required');
         const hop = await held.getIssued(childVcDid);
         if (!hop) throw new Error('no issued hop with that childVcDid — this Emissary did not delegate it');

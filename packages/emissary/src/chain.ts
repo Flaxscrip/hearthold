@@ -24,6 +24,8 @@ import {
   type Transport,
   type HearthholdConfig,
   type CapabilitySpec,
+  type Sensitivity,
+  type WitnessKind,
   type ChainCapabilityGrant,
   type ChainGrantMessage,
   type CapabilityInvocation,
@@ -90,6 +92,46 @@ export async function delegateOnward(args: {
     issuedAt: new Date().toISOString(),
   };
   return { grant, issued };
+}
+
+/**
+ * Delegate onward from a HELD grant selected by `leafVcDid` (or the latest held), narrowing to the requested
+ * ceiling/kinds/target and intersecting operations down to `prove`. The control route AND the CLI both call this,
+ * so the attenuation is defined in exactly ONE place (a delegate cannot widen — `delegateCapability` refuses it,
+ * and `caveatsNarrow` enforces ceiling/kinds/owner ⊆ parent). Throws if the Emissary holds no chain grant.
+ */
+export async function delegateHeldOnward(args: {
+  issuer: KeymasterHandle;
+  issuerName: string;
+  config: HearthholdConfig;
+  held: HeldChainStore;
+  holderDid: string;
+  ceiling?: Sensitivity;
+  kinds?: WitnessKind[];
+  target?: string;
+  leafVcDid?: string;
+}): Promise<{ grant: ChainCapabilityGrant; issued: IssuedHop }> {
+  const parent = args.leafVcDid ? await args.held.get(args.leafVcDid) : await args.held.latest();
+  if (!parent) throw new Error('no held capability to delegate from — this Emissary holds no chain grant (seed one with `sovereign mint-root`)');
+  const target = args.target ?? parent.handle.capability.invocationTarget;
+  const pc = parent.handle.capability.caveats;
+  return delegateOnward({
+    issuer: args.issuer,
+    issuerName: args.issuerName,
+    config: args.config,
+    parent,
+    holderDid: args.holderDid,
+    child: {
+      invocationTarget: target,
+      // Narrow, never widen: prove-only, within the parent's resources; the verifier is the real boundary.
+      authority: { operations: parent.handle.capability.authority.operations.filter((o) => o === 'prove'), resources: [target] },
+      caveats: {
+        ceiling: args.ceiling ?? pc.ceiling,
+        ...(pc.owner ? { owner: pc.owner } : {}),
+        ...(args.kinds ? { kinds: args.kinds } : pc.kinds ? { kinds: pc.kinds } : {}),
+      },
+    },
+  });
 }
 
 /**
