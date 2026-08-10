@@ -28,7 +28,7 @@
     "sovereign": "node packages/sovereign/dist/index.js",
     "verifier": "node packages/verifier/dist/index.js",
     "registry": "node packages/registry/dist/index.js",
-    "e2e": "npm run e2e:delegation && npm run e2e:submission && npm run e2e:invocation",
+    "e2e": "npm run e2e:delegation && npm run e2e:submission && npm run e2e:invocation && npm run e2e:multihop && npm run e2e:chain-family && npm run e2e:watch-lineage && npm run e2e:write-cosign",
     "e2e:delegation": "npm run build && node --experimental-strip-types scripts/e2e-delegation.ts",
     "e2e:delegation-presentation": "npm run build && node --experimental-strip-types scripts/e2e-delegation-presentation.ts",
     "e2e:submission": "npm run build && node --experimental-strip-types scripts/e2e-submission.ts",

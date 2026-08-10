@@ -241,6 +241,7 @@ export async function signDischarge(
     owner: req.owner,
     audience: req.audience,
     sensitivity: req.sensitivity,
+    ...(Array.isArray(req.reveal) ? { reveal: req.reveal } : {}),
   });
   await handle.keymaster.setCurrentId(idName);
   return (await handle.keymaster.addProof(

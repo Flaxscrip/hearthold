@@ -40,10 +40,13 @@ export interface DischargeSubject {
   owner: string;
   audience: string;
   sensitivity: Sensitivity;
+  /** The selective-disclosure leaf indices of THIS act — bound so a discharge cannot be transplanted onto an act
+   *  that agrees on the labelled fields but reveals different leaves (audit-5). Order-independent (sorted). */
+  reveal?: number[];
 }
 
 export function dischargeDigest(s: DischargeSubject): string {
-  const canon = JSON.stringify([s.txn, s.predicate, s.claim, s.kind, s.owner, s.audience, s.sensitivity]);
+  const canon = JSON.stringify([s.txn, s.predicate, s.claim, s.kind, s.owner, s.audience, s.sensitivity, [...(s.reveal ?? [])].sort((a, b) => a - b)]);
   return createHash('sha256').update(canon).digest('hex');
 }
 
@@ -323,7 +326,7 @@ export async function verifyInvocation(inv: CapabilityInvocation, ctx: Invocatio
  */
 async function hasValidDischarge(inv: CapabilityInvocation, cav: ThirdPartyCaveat, ctx: InvocationContext, leaf: VerifiedLeaf): Promise<boolean> {
   const verifyProofFn = ctx.keymaster.keymaster.verifyProof.bind(ctx.keymaster.keymaster) as (o: unknown) => Promise<boolean>;
-  const args = (inv.act.args ?? {}) as { claim?: unknown; spec?: { kind?: unknown } };
+  const args = (inv.act.args ?? {}) as { claim?: unknown; spec?: { kind?: unknown }; reveal?: number[] };
   const expected = dischargeDigest({
     txn: inv.act.txn,
     predicate: cav.predicate,
@@ -332,6 +335,7 @@ async function hasValidDischarge(inv: CapabilityInvocation, cav: ThirdPartyCavea
     owner: leaf.caveats.owner ?? ctx.owner ?? '',
     audience: leaf.caveats.audience ?? leaf.holder,
     sensitivity: (ctx.sensitivity ?? -1) as Sensitivity,
+    ...(Array.isArray(args.reveal) ? { reveal: args.reveal } : {}),
   });
   for (const d of inv.discharges ?? []) {
     if (d.by !== cav.by || d.txn !== inv.act.txn || d.predicate !== cav.predicate || d.digest !== expected || !d.proof) continue;
@@ -360,5 +364,7 @@ export interface DischargeRequest {
   owner: string;
   audience: string;
   sensitivity: Sensitivity;
+  /** The act's selective-disclosure leaf indices — bound into the digest (anti-transplant). */
+  reveal?: number[];
   reason?: string;
 }

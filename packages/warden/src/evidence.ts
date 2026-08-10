@@ -183,6 +183,7 @@ export class EvidenceService {
           owner,
           audience,
           sensitivity,
+          ...(args.reveal && args.reveal.length > 0 ? { reveal: args.reveal } : {}),
           reason: `Disclose “${args.claim}” — ${spec.kind}`,
         });
         if (!d) return deny('consent declined at the Signet');
@@ -196,6 +197,14 @@ export class EvidenceService {
       if (/ceiling|sensitivity/.test(decision.reason)) return deny('not authorized to disclose the requested claim');
       return deny(`invocation refused: ${decision.reason}`);
     }
+
+    // Auditable consent: if this disclosure REQUIRED the owner's consent (its sensitivity crossed the human gate,
+    // or the capability carried a requiresDischarge caveat) and we reached here, a human co-signed it (via the
+    // Signet, above) — so it is `approved`. A LOW autonomous disclosure is not (no human in the loop). No longer
+    // hardcoded false (audit-5).
+    const humanApproved =
+      (this.config.requiresHumanAt !== undefined && sensitivity >= this.config.requiresHumanAt) ||
+      (leaf.caveats.requiresDischarge?.length ?? 0) > 0;
 
     // Bind the scroll to the capability's audience (forge-for-a-recipient), else to the VERIFIED holder —
     // NEVER a requester-chosen recipient (the other half of finding A).
@@ -230,7 +239,7 @@ export class EvidenceService {
             merkleRoot: g.commitment.merkleRoot,
           },
         ],
-        approved: false,
+        approved: humanApproved,
         validUntil,
         trustClass: 'witnessed',
         issued: [],

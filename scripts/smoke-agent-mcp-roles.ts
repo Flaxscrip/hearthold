@@ -32,7 +32,7 @@ for (const role of ['warden', 'sovereign', 'emissary', 'verifier'] as const) {
 
 // each actor's signature verbs land in the right profile
 check('emissary → invoke + accept_capability + contribute', ['hearthold_invoke', 'hearthold_accept_capability', 'hearthold_contribute'].every((n) => names('emissary').includes(n)));
-check('sovereign → grant_capability + decide (AgentGate-only)', ['hearthold_grant_capability', 'hearthold_decide'].every((n) => names('sovereign').includes(n)));
+check('sovereign → grant_capability + decline-only (no MCP tool can APPROVE a human gate — façade not bypass)', ['hearthold_grant_capability', 'hearthold_decline'].every((n) => names('sovereign').includes(n)) && !names('sovereign').includes('hearthold_decide'));
 check('warden → delegate + recall + triage', ['hearthold_delegate', 'hearthold_recall', 'hearthold_triage'].every((n) => names('warden').includes(n)));
 check('verifier → verify_card', names('verifier').includes('hearthold_verify_card'));
 

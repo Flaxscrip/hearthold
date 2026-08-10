@@ -288,15 +288,11 @@ export const HEARTHOLD_TOOLS: HeartholdTool[] = [
     },
   },
   {
-    name: 'hearthold_decide',
-    description: 'Decide a pending approval at my Signet (approve/decline). Decline is fail-closed and needs no PIN; approving a spend is entered at the Signet, not here.',
-    inputSchema: {
-      type: 'object',
-      properties: { id: { type: 'string' }, approve: { type: 'boolean' }, pin: { type: 'string' } },
-      required: ['id', 'approve'],
-      additionalProperties: false,
-    },
-    handler: (ctx, a) => control(ctx, ctx.control.signetUrl, 'Signet', 'POST', '/api/approve', { id: a.id, approve: a.approve, pin: a.pin }),
+    name: 'hearthold_decline',
+    description:
+      'DECLINE a pending approval at my Signet (fail-closed, no PIN). Approving a step-up is entered by a human at the Signet, or self-approved by an AI-agent Sovereign’s AgentGate — NEVER through this tool. So an MCP caller can decline, but can never approve a human gate: the façade is not a bypass.',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'], additionalProperties: false },
+    handler: (ctx, a) => control(ctx, ctx.control.signetUrl, 'Signet', 'POST', '/api/approve', { id: a.id, approve: false }),
   },
   {
     name: 'hearthold_grant_capability',
@@ -396,7 +392,7 @@ export const HEARTHOLD_TOOLS: HeartholdTool[] = [
  */
 const PROFILES: Record<Exclude<HeartholdRole, 'full'>, string[]> = {
   warden: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_recall', 'hearthold_list_inbound', 'hearthold_triage', 'hearthold_confirm_triage', 'hearthold_delegate', 'hearthold_pass_card', 'hearthold_accept_card', 'hearthold_decline_card'],
-  sovereign: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_grant_capability', 'hearthold_mint_root', 'hearthold_list_capabilities', 'hearthold_lineage', 'hearthold_flow', 'hearthold_revoke_capability', 'hearthold_pending_approvals', 'hearthold_decide'],
+  sovereign: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_grant_capability', 'hearthold_mint_root', 'hearthold_list_capabilities', 'hearthold_lineage', 'hearthold_flow', 'hearthold_revoke_capability', 'hearthold_pending_approvals', 'hearthold_decline'],
   emissary: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_contribute', 'hearthold_invoke', 'hearthold_accept_capability', 'hearthold_delegate_capability', 'hearthold_chain_invoke', 'hearthold_revoke_hop', 'hearthold_held'],
   verifier: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_verify_card'],
 };

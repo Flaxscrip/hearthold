@@ -56,9 +56,11 @@ export function makeSovereignHandler(
   gate: ApprovalGate,
   reopen?: () => Promise<KeymasterHandle>,
   /**
-   * When set, a `hearthold/discharge-request` is honored only from this DID (the owner's own Warden). Consent
-   * for a disclosure must be Warden-mediated (the Warden authors the request); a holder must not be able to
-   * prompt the Signet directly with text of its choosing (audit-4 §1). Omit in in-process tests.
+   * The owner's own Warden DID — the ONLY party a `hearthold/discharge-request` is honored from. Consent must be
+   * Warden-mediated (the Warden authors the request); a holder must not prompt the Signet directly with text of
+   * its choosing (audit-4 §1). **Fail-closed:** unset ⇒ no discharge is ever honored, so any Signet that accepts
+   * consent step-ups must pass it (the daemons pass `config.wardenDid`). A test that never sends a discharge may
+   * omit it; a discharge test must set it (e.g. `e2e-invocation-discharge-didcomm`).
    */
   trustedRequester?: string,
 ): RequestHandler {
@@ -194,10 +196,12 @@ export function makeSovereignHandler(
     // governor's, never the requesting agent's) and signs the discharge; a decline returns approved:false.
     if (message.type === 'hearthold/discharge-request') {
       const m = message as DischargeRequestMessage;
-      // Consent must be Warden-mediated: refuse a discharge-request from anyone but the owner's Warden, so a
-      // holder cannot prompt the Signet directly with benign text (audit-4 §1). fromDid is authcrypt-verified.
-      if (trustedRequester && fromDid !== trustedRequester) {
-        return { type: 'hearthold/discharge-response', version: PROTOCOL_VERSION, approved: false, reason: 'discharge requests are accepted only from the owner’s Warden' };
+      // Consent must be Warden-mediated: refuse a discharge-request unless it comes from the CONFIGURED owner's
+      // Warden, so a holder cannot prompt the Signet directly with benign text (audit-4 §1, audit-5). Fail-CLOSED:
+      // with no trusted Warden configured, NO discharge is honored — an unconfigured Signet does not prompt for
+      // strangers. fromDid is authcrypt-verified.
+      if (!trustedRequester || fromDid !== trustedRequester) {
+        return { type: 'hearthold/discharge-response', version: PROTOCOL_VERSION, approved: false, reason: 'discharge requests are accepted only from the configured owner’s Warden' };
       }
       const idName = await active.keymaster.getCurrentId();
       if (!idName) return { type: 'hearthold/discharge-response', version: PROTOCOL_VERSION, approved: false, reason: 'no current identity at the Signet' };
