@@ -52,9 +52,17 @@ Emissary acts autonomously), with an *automatic Signet step-up* for anything at 
     checks every hop's status fail-closed via an injected `checkHopStatus`, so revoking an ancestor kills the
     subtree at the next invocation (flaxscrip's kill-switch). Proven by `e2e-multihop-confused-deputy` (live):
     grants the happy chain, refuses replay / foreign-holder / stale-challenge / omitted-hop / over-attenuation /
-    **revoked-intermediate**. **Remaining (additive, on the proven core):** the `emissary delegate-capability`
-    verb + pairwise hop transfer, and the Sovereign's watch/SSE lineage dashboard. Full status + parity map in
-    `docs/multihop-delegation.md`.
+    **revoked-intermediate**. Full status + parity map in `docs/multihop-delegation.md`.
+  - **Part C — the family flow + watch.** ✅ **COMPLETE (2026-08-10).** On the proven enforcement core: the
+    keyless family flow (`emissary delegate-capability` / `chain-invoke` / `revoke-hop` routes + CLI + agent-MCP
+    verbs; `hearthold/chain-grant` DIDComm transfer + `HeldChainStore` persistence; `sovereign mint-root` seeds a
+    family root; `sovereign control --gate agent` AgentGate self-approves within scope). Then the **watch backend**
+    (item 5): `reconstructLineage` (walk a chain by PUBLIC resolution, zero decryption) + the Sovereign's live
+    delegation **forest** (`GET /api/lineage`, SSE `lineage`) fed by `hearthold/hop-registered`/`-revoked` reports,
+    and the **A2A flow watch** (`GET /api/flow`, SSE `flow`) fed by `hearthold/flow-event` — who exercised which
+    capability, with what outcome, never the content. e2es: `chain-family`, `watch-lineage`, `watch-flow`,
+    `agent-gate` (all live). Posture check closed the multi-hop kinds-widening gap (`caveatsNarrow`) and made
+    AgentGate's unbounded self-approval honest (boot warning; `permit` is the signed-allowance seam).
 
 ## Phase 3 — per-actor MCP servers (detail)
 
