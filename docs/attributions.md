@@ -25,10 +25,13 @@ reads as instantiation, not aspiration.
 
 ## Capability & invocation layer
 
-Design: `docs/invocation.md`. The shipped mechanism is `packages/core/src/capability.ts` +
+Design: `docs/invocation.md`. The shipped single-hop mechanism is `packages/core/src/capability.ts` +
 `capability-vc.ts` + `invocation-monitor.ts` (a Sovereign-issued scope VC verified with `verifyProof`).
-`packages/core/src/attenuation.ts` (multi-hop chain attenuation) is **retained but not on the shipped path** —
-Phase 4, see `docs/invocation.md` §5.3.
+`packages/core/src/attenuation.ts` + `capability-chain.ts` (multi-hop chain attenuation) are **now on the
+enforcement path too** (Phase 5B, 2026-08-10): `resolveChainInvocation` verifies a disclosed attenuation chain
+with per-hop revocation and single-hop parity, proven by `e2e-multihop-confused-deputy`. See
+`docs/multihop-delegation.md` for the parity map; the daemon-facing verb + watch dashboard are the remaining
+additive wiring.
 
 | Design | Author(s) / body | What we use | Where in our code |
 |---|---|---|---|

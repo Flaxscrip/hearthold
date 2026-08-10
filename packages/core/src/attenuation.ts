@@ -270,6 +270,13 @@ export interface VerifyOptions {
   /** Optional caveat-narrowing predicate applied to adjacent disclosed hops `(child, parent) → ok?`. Injected
    *  by the capability layer (attenuation stays generic — it never interprets caveats). */
   caveatNarrows?: (child: unknown, parent: unknown) => boolean;
+  /** Revocation-by-default: a disclosed hop with no status pointer is REJECTED when true (single-hop parity —
+   *  a capability that can never be revoked is refused rather than trusted forever). */
+  requireStatus?: boolean;
+  /** Injected per-hop revocation check — the capability/monitor layer resolves the W3C StatusList (attenuation
+   *  stays generic and never interprets caveats). Called for each disclosed hop with `(caveats, hopController)`
+   *  where hopController is the hop's issuer. Fail-closed: a revoked or unavailable hop rejects the whole chain. */
+  checkHopStatus?: (caveats: unknown, hopController: string) => Promise<'ok' | 'revoked' | 'unavailable' | 'no-status'>;
 }
 
 export interface VerifyResult {
@@ -357,6 +364,19 @@ export async function verifyAttenuationChain(leafVcDid: string, opts: VerifyOpti
     if (reveal && commit(reveal.authoritySet, reveal.salt, reveal.caveats) !== pic.authorityCommitment) {
       return reject('disclosed authoritySet+salt does not match the authorityCommitment', '(commit)', did, pic.counter);
     }
+
+    // Per-hop revocation (fail-closed): EVERY hop in the chain must be live. Revoking an INTERMEDIATE hop
+    // therefore kills the whole subtree at the next invocation — the multi-hop kill-switch. The status pointer
+    // lives in the commitment-bound disclosed caveats, so a holder cannot strip it to dodge the check. Attenuation
+    // stays generic: the monitor injects StatusList resolution via checkHopStatus (expectedIssuer = this hop's
+    // controller/issuer). Runs only for disclosed hops — under requireDisclosure that is every hop.
+    if (reveal && (opts.requireStatus || opts.checkHopStatus)) {
+      const st = opts.checkHopStatus ? await opts.checkHopStatus(reveal.caveats, controller) : 'no-status';
+      if (st === 'revoked') return reject('a hop in the chain is revoked', '(revoked)', did, pic.counter);
+      if (st === 'unavailable') return reject('a hop’s revocation status is unavailable (fail-closed)', '(status)', did, pic.counter);
+      if (st === 'no-status' && opts.requireStatus) return reject('a hop carries no revocation status pointer (not revocable)', '(revocable)', did, pic.counter);
+    }
+
     if (step === 0) {
       leafHolder = asrt.holder;
       leafReveal = reveal;

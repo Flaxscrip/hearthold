@@ -137,6 +137,10 @@ export async function verifyCapabilityChain(
      * `leafAuthoritySet`, `leafCaveats`) — enforce those, not `credentialSubject`.
      */
     requireFullDisclosure?: boolean;
+    /** Revocation-by-default across the chain: a hop with no status pointer is refused (single-hop parity). */
+    requireStatus?: boolean;
+    /** Injected per-hop revocation check (the monitor resolves the StatusList). Fail-closed. See attenuation.ts. */
+    checkHopStatus?: (caveats: unknown, hopController: string) => Promise<'ok' | 'revoked' | 'unavailable' | 'no-status'>;
   },
 ): Promise<VerifyResult> {
   return verifyAttenuationChain(leafVcDid, {
@@ -145,6 +149,8 @@ export async function verifyCapabilityChain(
     ...(opts.disclosed !== undefined ? { disclosed: opts.disclosed } : {}),
     ...(opts.maxHops !== undefined ? { maxHops: opts.maxHops } : {}),
     ...(opts.requireFullDisclosure ? { requireDisclosure: true } : {}),
+    ...(opts.requireStatus ? { requireStatus: true } : {}),
+    ...(opts.checkHopStatus ? { checkHopStatus: opts.checkHopStatus } : {}),
     // Attenuation stays generic; the capability layer injects its caveat semantics. Fail-closed on error.
     caveatNarrows: (child, parent) => {
       try {

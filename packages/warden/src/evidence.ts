@@ -15,6 +15,7 @@ import {
   revealLeaves,
   mintEvidenceGraph,
   resolveInvocation,
+  resolveChainInvocation,
   authorizeInvocation,
   ensureAuthorizationSchema,
   FileSpentTxnStore,
@@ -135,7 +136,11 @@ export class EvidenceService {
       requireStatus: this.config.requireRevocableCapabilities,
       ...(requireChallenge ? { requireChallenge } : {}),
     };
-    const resolved = await resolveInvocation(inv, ctx);
+    // One resolve seam, two presentations: single-hop VC (verifyProof) OR a disclosed attenuation chain
+    // (verifyCapabilityChain). BOTH return the same VerifiedLeaf, so everything below — owner scoping, evidence
+    // assembly, authorizeInvocation (ceiling/expiry/replay/discharge/human-gate) — is identical (parity by
+    // construction). The chain path carries its own per-hop revocation + Warden-challenge holder proof.
+    const resolved = inv.chain ? await resolveChainInvocation(inv, ctx) : await resolveInvocation(inv, ctx);
     if (!resolved.ok) return deny(`invocation refused: ${resolved.reason}`);
     const leaf = resolved.leaf;
     const owner = leaf.caveats.owner ?? this.config.sovereignDid;

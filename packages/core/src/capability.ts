@@ -22,7 +22,7 @@
  */
 
 import type { Sensitivity } from './security.js';
-import type { AuthoritySet } from './attenuation.js';
+import type { AuthoritySet, AuthoritySetPayload } from './attenuation.js';
 import { isSubset } from './attenuation.js';
 import { PROTOCOL_VERSION } from './protocol.js';
 
@@ -153,17 +153,51 @@ export interface Discharge {
   proof?: unknown;
 }
 
+/**
+ * The multi-hop presentation: instead of a single Sovereign-issued VC, the presenter discloses a whole
+ * attenuation CHAIN (`Sovereign → … → leaf`) and proves control of the leaf holder. The Warden walks the
+ * chain by public resolution (`verifyCapabilityChain`, zero decryption), binds the caller to the
+ * chain-attested `holder` via `holderProof`, and enforces the commitment-bound leaf authority + caveats —
+ * never a wire body. See docs/multihop-delegation.md. Coexists with single-hop `presentation`.
+ */
+export interface ChainPresentation {
+  /** The leaf hop's Asset DID — the chain is walked from here to the Sovereign root. */
+  leafVcDid: string;
+  /** Every hop's revealed `{authoritySet, salt, caveats}`, keyed by Asset DID (`discloseChain` output). Under
+   *  enforcement every hop must be present, so authority + caveats are bound to each hop's commitment. */
+  disclosed: Record<string, AuthoritySetPayload>;
+  /** The leaf holder's signed proof of control over a FRESH Warden-minted challenge, bound to THIS invocation
+   *  (the chain analog of the single-hop challenge/response: freshness + holder binding in one). */
+  holderProof: SignedHolderProof;
+}
+
+/** The leaf holder's signature over a Warden challenge, binding a chain presentation to this invocation. */
+export interface SignedHolderProof {
+  type: 'hearthold/chain-holder-proof';
+  /** The Warden-minted challenge this proof answers (gated single-use — anti-replay / audience binding). */
+  challenge: string;
+  /** Must equal the presented `leafVcDid` (binds the proof to this chain). */
+  leafVcDid: string;
+  /** Must equal `act.txn` (binds the proof to this specific invocation). */
+  txn: string;
+  /** `keymaster.addProof` output — `proof.verificationMethod` names the signer, checked === the chain holder. */
+  proof?: { verificationMethod: string; proofValue: string; created: string; [k: string]: unknown };
+}
+
 /** Emissary → Warden: exercise a held capability against a specific act. */
 export interface CapabilityInvocation {
   type: 'hearthold/invocation';
   version: typeof PROTOCOL_VERSION;
   /**
-   * The capability presentation — a `createResponse` DID answering the Warden's credential-requesting
+   * SINGLE-HOP: the capability presentation — a `createResponse` DID answering the Warden's credential-requesting
    * challenge. In one Archon ceremony it presents the Sovereign-issued scope VC AND proves the caller
    * controls its subject (holder). There is no separate, forgeable capability body: the Warden reads the
-   * scope from the VERIFIED presentation (`verifyResponse`), issuer-trusted and holder-controlled.
+   * scope from the VERIFIED presentation (`verifyResponse`), issuer-trusted and holder-controlled. Optional
+   * only because a multi-hop invocation carries `chain` instead; exactly one of the two is present.
    */
-  presentation: string;
+  presentation?: string;
+  /** MULTI-HOP: the disclosed attenuation chain + leaf holder proof (mutually exclusive with `presentation`). */
+  chain?: ChainPresentation;
   /** The act being authorized. */
   act: InvocationAct;
   /** Discharges for any `requiresDischarge` caveats on the presented capability. */

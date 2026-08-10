@@ -19,6 +19,7 @@ import type { AuthoritySet } from './attenuation.js';
 import type { CapabilityInvocation, Caveats, ThirdPartyCaveat } from './capability.js';
 import { AUTHORIZATION_TYPE, targetWithin } from './capability.js';
 import { verifyProof } from './prove.js';
+import { verifyCapabilityChain } from './capability-chain.js';
 import type { SpentTxnStore } from './single-use.js';
 import { StatusListResolver } from './status-list.js';
 import type { Sensitivity } from './security.js';
@@ -179,6 +180,88 @@ export async function resolveInvocation(
     if (!s.available) return { ok: false, reason: `revocation status unavailable — ${s.reason ?? 'fail-closed'}` };
     if (s.revoked) return { ok: false, reason: 'capability is revoked' };
   }
+
+  return { ok: true, leaf };
+}
+
+/**
+ * Build the per-hop revocation checker the chain verifier injects — resolves each hop's StatusList with the
+ * hop's OWN controller as expected issuer (each delegator revokes what it issued; revoking an ancestor cuts the
+ * whole subtree). Fail-closed: unavailable ⇒ the chain is refused. Attenuation stays generic; this is the
+ * capability layer's StatusList knowledge injected in.
+ */
+function makeHopStatusChecker(ctx: InvocationContext): (caveats: unknown, hopController: string) => Promise<'ok' | 'revoked' | 'unavailable' | 'no-status'> {
+  return async (caveatsUnknown, hopController) => {
+    const status = (caveatsUnknown as Caveats | undefined)?.status;
+    if (!status) return 'no-status';
+    const resolver = new StatusListResolver(ctx.keymaster, {
+      statusListCredential: status.statusListCredential,
+      expectedIssuer: hopController,
+      maxAgeMs: ctx.statusMaxAgeMs ?? 30_000,
+    });
+    const s = await resolver.check(status.statusListIndex);
+    if (!s.available) return 'unavailable';
+    return s.revoked ? 'revoked' : 'ok';
+  };
+}
+
+/**
+ * MULTI-HOP resolve: verify a disclosed attenuation chain and return the SAME `VerifiedLeaf` the single-hop path
+ * produces — so `authorizeInvocation` then enforces ceiling/expiry/replay/discharge/human-gate identically
+ * (parity by construction, not duplication). On top of the chain's own integrity checks (origin = trusted
+ * Sovereign, authority subset + caveat narrowing across hops, lineage/counter/version-pinning, signed
+ * assertions, commitment binding), this adds the four parity items the single-hop path earned: per-hop
+ * revocation (the kill-switch), a Warden-challenge holder proof (freshness + holder binding), caveat-shape
+ * validation, and the act ⊆ leaf-authority check. Nothing is read from an unauthenticated wire body.
+ */
+export async function resolveChainInvocation(
+  inv: CapabilityInvocation,
+  ctx: InvocationContext,
+): Promise<{ ok: true; leaf: VerifiedLeaf } | { ok: false; reason: string }> {
+  const cp = inv.chain;
+  if (!cp) return { ok: false, reason: 'invocation carries no chain presentation' };
+  if (!ctx.expectedRootIssuer) return { ok: false, reason: 'no trusted root issuer configured (Sovereign DID unset)' };
+
+  // 1. Verify the chain itself, INCLUDING per-hop revocation (fail-closed). `requireFullDisclosure` binds every
+  //    hop's authority + caveats to its commitment, so a hop cannot be omitted or its status stripped.
+  const result = await verifyCapabilityChain(cp.leafVcDid, {
+    keymaster: ctx.keymaster,
+    expectedRootIssuer: ctx.expectedRootIssuer,
+    disclosed: cp.disclosed,
+    requireFullDisclosure: true,
+    ...(ctx.requireStatus ? { requireStatus: true } : {}),
+    checkHopStatus: makeHopStatusChecker(ctx),
+  });
+  if (!result.ok) return { ok: false, reason: `capability chain invalid: ${result.reason ?? 'not verified'}` };
+  if (!result.holder || !result.leafAuthoritySet || result.leafCaveats === undefined) {
+    return { ok: false, reason: 'chain did not bind a leaf (holder/authority/caveats missing)' };
+  }
+  const holder = result.holder;
+  const caveats = result.leafCaveats as Caveats;
+
+  // 2. Caveat-shape validation at the trust boundary (audit-4 §2) — the disclosed caveats are commitment-bound
+  //    but still arbitrary JSON; a missing numeric ceiling would silently disable the ceiling check downstream.
+  if (!caveats || typeof caveats.ceiling !== 'number') return { ok: false, reason: 'chain leaf has no numeric ceiling' };
+
+  // 3. Holder proof-of-control over a FRESH Warden-minted challenge — the chain analog of the single-hop
+  //    challenge/response (parity items 1+2): binds the invoking caller to the chain-attested holder AND makes a
+  //    captured chain presentation non-replayable. `holder` comes from the chain, never a wire body.
+  const hp = cp.holderProof;
+  if (!hp || !hp.proof) return { ok: false, reason: 'chain presentation carries no holder proof' };
+  if (hp.leafVcDid !== cp.leafVcDid || hp.txn !== inv.act.txn) return { ok: false, reason: 'holder proof is not bound to this invocation' };
+  if (ctx.requireChallenge && !ctx.requireChallenge(hp.challenge)) return { ok: false, reason: 'holder proof did not answer a fresh Warden-minted challenge' };
+  const verifyProofFn = ctx.keymaster.keymaster.verifyProof.bind(ctx.keymaster.keymaster) as (o: unknown) => Promise<boolean>;
+  if (!(await verifyProofFn(hp).catch(() => false))) return { ok: false, reason: 'holder proof signature does not verify' };
+  const signer = (hp.proof.verificationMethod ?? '').split('#')[0];
+  if (signer !== holder) return { ok: false, reason: 'holder proof was not signed by the chain-attested leaf holder' };
+  if (ctx.fromDid && ctx.fromDid !== holder) return { ok: false, reason: 'transport sender is not the chain leaf holder' };
+
+  const leaf: VerifiedLeaf = { id: cp.leafVcDid, holder, authority: result.leafAuthoritySet, caveats };
+
+  // 4. The ACT must sit within the verified leaf authority (designation is authority — no ambient lookup).
+  if (!leaf.authority.operations.includes(inv.act.action)) return { ok: false, reason: `action '${inv.act.action}' is not in the chain leaf's operations` };
+  const targetOk = leaf.authority.resources.some((r) => inv.act.target === r || targetWithin(inv.act.target, r));
+  if (!targetOk) return { ok: false, reason: `target '${inv.act.target}' is outside the chain leaf's resources` };
 
   return { ok: true, leaf };
 }

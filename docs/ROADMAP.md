@@ -45,13 +45,16 @@ Emissary acts autonomously), with an *automatic Signet step-up* for anything at 
   - **Part A — onboarding.** ✅ Ships via the two grants' sensible defaults (`warden delegate` for submit +
     `sovereign capability:grant` at LOW/90-day baseline for prove), over CLI or control plane. Documented in
     `docs/onboarding.md`.
-  - **Part B — multi-hop delegation.** ◀ **designed, gated — not wired.** The chain machinery
-    (`capability-chain.ts`) is hardened + unit-tested (`e2e-capability-chain`), but wiring it into the live
-    monitor must first reach parity with the single-hop VC path (Warden-minted challenge, holder proof,
-    per-hop revocation, human gate, caveat-shape validation) and pass an adversarial suite. That integration is
-    where audits 2–3 found their defects, so it earns its own workstream + red-team pass rather than a rushed
-    commit. Full design + parity bar + test plan in `docs/multihop-delegation.md`. Single-hop stays the shipped,
-    graded path until multi-hop clears the gate.
+  - **Part B — multi-hop delegation.** ◀ **enforcement CORE wired (2026-08-10); daemon verb + watch next.**
+    The chain path now runs through the live reference monitor (`resolveChainInvocation`) with full single-hop
+    parity — Warden-minted challenge + `SignedHolderProof`, holder-signed binding, human gate + caveat-shape
+    (via the shared `VerifiedLeaf` → `authorizeInvocation`) — plus **per-hop revocation**: `verifyAttenuationChain`
+    checks every hop's status fail-closed via an injected `checkHopStatus`, so revoking an ancestor kills the
+    subtree at the next invocation (flaxscrip's kill-switch). Proven by `e2e-multihop-confused-deputy` (live):
+    grants the happy chain, refuses replay / foreign-holder / stale-challenge / omitted-hop / over-attenuation /
+    **revoked-intermediate**. **Remaining (additive, on the proven core):** the `emissary delegate-capability`
+    verb + pairwise hop transfer, and the Sovereign's watch/SSE lineage dashboard. Full status + parity map in
+    `docs/multihop-delegation.md`.
 
 ## Phase 3 — per-actor MCP servers (detail)
 

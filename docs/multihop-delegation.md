@@ -1,9 +1,11 @@
 # Multi-hop delegation — design + parity requirements (Phase 5, Part B)
 
-**Status: designed, not wired.** The chain machinery exists and is unit-tested; wiring it into the live
-invocation monitor is a security-critical workstream that must reach *parity* with the single-hop VC path
-before it ships. This note captures the design and the parity bar so the build doesn't re-open the surface
-audits 2–3 closed.
+**Status: the enforcement CORE is wired (2026-08-10).** The chain path now runs through the live reference
+monitor with full single-hop parity + per-hop revocation, proven by an adversarial suite against a live node
+(`e2e-multihop-confused-deputy`). What remains is the *daemon-facing* wiring (the `delegate-capability` verb +
+pairwise hop transfer, and the Sovereign's watch/SSE dashboard) — additive plumbing on top of the now-proven
+enforcement. This note keeps the original design + parity bar; the "Shipped" section at the end records what
+landed and what's next.
 
 ## What it is
 
@@ -68,8 +70,39 @@ revoked intermediate hop, and a foreign-owner leaf. Plus a dispatcher-level test
 Treat this as its own workstream with a red-team pass (audit-5 scope), not a wrap-up commit. The machinery is
 ready; the **integration** is where audits 2–3 found their defects, so it earns the same rigor: wire the chain
 path, add the five parity items, write the adversarial suite, then have it independently audited before it
-authorizes a real disclosure. Until then, single-hop invocation is the shipped, graded path; multi-hop stays
-behind this gate.
+authorizes a real disclosure.
 
 The Emissary-side gesture, when built: an `emissary delegate-capability <holderDid> [narrower caveats]` verb
 over `delegateCapability` (which already refuses a non-attenuating child at issuance).
+
+## Shipped — Phase 5B enforcement core (2026-08-10)
+
+The chain path is wired into the live monitor and passes an adversarial suite against a live node. Each parity
+item above is now met and located:
+
+1. **Warden-minted challenge** ✅ — a chain presentation carries a `SignedHolderProof` over a fresh, single-use
+   `ChallengeStore` challenge, gated by `requireChallenge` (`resolveChainInvocation`, `invocation-monitor.ts`).
+2. **Holder proof, not just transport** ✅ — the leaf holder SIGNS the proof; the monitor checks the signer ==
+   the chain-attested `holder` (from `verifyCapabilityChain`), not just authcrypt `fromDid`.
+3. **Revocation per hop** ✅ — `verifyAttenuationChain` now runs an injected `checkHopStatus` for **every**
+   disclosed hop, fail-closed (`(revoked)`/`(status)`/`(revocable)`). Revoking an ancestor kills the subtree at
+   the next invocation. Each hop's status resolves against **that hop's controller** (the delegator revokes what
+   it issued). *This is the Sovereign's kill-switch.*
+4. **Human-gate policy** ✅ — the chain builds the same `VerifiedLeaf` the single-hop path does, so
+   `authorizeInvocation` applies `requiresHumanAt` + the discharge-digest binding identically (parity by
+   construction, not duplication). Same for expiry, `singleUse`, replay burn, and ceiling.
+5. **Caveat-shape validation** ✅ — `resolveChainInvocation` validates the commitment-bound leaf caveats
+   (numeric ceiling, …) at the boundary before enforcement (Archon does not enforce schema shape).
+
+**Adversarial gate:** `e2e-multihop-confused-deputy` (live) — GRANTS the happy chain and REFUSES replay, a
+foreign-holder proof, a stale challenge, an omitted hop, over-attenuation, and a **revoked intermediate**.
+
+**Still to wire (daemon-facing, additive — rides on the proven core):**
+- `emissary delegate-capability` verb + persisting held `CapabilityHandle`s + accumulating ancestor disclosures
+  + pairwise hop transfer to the delegate. A dispatcher-level test over real DIDComm.
+- The Sovereign's **watch backend** (lineage in `CapabilityGrantStore`, SSE flow events, `GET /api/capabilities`
+  lineage, A2A envelope-only flow events) — monitoring, not enforcement.
+
+**Revocation semantics to remember:** you can revoke what you *issued* — the Sovereign revokes hops in its
+lineage (root → Emissary), each delegator revokes its own children; revoking any ancestor cuts everything below
+it. There is no "revoke a hop someone else issued" — cut the ancestor instead.
