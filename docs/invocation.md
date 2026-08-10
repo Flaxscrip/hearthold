@@ -130,9 +130,10 @@ tests actually do:
    An attacker cannot forge the Sovereign's signature over a scope, cannot present a VC it does not hold, and
    cannot invoke as a holder it cannot control. The confused deputy is unrepresentable.
 
-The subsections below describe the general capability model; the **attenuation chain** (`attenuation.ts`) is
-retained for **multi-hop delegation** (Phase 4 — Emissary → third party, attenuated), which the single-hop VC
-ceremony above does not cover. For single-hop grants (all of today's paths) the VC ceremony is the mechanism.
+The subsections below describe the general capability model; the **attenuation chain** (`attenuation.ts`) is the
+mechanism for **multi-hop delegation** (Emissary → third party, attenuated), now WIRED via `resolveChainInvocation`
+at single-hop parity (`docs/multihop-delegation.md`). For single-hop grants the VC challenge/response ceremony is
+the mechanism; the two enforcement paths coexist behind `evidence.ts`'s `inv.chain` dispatch.
 
 ### 5.1 The capability object
 
@@ -223,11 +224,13 @@ fail-closed monitor. On every invocation, in order — **deny on any failure:**
 Only then is the act performed — and `assembleEvidence` is scoped to the **verified** `caveats.owner` (not
 `store.list()` over the whole vault).
 
-> **Not shipped (Phase 4).** `attenuation.ts` / `capability-chain.ts` (the salted-commitment, multi-hop
-> **delegation** chain — `verifyAttenuationChain`, per-hop subset assertions) is retained for Emissary→third-party
-> attenuation and has no call site on the shipped single-hop path. Where earlier drafts of this document described
-> a chain walk or a 256-bit disclosure salt as the enforcing mechanism, that was aspirational: the shipped monitor
-> is a single `verifyProof`, and the protection is sound by construction, not by a chain.
+> **Two enforcement paths (both shipped, 2026-08-10).** `evidence.ts` dispatches `inv.chain ?
+> resolveChainInvocation : resolveInvocation`. **Single-hop** is a single `verifyProof` over a Sovereign-issued
+> scope VC — the protection is sound by construction, no chain walk. **Multi-hop** (`attenuation.ts` /
+> `capability-chain.ts` — the salted-commitment chain: `verifyCapabilityChain`, per-hop subset + caveat narrowing,
+> per-hop revocation, a holder-signed proof over a Warden challenge, and the delegator binding that blocks the
+> sibling-hop forge) runs Emissary→third-party delegation at parity with single-hop. See
+> `docs/multihop-delegation.md` for the parity map and the audit-5 hardening.
 
 ### 5.4 Why this closes finding A structurally
 
@@ -275,7 +278,7 @@ Grades are the third audit's (2026-08-07), not our own.
 |---|---|---|
 | **1. The act is the signed object** (C−) | Request unsigned; approval portable across audience/recipient/TTL/mode. | The presentation answers a single-use **Warden-minted** challenge and each act is single-use by `txn`; the discharge is bound to that `txn`+predicate. The act itself is not yet signed (`act.nonce` is carried, not enforced) — a per-act JWS is the remaining hardening. |
 | **2. Something has to ask permission** (B−) | `decideRelease` a pure probe; no revocation; no reference monitor on the disclosure path. | `resolveInvocation`/`authorizeInvocation` is one mandatory, fail-closed door; `credentialStatus` fail-closed; consent is a **Warden policy** (`requiresHumanAt`), not an issuer's option, obtained via a bound discharge over the wired Signet channel. |
-| **3. Attenuation with teeth** (B−) | `attenuation.ts` unused; evidence path passed a boolean; whole-vault `list()`. | Caveats come from an issuer-signed VC, so they bite: act ⊆ authority, `ceiling`, `kinds`, `expires`/`singleUse` all enforced at use; assembly scoped to the verified `owner`. Multi-hop chain attenuation is Phase 4 (§5.3). |
+| **3. Attenuation with teeth** (B−) | `attenuation.ts` unused; evidence path passed a boolean; whole-vault `list()`. | Caveats come from an issuer-signed VC, so they bite: act ⊆ authority, `ceiling`, `kinds`, `expires`/`singleUse` all enforced at use; assembly scoped to the verified `owner`. Multi-hop chain attenuation is now wired too (`resolveChainInvocation`) at single-hop parity — see `docs/multihop-delegation.md`. |
 | **4. Designation is authority** (B) | Every subject/recipient/approver named by string → confused deputy. | There is **no wire capability body to forge**; authority is a Sovereign-issued VC, the holder is the challenge/response responder bound to the credential subject, and the approver/owner are designated by the VC. |
 
 **Residuals, named honestly (Karp's register):**
