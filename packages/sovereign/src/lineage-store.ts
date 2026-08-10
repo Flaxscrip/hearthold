@@ -40,11 +40,20 @@ export class LineageStore {
       return [];
     }
   }
+  /**
+   * Record a node — FIRST-WINS: an existing vcDid is left untouched. A hop is registered once; without this a
+   * forged `hop-registered` reusing a live vcDid could rewrite its holder/parent and silently UN-revoke it
+   * (audit-5). Revocation is a separate, issuer-gated `markRevoked`.
+   */
   async record(r: LineageRecord): Promise<void> {
     await mkdir(this.dataFolder, { recursive: true });
-    const all = (await this.all()).filter((x) => x.vcDid !== r.vcDid);
+    const all = await this.all();
+    if (all.some((x) => x.vcDid === r.vcDid)) return; // already known — do not overwrite
     all.push(r);
     await writeFile(this.file, JSON.stringify(all, null, 2), 'utf8');
+  }
+  async get(vcDid: string): Promise<LineageRecord | undefined> {
+    return (await this.all()).find((x) => x.vcDid === vcDid);
   }
   async markRevoked(vcDid: string): Promise<boolean> {
     const all = await this.all();

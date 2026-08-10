@@ -226,6 +226,15 @@ export async function runSovereignControl(
       'POST /api/revoke-capability': async ({ body }): Promise<RevokeCapabilityResponse> => {
         const { credentialDid } = (body ?? {}) as RevokeCapabilityRequest;
         if (!credentialDid) throw new Error('credentialDid is required');
+        // Signet-gated like its authority-mutating siblings (authorize-capability, mint-root) — revocation is a
+        // household-wide kill switch; it must not be a bare unauthenticated POST (audit-5). Human: PIN; AI-agent
+        // Sovereign: AgentGate self-approves within the allowance.
+        const g = await grants.get(credentialDid);
+        const assertion = await gate.approve({
+          requester: 'the Table',
+          action: { action: 'revoke-capability', resource: credentialDid, summary: `Revoke the capability held by ${g?.holder ?? credentialDid} — the holder is cut at its next invocation` },
+        });
+        if (!assertion) return { revoked: false, reason: 'declined at the Signet' };
         const r = await revokeCapability(handle, id.name, grants, credentialDid);
         if (r.revoked) server.emit('capability-revoked', { credentialDid });
         return r;
@@ -268,13 +277,20 @@ export async function runSovereignControl(
     }
     if (message.type === 'hearthold/hop-revoked') {
       const m = message as HopRevokedMessage;
-      await lineage.markRevoked(m.childVcDid);
-      server.emit('lineage', { event: 'revoked', childVcDid: m.childVcDid, from: fromDid });
+      // Only the hop's ISSUER (the delegator who can actually cut it) or this governing Sovereign may mark it
+      // revoked in the watch — else any DID reaching the mailbox could paint the kill-switch dashboard green on
+      // a hop that is still live (audit-5). Fail-safe: an unauthorized report is ignored, not applied.
+      const node = await lineage.get(m.childVcDid);
+      if (node && (fromDid === node.issuer || fromDid === id.did)) {
+        await lineage.markRevoked(m.childVcDid);
+        server.emit('lineage', { event: 'revoked', childVcDid: m.childVcDid, from: fromDid });
+      }
       return null;
     }
     if (message.type === 'hearthold/flow-event') {
       const m = message as FlowEventMessage;
-      const flow = { ...m.flow, from: m.flow.from || fromDid };
+      // The authcrypt sender is authoritative — a reporter cannot claim a different `from`.
+      const flow = { ...m.flow, from: fromDid };
       flowLog.push(flow);
       if (flowLog.length > 200) flowLog.shift();
       server.emit('flow', { flow });
