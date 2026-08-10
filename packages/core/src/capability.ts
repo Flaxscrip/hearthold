@@ -230,6 +230,8 @@ function expiresWithin(child: string | undefined, parent: string | undefined): b
  *   - `owner`: immutable once set (a delegate cannot retarget whose data it reaches)
  *   - `audience`: parent unset → child may bind one; parent set → child must equal
  *   - `expires`: child ≤ parent (a delegate may not outlive its grant)
+ *   - `kinds`: parent unset (any) → child may set any; parent bounded → child must be bounded AND ⊆ parent
+ *     (a delegate cannot add a witness kind it was not granted — the compartment only narrows)
  *   - `requiresDischarge`: child ⊇ parent (a delegate may ADD consent gates, never remove one)
  * The `AuthoritySet` subset is `isSubset` (attenuation.ts); this covers the caveats it does not.
  */
@@ -238,6 +240,13 @@ export function caveatsNarrow(child: Caveats, parent: Caveats): boolean {
   if (parent.owner !== undefined && child.owner !== parent.owner) return false;
   if (parent.audience !== undefined && child.audience !== parent.audience) return false;
   if (!expiresWithin(child.expires, parent.expires)) return false;
+  // Kind compartment: a bounded parent may only be narrowed — the child must be bounded and every child kind
+  // must appear in the parent's set. An unbounded (absent) parent is "any", so any child set narrows it. Without
+  // this a delegate could ADD a witness kind it was never granted (multi-hop kinds-widening escape).
+  if (parent.kinds !== undefined) {
+    if (child.kinds === undefined) return false; // child 'any' would widen a bounded parent
+    if (!child.kinds.every((k) => parent.kinds!.includes(k))) return false;
+  }
   const parentDischarges = parent.requiresDischarge ?? [];
   const childKeys = new Set((child.requiresDischarge ?? []).map((c) => `${c.by}::${c.predicate}`));
   return parentDischarges.every((p) => childKeys.has(`${p.by}::${p.predicate}`));

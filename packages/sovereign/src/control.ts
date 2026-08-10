@@ -56,6 +56,19 @@ export async function runSovereignControl(
         process.stderr.write(`[agent-signet] ${approved ? 'self-approved' : 'refused'} ${ctx.action?.action ?? 'act'}${ctx.action?.summary ? ` — ${ctx.action.summary}` : ''}\n`);
       })
     : new HttpGate(config.signetPin ?? '');
+  if (agentMode) {
+    // Honest posture: with no allowance predicate bound (AgentGate.permit), this SELF-APPROVES every control act
+    // — mint-root, authorize-capability, disclosures — with no human PIN. "Within the parent-signed allowance"
+    // is the DESIGN; the enforcing predicate is a seam (bind a signed-Ruleset allowance) not yet wired. Escalation
+    // above scope is the Warden's ladder (for disclosures), not the local control routes. Warn so an operator
+    // doesn't mistake opt-in agent autonomy for a bounded allowance.
+    process.stderr.write(
+      `[sovereign] AGENT gate: this control surface SELF-APPROVES every act (mint-root, authorize-capability, ` +
+        `disclosures) with NO human PIN, and the parent-signed allowance is NOT yet enforced (AgentGate.permit ` +
+        `unset). Use only for an AI-agent Sovereign over its own domain; bind a signed-Ruleset allowance before ` +
+        `a production agent self-grants high-authority acts.\n`,
+    );
+  }
   const grants = new CapabilityGrantStore(handle.dataFolder);
 
   const transport = new DidCommTransport(handle, IDENTITY_NAME.sovereign, config.nodeUrl);

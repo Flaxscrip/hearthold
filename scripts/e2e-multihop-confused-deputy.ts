@@ -20,6 +20,7 @@ import {
   ensureIdentity,
   mintRootCapability,
   delegateCapability,
+  verifyCapabilityChain,
   issueVc,
   discloseChain,
   normalizeCaveats,
@@ -175,6 +176,26 @@ async function main(): Promise<void> {
     disclosed: { [forged.vcDid]: { authoritySet: forged.authoritySet, salt: forged.salt, caveats: forged.caveats }, ...discloseChain(root) },
   });
   check('DENIED — over-attenuation (child widens the parent authority)', over.status === 'denied' && /chain invalid/.test(reasonOf(over)), reasonOf(over));
+
+  // Kinds-widening (bounded-kinds escape): the child hop grants kinds:['location']; a grandchild that ADDS a
+  // kind ('book') the parent never granted must be REFUSED by the verifier's caveat-narrowing (audit fix).
+  const gcKinds = await issueVc({
+    issuer: subagent,
+    issuerName: subId.name,
+    holder: subId.did,
+    authoritySet: { operations: ['prove'], resources: [VAULT] },
+    caveats: normalizeCaveats({ ceiling: Sensitivity.LOW, owner: sovId.did, kinds: ['location', 'book'] }),
+    parent: child.issued,
+    registry: reg,
+    skipSubsetGuard: true,
+  });
+  const kw = await verifyCapabilityChain(gcKinds.vcDid, {
+    keymaster: warden,
+    expectedRootIssuer: sovId.did,
+    disclosed: { [gcKinds.vcDid]: { authoritySet: gcKinds.authoritySet, salt: gcKinds.salt, caveats: gcKinds.caveats }, ...discloseChain(child, root) },
+    requireFullDisclosure: true,
+  });
+  check('DENIED — kinds-widening (a child adds a witness kind the parent never granted)', !kw.ok && kw.check === '(caveats)', kw.reason ?? '');
 
   line('\n════ ★ THE KILL-SWITCH: the Sovereign revokes the ROOT hop ════');
   await revokeStatusIndex(sovereign, sovId.name, sovStatus.statusListCredential, rootIdx);
