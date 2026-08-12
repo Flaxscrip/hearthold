@@ -47,6 +47,8 @@ import {
   type WitnessKind,
   type Ruleset,
   type SignedRuleset,
+  type FlowEvent,
+  type FlowEventMessage,
 } from '@hearthold/core';
 import {
   SENSITIVITY_NAMES,
@@ -99,6 +101,17 @@ import { unlockSessionPartitions, type RewrapChannel } from './rewrap.js';
 import { HouseholdConfigStore } from './household-config.js';
 import { admitMember, removeMember, shareToHousehold } from './household.js';
 import { GuardianshipStore, GuardianReceiptStore, activeGuardianships, guardianRead } from './guardianship.js';
+
+/**
+ * Surface an agent→agent card move on the family watch (the Sovereign's Invocation Dashboard A2A flow).
+ * ENVELOPE-ONLY by construction — who→whom, kind, outcome; NEVER the content (the disclosure went to the
+ * audience, not the governor). Fire-and-forget + best-effort: a watch that's down never blocks the pass.
+ * Mirrors the Emissary's `reportFlow`; the watcher's ingest overrides `from` with the authcrypt sender.
+ */
+async function reportCardFlow(handle: KeymasterHandle, watchDid: string, flow: Omit<FlowEvent, 'ts'>): Promise<void> {
+  const msg: FlowEventMessage = { type: 'hearthold/flow-event', version: PROTOCOL_VERSION, flow: { ...flow, ts: new Date().toISOString() } };
+  await handle.keymaster.sendDidComm({ type: msg.type, thid: randomUUID(), body: msg }, watchDid, { name: IDENTITY_NAME.warden });
+}
 
 const sensitivityName = (s: number): SensitivityName => SENSITIVITY_NAMES[s] ?? 'SEALED';
 
@@ -520,6 +533,11 @@ export async function runWardenControl(
           timeoutMs: config.cardPassTimeoutMs,
           ...(recipientSealed ? { recipientSealed } : {}),
         });
+        // Surface this pass on the family watch (the Invocation Dashboard's live A2A flow) — envelope-only,
+        // best-effort. Report to the governing/parent Sovereign (the family's human watch point); on a lone
+        // agent, fall back to its own Sovereign. Never blocks or fails the pass.
+        const watchDid = config.parentDid ?? config.sovereignDid;
+        if (watchDid) void reportCardFlow(handle, watchDid, { from: member, to: toDid, kind: readable ? 'readable-card' : 'card-pass', decision: 'granted' }).catch(() => undefined);
         return {
           ack: {
             credentialDid: ack.credentialDid,

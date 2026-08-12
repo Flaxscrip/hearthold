@@ -65,6 +65,60 @@ async function control(
   return json;
 }
 
+// ── Aegis prototype: the family-collaboration layer (see HEARTHOLD-ASK-family-collaboration-mcp.md) ──
+// Strict façades over the bound keymaster (mint/decode) + the same gated Warden card routes — no new authority.
+/** A canonical family-message schema, created once per process and reused. */
+let _familyMessageSchema: string | undefined;
+async function familyMessageSchema(km: any): Promise<string> {
+  if (_familyMessageSchema) return _familyMessageSchema;
+  _familyMessageSchema = (await km.createSchema({
+    $schema: 'http://json-schema.org/draft-07/schema#',
+    type: 'object',
+    properties: { message: { type: 'string' }, from: { type: 'string' }, ts: { type: 'string' }, inReplyTo: { type: 'string' } },
+    required: ['message'],
+  })) as string;
+  return _familyMessageSchema;
+}
+/** Mint a message card (issued TO the recipient) + pass it as a provenance pass — the shared core of send/reply. */
+async function sendMessage(ctx: HeartholdToolContext, toDid: string, text: string, extra: Record<string, unknown> = {}): Promise<{ sent: true; to: string; cardDid: string }> {
+  if (!toDid.startsWith('did:')) throw new Error('send/reply needs a recipient did:');
+  const km = boundKeymaster(ctx.runtime) as any;
+  const schema = await familyMessageSchema(km);
+  const bound = await km.bindCredential(toDid, { schema, claims: { message: text, from: ctx.identity.name, ts: new Date().toISOString(), ...extra } });
+  const cardDid = (await km.issueCredential(bound)) as string;
+  // Provenance pass (NOT readable): the card is issued TO the recipient (their DID is the subject), so it's encrypted
+  // to them and they read it directly — no readable-handover-to-parent, and the co-sign is the agent's own (AgentGate).
+  await control(ctx, ctx.control.wardenUrl, 'Warden', 'POST', '/api/card/pass', { toDid, credentialDid: cardDid, readable: false });
+  return { sent: true, to: toDid, cardDid };
+}
+
+/** Raw inbound queue (`GET /api/card/inbound`) — the pending cards passed to me. Session-less (effectiveViewer). */
+async function inboxRaw(ctx: HeartholdToolContext): Promise<any[]> {
+  return (((await control(ctx, ctx.control.wardenUrl, 'Warden', 'GET', '/api/card/inbound')) as any).inbound ?? []) as any[];
+}
+/** Decode inbound cards into messages {from, text, ts, inReplyTo?, cardDid, verified} — the same read/decode `read_card` does. */
+async function decodeCards(ctx: HeartholdToolContext, cards: any[]): Promise<Array<Record<string, unknown>>> {
+  const km = boundKeymaster(ctx.runtime) as any;
+  const messages: Array<Record<string, unknown>> = [];
+  for (const c of cards) {
+    const cardDid = c.credentialDid ?? c.cardDid;
+    let claims: any;
+    try { const vc = await km.getCredential(cardDid); claims = vc?.credentialSubject; } catch { /* not a held VC */ }
+    if (!claims) claims = c.rendering?.claims ?? c.claims;
+    messages.push({
+      from: c.issuer ?? claims?.from,
+      verified: c.verified,
+      receivedAt: c.storedAt ?? c.receivedAt,
+      cardDid,
+      ...(claims?.message !== undefined ? { text: claims.message } : {}),
+      ...(claims?.inReplyTo ? { inReplyTo: claims.inReplyTo } : {}),
+      claims,
+    });
+  }
+  return messages;
+}
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
 export const HEARTHOLD_TOOLS: HeartholdTool[] = [
   {
     name: 'hearthold_whoami',
@@ -381,6 +435,87 @@ export const HEARTHOLD_TOOLS: HeartholdTool[] = [
       };
     },
   },
+  {
+    name: 'hearthold_family',
+    description:
+      'List my AI family — the siblings I can address (name, role, DID, reachability). The directory that turns "message Hearthold" into a real DID. Reads the roster the server was given; resolves each member by public DID. Read-only. [Aegis prototype — HEARTHOLD-ASK-family-collaboration-mcp.md]',
+    inputSchema: NO_ARGS,
+    async handler(ctx) {
+      let roster: Array<{ name: string; role?: string; did: string }> = [];
+      try { roster = JSON.parse(process.env.HEARTHOLD_FAMILY_ROSTER ?? '[]'); } catch { roster = []; }
+      const km = boundKeymaster(ctx.runtime) as any;
+      const family: Array<Record<string, unknown>> = [];
+      for (const m of roster) {
+        let reachable = false; let endpoint: string | undefined;
+        try {
+          const doc = await km.resolveDID(m.did);
+          const svc = (doc?.didDocument?.service ?? []).find((s: any) => s.type === 'DIDCommMessaging');
+          endpoint = svc?.serviceEndpoint; reachable = !!svc;
+        } catch { /* unresolvable / unreachable */ }
+        family.push({ name: m.name, ...(m.role ? { role: m.role } : {}), did: m.did, reachable, ...(endpoint ? { endpoint } : {}) });
+      }
+      return { me: ctx.identity, family };
+    },
+  },
+  {
+    name: 'hearthold_send',
+    description:
+      'Send a plain message to a family member — one verb instead of mint-schema→bind→issue→pass. Mints a message card carrying the text (issued TO them, so they decrypt it directly) and passes it to their mailbox as a provenance pass (self-approved at the agent\'s own Signet — no readable-handover, no parent co-sign). Façade over the keymaster (mint) + the Warden card/pass route — no new authority. [Aegis prototype]',
+    inputSchema: {
+      type: 'object',
+      properties: { toDid: { type: 'string', description: "the recipient's mailbox DID (their served warden mailbox)" }, text: { type: 'string' } },
+      required: ['toDid', 'text'],
+      additionalProperties: false,
+    },
+    handler: (ctx, a) => sendMessage(ctx, String(a.toDid ?? ''), String(a.text ?? '')),
+  },
+  {
+    name: 'hearthold_reply',
+    description: 'Reply to a family message — same as send, tagged with the card I am replying to (inReplyTo) for threading. [Aegis prototype]',
+    inputSchema: {
+      type: 'object',
+      properties: { toDid: { type: 'string' }, text: { type: 'string' }, inReplyTo: { type: 'string', description: 'the cardDid I am replying to' } },
+      required: ['toDid', 'text', 'inReplyTo'],
+      additionalProperties: false,
+    },
+    handler: (ctx, a) => sendMessage(ctx, String(a.toDid ?? ''), String(a.text ?? ''), { inReplyTo: String(a.inReplyTo ?? '') }),
+  },
+  {
+    name: 'hearthold_messages',
+    description:
+      'Read my inbox as decoded messages — {from, text, ts, inReplyTo?, cardDid, verified} — instead of raw card DIDs. Façade over the Warden inbound list + the same read/decode as read_card. [Aegis prototype]',
+    inputSchema: NO_ARGS,
+    async handler(ctx) {
+      return { messages: await decodeCards(ctx, await inboxRaw(ctx)) };
+    },
+  },
+  {
+    name: 'hearthold_wait_for_mail',
+    description:
+      'BLOCK until new mail arrives (or a timeout) — the MCP "you\'ve got mail". Returns newly-arrived messages (same shape as hearthold_messages). Pass `since` = the receivedAt of the last message you handled to get only newer mail; call it again in a loop for a hands-off mailbox watch that wakes on delivery instead of polling yourself. Returns {messages, timedOut}. [Aegis prototype]',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        since: { type: 'string', description: 'ISO timestamp — return only mail whose receivedAt is newer than this (your cursor).' },
+        timeoutMs: { type: 'number', description: 'Max time to wait for a delivery before returning empty (default 25000; keep under your MCP client request timeout).' },
+      },
+    },
+    async handler(ctx, a) {
+      const since = a?.since ? String(a.since) : undefined;
+      const timeoutMs = typeof a?.timeoutMs === 'number' ? a.timeoutMs : 25_000;
+      const isNew = (c: any): boolean => { const ts = c.storedAt ?? c.receivedAt; return !since || (!!ts && String(ts) > since); };
+      const deadline = Date.now() + timeoutMs;
+      // Long-poll: check the inbox, return the moment fresh mail is present, else wait and re-check. The busy-poll
+      // lives HERE (server-side), so a jailed member makes ONE blocking call instead of polling from outside. (v2:
+      // event-drive off the Warden's owner-scoped `card-received` SSE once we wire a control session.)
+      for (;;) {
+        const fresh = (await inboxRaw(ctx)).filter(isNew);
+        if (fresh.length) return { messages: await decodeCards(ctx, fresh), timedOut: false };
+        if (Date.now() >= deadline) return { messages: [], timedOut: true };
+        await sleep(Math.min(1_000, Math.max(0, deadline - Date.now())));
+      }
+    },
+  },
 ];
 
 /**
@@ -391,7 +526,7 @@ export const HEARTHOLD_TOOLS: HeartholdTool[] = [
  * `whoami`/`read_card` are the shared identity verbs. `full` is the original agent-as-principal set.
  */
 const PROFILES: Record<Exclude<HeartholdRole, 'full'>, string[]> = {
-  warden: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_recall', 'hearthold_list_inbound', 'hearthold_triage', 'hearthold_confirm_triage', 'hearthold_delegate', 'hearthold_pass_card', 'hearthold_accept_card', 'hearthold_decline_card'],
+  warden: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_recall', 'hearthold_list_inbound', 'hearthold_triage', 'hearthold_confirm_triage', 'hearthold_delegate', 'hearthold_pass_card', 'hearthold_accept_card', 'hearthold_decline_card', 'hearthold_family', 'hearthold_send', 'hearthold_reply', 'hearthold_messages', 'hearthold_wait_for_mail'],
   sovereign: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_grant_capability', 'hearthold_mint_root', 'hearthold_list_capabilities', 'hearthold_lineage', 'hearthold_flow', 'hearthold_revoke_capability', 'hearthold_pending_approvals', 'hearthold_decline'],
   emissary: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_contribute', 'hearthold_invoke', 'hearthold_accept_capability', 'hearthold_delegate_capability', 'hearthold_chain_invoke', 'hearthold_revoke_hop', 'hearthold_held'],
   verifier: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_verify_card'],
