@@ -1,8 +1,9 @@
 # The Sovereign's Invocation Dashboard — real-time watch (Sevenfold brief)
 
-**Status:** design (2026-08-11). A Sevenfold UI workstream over the **already-shipped** watch backend. No new
-backend. Companion to `invocation.md`, `security-model.md`; the live realization of the invocation diagram +
-the attenuation-lattice-walk artifact.
+**Status:** design (2026-08-11; backend note corrected 2026-08-12). A Sevenfold UI workstream over the watch
+backend — almost entirely shipped, plus **one** warden emit Aegis added so agent↔agent card-passes surface on
+`/api/flow` (see Net). Companion to `invocation.md`, `security-model.md`; the live realization of the
+invocation diagram + the attenuation-lattice-walk artifact.
 
 ## What it is
 
@@ -64,6 +65,10 @@ the scoped feed, not a global one.)
 
 ## Net
 
-**No backend work** — `lineage` + `flow` (+ SSE) and `revoke_hop` all shipped in `feat/invocation`. This is
-Sevenfold rendering the watch we built, in the visual language we already designed. The Sovereign finally
-*sees* the invocation graph move — and can cut it.
+**Almost no backend work.** `lineage` + `flow` (+ SSE) and `revoke_hop` shipped in `feat/invocation` — but
+the shipped watch emitted only EMISSARY/capability flow: agent↔agent messages (the `hearthold_send`
+card-passes) fired nothing, so `/api/flow` never saw the family's comms. Aegis added the one missing emit
+(2026-08-12): `POST /api/card/pass` now fires an envelope-only **card-pass `FlowEvent`** to the governing
+Sovereign (`parentDid`) — live in the rebuilt `hearthold:invocation` image, with a node-Sovereign watch daemon
+standing. So the dashboard = the shipped watch **+ that one emit**, rendered. The Sovereign finally *sees* the
+invocation graph AND the family's messages move — and can cut it.
