@@ -92,6 +92,36 @@ async function sendMessage(ctx: HeartholdToolContext, toDid: string, text: strin
   return { sent: true, to: toDid, cardDid };
 }
 
+// ── handoff = delegate + send (docs/handoff.md; flaxscrip's small-primitives ruling: no new core type) ──
+/** The family-TASK schema — the task-with-authority envelope. Authority NEVER rides inline: `capabilityRef`
+ *  NAMES a delegated grant (an Asset DID); the task is only instruction. Created once per process, reused. */
+let _familyTaskSchema: string | undefined;
+async function familyTaskSchema(km: any): Promise<string> {
+  if (_familyTaskSchema) return _familyTaskSchema;
+  _familyTaskSchema = (await km.createSchema({
+    $schema: 'http://json-schema.org/draft-07/schema#',
+    type: 'object',
+    properties: {
+      description: { type: 'string' }, action: { type: 'string' }, target: { type: 'string' },
+      deadline: { type: 'string' }, capabilityRef: { type: 'string' }, txn: { type: 'string' },
+      from: { type: 'string' }, ts: { type: 'string' }, inReplyTo: { type: 'string' },
+    },
+    required: ['description', 'txn'],
+  })) as string;
+  return _familyTaskSchema;
+}
+/** Mint a task card (issued TO the recipient) naming a capabilityRef (never embedding authority) + pass it as a
+ *  provenance pass — the send half of a handoff. Mirrors sendMessage against the familyTask schema. */
+async function sendTask(ctx: HeartholdToolContext, toDid: string, task: Record<string, unknown>): Promise<{ sent: true; to: string; cardDid: string }> {
+  if (!toDid.startsWith('did:')) throw new Error('handoff needs a recipient did:');
+  const km = boundKeymaster(ctx.runtime) as any;
+  const schema = await familyTaskSchema(km);
+  const bound = await km.bindCredential(toDid, { schema, claims: { from: ctx.identity.name, ts: new Date().toISOString(), ...task } });
+  const cardDid = (await km.issueCredential(bound)) as string;
+  await control(ctx, ctx.control.wardenUrl, 'Warden', 'POST', '/api/card/pass', { toDid, credentialDid: cardDid, readable: false });
+  return { sent: true, to: toDid, cardDid };
+}
+
 /** Raw inbound queue (`GET /api/card/inbound`) — the pending cards passed to me. Session-less (effectiveViewer). */
 async function inboxRaw(ctx: HeartholdToolContext): Promise<any[]> {
   return (((await control(ctx, ctx.control.wardenUrl, 'Warden', 'GET', '/api/card/inbound')) as any).inbound ?? []) as any[];
@@ -516,6 +546,49 @@ export const HEARTHOLD_TOOLS: HeartholdTool[] = [
       }
     },
   },
+  {
+    name: 'hearthold_handoff',
+    description:
+      'Hand a TASK to a family sibling — the "task-with-authority" verb. Prompt-only (no capability fields) = a task card they act on under their OWN authority (standing, self-approved at my Signet). WITH a capability = I first delegate an ATTENUATED hop of a capability I HOLD to their Emissary (holderDid), then send a familyTask card that NAMES that grant (capabilityRef) — authority travels as a signed, revocable delegation; the card is only instruction, never the authority. They chain_invoke to act; I revoke_hop to cancel (the task goes inert). A strict composition of delegate_capability + a task card — no new authority, no new core type, no new gate. [handoff = delegate + send; docs/handoff.md]',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        toDid: { type: 'string', description: "the sibling's mailbox DID — where the task card is delivered" },
+        task: { type: 'string', description: 'the instruction — input evidence, never a consent screen' },
+        action: { type: 'string', description: 'optional: the act the delegated capability authorises' },
+        target: { type: 'string', description: 'optional: within the capability’s target' },
+        deadline: { type: 'string', description: 'optional ISO 8601 deadline' },
+        holderDid: { type: 'string', description: 'AUTHORITY handoff: the sibling’s Emissary DID to receive the delegated capability. Omit for a prompt-only task.' },
+        ceiling: { type: 'number', description: 'delegated child ceiling (0 PUBLIC…4 SEALED; ≤ mine)' },
+        kinds: { type: 'array', items: { type: 'string' }, description: 'delegated child witness kinds (⊆ mine)' },
+        leafVcDid: { type: 'string', description: 'which held capability to attenuate from (default: the latest)' },
+      },
+      required: ['toDid', 'task'],
+      additionalProperties: false,
+    },
+    async handler(ctx, a) {
+      const toDid = String(a.toDid ?? '');
+      let capabilityRef: string | undefined;
+      // Authority path: delegate an attenuated hop FIRST, so the task references a real, revocable grant. The
+      // gated emissary route co-signs (standing → the agent's AgentGate; widening/high → the Sovereign Signet) —
+      // consent is NOT re-implemented here, it is inherited from the delegation route.
+      if (a.holderDid) {
+        const child = (await control(ctx, ctx.control.emissaryUrl, 'Emissary', 'POST', '/api/delegate-capability', {
+          holderDid: a.holderDid, ceiling: a.ceiling, kinds: a.kinds, target: a.target, leafVcDid: a.leafVcDid,
+        })) as { childVcDid?: string };
+        capabilityRef = child?.childVcDid;
+      }
+      const txn = (globalThis as { crypto: { randomUUID(): string } }).crypto.randomUUID();
+      const sent = await sendTask(ctx, toDid, {
+        description: String(a.task ?? ''), txn,
+        ...(a.action ? { action: String(a.action) } : {}),
+        ...(a.target ? { target: String(a.target) } : {}),
+        ...(a.deadline ? { deadline: String(a.deadline) } : {}),
+        ...(capabilityRef ? { capabilityRef } : {}),
+      });
+      return { handed: true, txn, capabilityRef: capabilityRef ?? null, ...sent };
+    },
+  },
 ];
 
 /**
@@ -526,7 +599,7 @@ export const HEARTHOLD_TOOLS: HeartholdTool[] = [
  * `whoami`/`read_card` are the shared identity verbs. `full` is the original agent-as-principal set.
  */
 const PROFILES: Record<Exclude<HeartholdRole, 'full'>, string[]> = {
-  warden: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_recall', 'hearthold_list_inbound', 'hearthold_triage', 'hearthold_confirm_triage', 'hearthold_delegate', 'hearthold_pass_card', 'hearthold_accept_card', 'hearthold_decline_card', 'hearthold_family', 'hearthold_send', 'hearthold_reply', 'hearthold_messages', 'hearthold_wait_for_mail'],
+  warden: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_recall', 'hearthold_list_inbound', 'hearthold_triage', 'hearthold_confirm_triage', 'hearthold_delegate', 'hearthold_pass_card', 'hearthold_accept_card', 'hearthold_decline_card', 'hearthold_family', 'hearthold_send', 'hearthold_reply', 'hearthold_messages', 'hearthold_wait_for_mail', 'hearthold_handoff'],
   sovereign: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_grant_capability', 'hearthold_mint_root', 'hearthold_list_capabilities', 'hearthold_lineage', 'hearthold_flow', 'hearthold_revoke_capability', 'hearthold_pending_approvals', 'hearthold_decline'],
   emissary: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_contribute', 'hearthold_invoke', 'hearthold_accept_capability', 'hearthold_delegate_capability', 'hearthold_chain_invoke', 'hearthold_revoke_hop', 'hearthold_held'],
   verifier: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_verify_card'],
