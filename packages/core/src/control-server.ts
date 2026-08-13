@@ -39,6 +39,14 @@ export class UnauthorizedError extends ControlHttpError {
   }
 }
 
+/** A named resource does not exist — the server sends 404. */
+export class NotFoundError extends ControlHttpError {
+  constructor(message = 'not found') {
+    super(message, 404);
+    this.name = 'NotFoundError';
+  }
+}
+
 /** A route handler returns a JSON-serialisable value (sent as `{ ok: true, ...value }`). */
 export type ControlHandler = (ctx: ControlContext) => Promise<unknown> | unknown;
 

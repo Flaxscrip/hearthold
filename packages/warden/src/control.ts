@@ -13,11 +13,13 @@ import {
   ensureDelegationSchema,
   ensureAuthorizationSchema,
   issueDelegation,
+  issueClaim,
   reloadWallet,
   DidCommTransport,
   IDENTITY_NAME,
   startControlServer,
   UnauthorizedError,
+  NotFoundError,
   grantAuthorization,
   revokeAuthorization,
   selfSigner,
@@ -654,6 +656,58 @@ export async function runWardenControl(
         const result = await withWalletWrite(() => claimMark(handle, { candidate, subjectDid }, config.sovereignDid));
         if (result.issued) server.emit('mark-issued', { result }, { owner: subjectDid });
         return { result };
+      },
+
+      // ── VC issuance for the Table's Compose-a-card (Sevenfold ask). Three routes: mint a credential, and
+      // two read-only schema routes that drive the form. The KEY invariant is that the issuer is derived
+      // SERVER-SIDE from the authenticated session — never from the request — and runs on THIS node's Warden
+      // so the subject resolves on the local registry (issuing from a foreign wallet fails "Invalid DID:
+      // unknown"). Posture (the contract Hearthold owns): issuance is SESSION-GATED (no anonymous mint) but
+      // STANDING — no Signet step-up. A Compose-a-card carries client-supplied claims and discloses no vault
+      // data, so it is within the session member's own standing authority (the provenance-tier posture, like
+      // a self-approved card-pass). A card that drew on protected artefacts would instead cross decideRelease.
+      'POST /api/issue': async (ctx) => {
+        const viewer = effectiveViewer(ctx); // the session Sovereign — proven, server-side (throws on a require-session node without a session)
+        if (!viewer) throw new Error('no session and no Sovereign configured on this Warden');
+        const { schemaDid, subjectDid, claims, validUntil } = (ctx.body ?? {}) as {
+          schemaDid?: string;
+          subjectDid?: string;
+          claims?: Record<string, unknown>;
+          validUntil?: string;
+        };
+        if (!schemaDid) throw new Error('schemaDid is required');
+        if (!subjectDid) throw new Error('subjectDid is required');
+        // Issue AS the session Sovereign when that identity is co-resident in this Warden's wallet; otherwise
+        // AS the Warden (this node's attesting authority). Either way the issuer is a local DID that resolves
+        // the local subject, and is derived here — never client-supplied (closes the confused-deputy).
+        const ids = await handle.keymaster.listIds().catch(() => [] as string[]);
+        const issuerName =
+          viewer === config.sovereignDid && ids.includes(IDENTITY_NAME.sovereign)
+            ? IDENTITY_NAME.sovereign
+            : IDENTITY_NAME.warden;
+        const credentialDid = await withWalletWrite(async () => {
+          const prev = await handle.keymaster.getCurrentId().catch(() => undefined);
+          if (issuerName !== prev) await handle.keymaster.setCurrentId(issuerName);
+          try {
+            return await issueClaim(handle, subjectDid, schemaDid, claims ?? {}, validUntil);
+          } finally {
+            if (prev && issuerName !== prev) await handle.keymaster.setCurrentId(prev);
+          }
+        });
+        return { credentialDid };
+      },
+
+      // The schema types this node can issue against — drives the Compose form. Read-only; local registry.
+      'GET /api/schemas': async () => ({ schemas: await handle.keymaster.listSchemas().catch(() => [] as string[]) }),
+
+      // A single schema's JSON-Schema body. The router matches exact paths (no `:param`), so the schema DID is
+      // a query arg: GET /api/schema?did=<did>. Read-only.
+      'GET /api/schema': async (ctx) => {
+        const did = ctx.query.get('did') ?? '';
+        if (!did) throw new Error('did query parameter is required');
+        const schema = await handle.keymaster.getSchema(did);
+        if (!schema) throw new NotFoundError(`schema not found: ${did}`);
+        return { did, schema };
       },
 
       // ── Household governance (Phase 4) — the Warden EXECUTES; the Master-Sovereign AUTHORIZES at their
