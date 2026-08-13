@@ -14,6 +14,7 @@ import {
   ensureAuthorizationSchema,
   issueDelegation,
   issueClaim,
+  resolveMailboxPointer,
   reloadWallet,
   DidCommTransport,
   IDENTITY_NAME,
@@ -750,6 +751,38 @@ export async function runWardenControl(
         const schema = await handle.keymaster.getSchema(did);
         if (!schema) throw new NotFoundError(`schema not found: ${did}`);
         return { did, schema };
+      },
+
+      // The family roster for the Table's Constellation (DID→name + identity→mailbox resolution). Reads the
+      // same HEARTHOLD_FAMILY_ROSTER the MCP does; resolves each member's stable identity DID to its CURRENT
+      // mailbox via the Q2 pointer (falls back to the DID itself) and checks the mailbox's DIDComm endpoint for
+      // reachability. Read-only directory (public DIDs + names) — the warden-side counterpart of hearthold_family.
+      'GET /api/roster': async () => {
+        let roster: Array<{ name: string; role?: string; did: string }> = [];
+        try {
+          roster = JSON.parse(process.env.HEARTHOLD_FAMILY_ROSTER ?? '[]');
+        } catch {
+          roster = [];
+        }
+        const members = await Promise.all(
+          roster.map(async (m) => {
+            const mailboxDid = (await resolveMailboxPointer(handle, m.did).catch(() => undefined)) ?? m.did;
+            let reachable = false;
+            let endpoint: string | undefined;
+            try {
+              const doc = await handle.keymaster.resolveDID(mailboxDid);
+              const svc = ((doc?.didDocument as { service?: Array<{ type: string; serviceEndpoint?: string }> } | undefined)?.service ?? []).find(
+                (s) => s.type === 'DIDCommMessaging',
+              );
+              endpoint = svc?.serviceEndpoint;
+              reachable = !!svc;
+            } catch {
+              /* unresolvable / unreachable */
+            }
+            return { name: m.name, ...(m.role ? { role: m.role } : {}), did: m.did, mailboxDid, reachable, ...(endpoint ? { endpoint } : {}) };
+          }),
+        );
+        return { members };
       },
 
       // ── Household governance (Phase 4) — the Warden EXECUTES; the Master-Sovereign AUTHORIZES at their
