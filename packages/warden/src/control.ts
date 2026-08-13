@@ -677,15 +677,21 @@ export async function runWardenControl(
         };
         if (!schemaDid) throw new Error('schemaDid is required');
         if (!subjectDid) throw new Error('subjectDid is required');
-        // Validate the claims against the schema BEFORE issuing — a VC bound to a schema must conform to it,
-        // else a verifier trusting the schema gets non-conformant data (Aegis's smoke finding: a required
-        // field could be omitted and the VC still minted). Enforce `required`; also reject unknown fields when
-        // the schema declares `additionalProperties: false`.
+        // Validate the claims against the schema BEFORE issuing — a VC bound to a schema must conform to it.
+        // The credential `type` is the schema's IDENTITY, not a user field, so DERIVE it server-side (from the
+        // schema's title, or a `const` declared on the `type` property) and inject it — a composer never has
+        // to forge it, and cannot forge a WRONG one. THEN enforce the remaining `required` fields against the
+        // user claims, and (when the schema declares `additionalProperties: false`) reject unknown fields.
         const schemaDoc = (await handle.keymaster.getSchema(schemaDid).catch(() => null)) as
-          | { required?: string[]; properties?: Record<string, unknown>; additionalProperties?: boolean }
+          | { title?: string; required?: string[]; properties?: Record<string, unknown>; additionalProperties?: boolean }
           | null;
         if (!schemaDoc) throw new NotFoundError(`unknown schemaDid: ${schemaDid}`);
-        const claimObj = (claims ?? {}) as Record<string, unknown>;
+        const claimObj: Record<string, unknown> = { ...(claims ?? {}) };
+        const typeProp = schemaDoc.properties?.type as { const?: unknown } | undefined;
+        const derivedType =
+          (typeof schemaDoc.title === 'string' && schemaDoc.title) ||
+          (typeof typeProp?.const === 'string' ? typeProp.const : undefined);
+        if (derivedType) claimObj.type = derivedType; // canonical: overrides any client-supplied `type`
         const missing = (schemaDoc.required ?? []).filter((k) => !(k in claimObj));
         if (missing.length > 0) throw new Error(`claims are missing required field(s) for ${schemaDid}: ${missing.join(', ')}`);
         if (schemaDoc.additionalProperties === false && schemaDoc.properties) {
@@ -705,7 +711,7 @@ export async function runWardenControl(
           const prev = await handle.keymaster.getCurrentId().catch(() => undefined);
           if (issuerName !== prev) await handle.keymaster.setCurrentId(issuerName);
           try {
-            return await issueClaim(handle, subjectDid, schemaDid, claims ?? {}, validUntil);
+            return await issueClaim(handle, subjectDid, schemaDid, claimObj, validUntil);
           } finally {
             if (prev && issuerName !== prev) await handle.keymaster.setCurrentId(prev);
           }

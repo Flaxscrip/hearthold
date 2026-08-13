@@ -38,6 +38,7 @@ import { backfillOwner } from './migrate-owner.js';
 import { HouseholdConfigStore } from './household-config.js';
 import { HouseholdVault } from './household-vault.js';
 import { seedKb, resetKb, DEMO_SETS, DEFAULT_DEMO_SET } from './kb-seed.js';
+import { registerComposerSchemas } from './composer-schemas.js';
 import { makeWardenHandler } from './handler.js';
 
 /** The recall-index embedder from config, or undefined when indexing is off. */
@@ -87,6 +88,7 @@ Usage:
   warden publish           (Re)publish the Warden's DIDComm endpoint (publish-if-absent / reconcile)
   warden republish [--endpoint <uri>]  Force-(re)publish the DIDComm endpoint (re-home onto a new address)
   warden delegate <did>    Issue a delegation credential to an Emissary DID
+  warden register-schemas  Register composer schemas (Endorsement/Membership/Ticket) on the registry
   warden serve             Serve over DIDComm (poll mailbox, store submissions, reply)
   warden control [port]    Serve DIDComm + a localhost control API for the Warden Console (default 4310)
   warden classify <kind> <text>   Classify text with the local model (test the classifier)
@@ -198,6 +200,17 @@ async function main(): Promise<void> {
           `  e.g. SEALED requires tier ${requiredTier(Sensitivity.SEALED)} ` +
           `(MULTIFACTOR=${AuthzTier.MULTIFACTOR})\n`,
       );
+      break;
+    }
+    case 'register-schemas': {
+      // Register the composer-friendly credential schemas (Endorsement/Membership/Ticket, titled + fielded)
+      // on this Warden's registry so the Table's Compose-a-card has meaningful types to mint. Idempotent.
+      await ensureIdentity(handle, config);
+      const results = await registerComposerSchemas(handle);
+      process.stdout.write('Composer schemas on this Warden registry:\n');
+      for (const r of results) {
+        process.stdout.write(`  ${r.created ? 'registered' : 'exists    '}  ${r.title.padEnd(12)} ${r.did}\n`);
+      }
       break;
     }
     case 'classify': {
