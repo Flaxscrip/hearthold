@@ -677,6 +677,22 @@ export async function runWardenControl(
         };
         if (!schemaDid) throw new Error('schemaDid is required');
         if (!subjectDid) throw new Error('subjectDid is required');
+        // Validate the claims against the schema BEFORE issuing — a VC bound to a schema must conform to it,
+        // else a verifier trusting the schema gets non-conformant data (Aegis's smoke finding: a required
+        // field could be omitted and the VC still minted). Enforce `required`; also reject unknown fields when
+        // the schema declares `additionalProperties: false`.
+        const schemaDoc = (await handle.keymaster.getSchema(schemaDid).catch(() => null)) as
+          | { required?: string[]; properties?: Record<string, unknown>; additionalProperties?: boolean }
+          | null;
+        if (!schemaDoc) throw new NotFoundError(`unknown schemaDid: ${schemaDid}`);
+        const claimObj = (claims ?? {}) as Record<string, unknown>;
+        const missing = (schemaDoc.required ?? []).filter((k) => !(k in claimObj));
+        if (missing.length > 0) throw new Error(`claims are missing required field(s) for ${schemaDid}: ${missing.join(', ')}`);
+        if (schemaDoc.additionalProperties === false && schemaDoc.properties) {
+          const allowed = new Set(Object.keys(schemaDoc.properties));
+          const extra = Object.keys(claimObj).filter((k) => !allowed.has(k));
+          if (extra.length > 0) throw new Error(`claims carry field(s) not permitted by ${schemaDid}: ${extra.join(', ')}`);
+        }
         // Issue AS the session Sovereign when that identity is co-resident in this Warden's wallet; otherwise
         // AS the Warden (this node's attesting authority). Either way the issuer is a local DID that resolves
         // the local subject, and is derived here — never client-supplied (closes the confused-deputy).
