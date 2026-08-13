@@ -589,6 +589,40 @@ export const HEARTHOLD_TOOLS: HeartholdTool[] = [
       return { handed: true, txn, capabilityRef: capabilityRef ?? null, ...sent };
     },
   },
+  {
+    name: 'hearthold_issue',
+    description:
+      "Issue a verifiable credential to a subject — bindCredential + issueCredential on THIS node's Warden, with the issuer derived SERVER-SIDE (the session Sovereign, else the Warden) on the local registry so the subject resolves. Session-gated but STANDING (no Signet step-up): the claims are supplied here and disclose no vault data, so it is within standing authority. Façade over POST /api/issue. Use hearthold_schemas / hearthold_schema to pick the type and its fields first.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        schemaDid: { type: 'string', description: 'the registered schema DID the credential is bound to' },
+        subjectDid: { type: 'string', description: 'the DID the credential is ABOUT (the holder)' },
+        claims: { type: 'object', description: 'the claim fields, matching the schema', additionalProperties: true },
+        validUntil: { type: 'string', description: 'optional ISO 8601 expiry' },
+      },
+      required: ['schemaDid', 'subjectDid', 'claims'],
+      additionalProperties: false,
+    },
+    handler: (ctx, a) => control(ctx, ctx.control.wardenUrl, 'Warden', 'POST', '/api/issue', { schemaDid: a.schemaDid, subjectDid: a.subjectDid, claims: a.claims, validUntil: a.validUntil }),
+  },
+  {
+    name: 'hearthold_schemas',
+    description: 'List the schema types this node can issue against (drives a compose form). Read-only. Façade over GET /api/schemas.',
+    inputSchema: NO_ARGS,
+    handler: (ctx) => control(ctx, ctx.control.wardenUrl, 'Warden', 'GET', '/api/schemas'),
+  },
+  {
+    name: 'hearthold_schema',
+    description: "Fetch one schema's JSON-Schema body by DID (the field shapes for hearthold_issue). Read-only. Façade over GET /api/schema?did=<did>.",
+    inputSchema: {
+      type: 'object',
+      properties: { did: { type: 'string' } },
+      required: ['did'],
+      additionalProperties: false,
+    },
+    handler: (ctx, a) => control(ctx, ctx.control.wardenUrl, 'Warden', 'GET', `/api/schema?did=${encodeURIComponent(String(a.did ?? ''))}`),
+  },
 ];
 
 /**
@@ -599,7 +633,7 @@ export const HEARTHOLD_TOOLS: HeartholdTool[] = [
  * `whoami`/`read_card` are the shared identity verbs. `full` is the original agent-as-principal set.
  */
 const PROFILES: Record<Exclude<HeartholdRole, 'full'>, string[]> = {
-  warden: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_recall', 'hearthold_list_inbound', 'hearthold_triage', 'hearthold_confirm_triage', 'hearthold_delegate', 'hearthold_pass_card', 'hearthold_accept_card', 'hearthold_decline_card', 'hearthold_family', 'hearthold_send', 'hearthold_reply', 'hearthold_messages', 'hearthold_wait_for_mail', 'hearthold_handoff'],
+  warden: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_recall', 'hearthold_list_inbound', 'hearthold_triage', 'hearthold_confirm_triage', 'hearthold_delegate', 'hearthold_pass_card', 'hearthold_accept_card', 'hearthold_decline_card', 'hearthold_family', 'hearthold_send', 'hearthold_reply', 'hearthold_messages', 'hearthold_wait_for_mail', 'hearthold_handoff', 'hearthold_issue', 'hearthold_schemas', 'hearthold_schema'],
   sovereign: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_grant_capability', 'hearthold_mint_root', 'hearthold_list_capabilities', 'hearthold_lineage', 'hearthold_flow', 'hearthold_revoke_capability', 'hearthold_pending_approvals', 'hearthold_decline'],
   emissary: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_contribute', 'hearthold_invoke', 'hearthold_accept_capability', 'hearthold_delegate_capability', 'hearthold_chain_invoke', 'hearthold_revoke_hop', 'hearthold_held'],
   verifier: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_verify_card'],
