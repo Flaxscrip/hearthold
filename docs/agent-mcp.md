@@ -134,3 +134,11 @@ A third party that checks Hearthold-issued evidence. Keymaster-direct — no con
   challenge requests — see `docs/invocation.md`.
 - **Deployment.** Aegis provisions the bound family (wallets, isolation-safe gatekeeper) — the gatekeeper is
   in-network only, so bind from a container on that network. See the family deployment notes.
+- **Family roster env (`HEARTHOLD_FAMILY_ROSTER`).** The family directory — a JSON array of
+  `{ name, role?, did }`, sourced from the parent-signed `roster.json` — is read by **two** surfaces: the MCP
+  `hearthold_family` verb *and* the Warden control route **`GET /api/roster`** (which the Table's Constellation
+  reads for DID→name + identity→mailbox resolution). **Set it in BOTH the MCP launcher env AND the Warden
+  daemon env.** A node that sets it only for the MCP process returns `members: []` from `/api/roster` (the
+  Constellation renders raw DIDs, no names). `roster.json` may hold either mailbox (Warden) DIDs directly, or
+  stable identity (Sovereign) DIDs once each agent has published its mailbox pointer (`sovereign
+  publish-mailbox`, Q2 — `core/mailbox-pointer.ts`), which the resolver follows.
