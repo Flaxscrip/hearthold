@@ -95,6 +95,7 @@ import { SpendReceiptStore } from './spend-receipt-store.js';
 import { AutofileStore } from './autofile-store.js';
 import { promoteVerifiedCard } from './credential-vault.js';
 import { claimableMarks, claimMark } from './marks.js';
+import { registerComposerSchemas } from './composer-schemas.js';
 import { buildKbServices, KbConfigStore, setKbAssurance, readKbAssurance, provisionMemberPartition } from './kb-config.js';
 import { makeWardenHandler } from './handler.js';
 import { ControlSessionStore } from './control-session.js';
@@ -328,6 +329,19 @@ export async function runWardenControl(
         `   No login path = locked out. Restore the single-Sovereign fallback with HEARTHOLD_REQUIRE_SESSION=false.\n\n`,
     );
   }
+
+  // Ensure the composer-friendly credential schemas exist on THIS Warden's registry at boot, so the Table's
+  // Compose-a-card (GET /api/schemas → keymaster.listSchemas() over the Warden's OWNED assets) can DISCOVER
+  // them. This must run in the daemon: listSchemas reads the daemon's own wallet, so a one-off CLI (a
+  // different process/wallet) anchors the schemas but they never appear here. Idempotent (skips a title
+  // already present) and best-effort — a registry hiccup must not block boot.
+  await withWalletWrite(() => registerComposerSchemas(handle)).then(
+    (r) => {
+      const created = r.filter((s) => s.created).map((s) => s.title);
+      if (created.length > 0) process.stderr.write(`Registered composer schemas: ${created.join(', ')}\n`);
+    },
+    (e) => process.stderr.write(`composer-schema ensure skipped: ${e instanceof Error ? e.message : String(e)}\n`),
+  );
 
   const server = startControlServer({
     port,
