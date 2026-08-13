@@ -730,7 +730,13 @@ export async function runWardenControl(
             if (prev && issuerName !== prev) await handle.keymaster.setCurrentId(prev);
           }
         });
-        return { credentialDid };
+        // Audit (posture fix): put every mint on the record, owner-scoped to the composing member — issuance
+        // was previously un-emitted, unlike marks/card-pass. Records the ACTUAL issuer (the session Sovereign,
+        // or the Warden as this node's attesting authority) and who composed it, so a Warden-signed member
+        // card is attributable rather than anonymous. Returns the issuer so the caller/UI is not misled about
+        // who signed.
+        server.emit('credential-issued', { credentialDid, issuer: issuerName, composedBy: viewer, subjectDid, schemaDid }, { owner: viewer });
+        return { credentialDid, issuer: issuerName };
       },
 
       // The schema types this node can issue against — drives the Compose form. Read-only; local registry.
