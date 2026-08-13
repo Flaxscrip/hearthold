@@ -6,6 +6,7 @@ export * from './escalation.js';
 export * from './protocol.js';
 export * from './keymaster.js';
 export * from './identity.js';
+export * from './mailbox-pointer.js';
 export * from './credentials.js';
 export * from './credential-delivery.js';
 export * from './sphere.js';

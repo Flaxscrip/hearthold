@@ -12,6 +12,7 @@ import {
   IssuedStore,
   DidCommTransport,
   IDENTITY_NAME,
+  publishMailboxPointer,
   ensureSchema,
   openSchema,
   issueClaim,
@@ -37,6 +38,9 @@ Usage:
   sovereign status           Show identity and config
   sovereign accept <credDid> Accept a third-party credential and record it in the vault
   sovereign issued           List the issued (third-party) credentials in the vault
+  sovereign publish-mailbox <warden-mailbox-did>
+                             Publish an identity→mailbox pointer so the family resolves my stable identity DID
+                             to my current mailbox (re-run after a mailbox rotation)
   sovereign issue <subjectDid> <type> [key=value ...]
                              Issue a credential to a subject (act as an issuer, e.g. a sphere manager)
   sovereign capability:grant <emissaryDid> [ceiling=LOW] [kinds=location,activity] [target=hearthold:vault] [days=90]
@@ -164,6 +168,19 @@ async function main(): Promise<void> {
       process.stdout.write(
         `Sovereign ${id.did}\n  node:   ${config.nodeUrl}\n` +
           `  data:   ${handle.dataFolder}\n  issued: ${issued.length} credential(s) in vault\n`,
+      );
+      break;
+    }
+    case 'publish-mailbox': {
+      // Q2 — publish a HearthholdMailbox service on THIS Sovereign identity's DID document, pointing at its
+      // Warden mailbox DID. The roster carries the stable identity DID; correspondents resolve it → the
+      // current mailbox, so a mailbox rotation (a fresh Warden DID) becomes a non-event (re-run this after one).
+      const mailboxDid = process.argv[3];
+      if (!mailboxDid) throw new Error('usage: sovereign publish-mailbox <warden-mailbox-did>');
+      const identityDid = await publishMailboxPointer(handle, mailboxDid);
+      process.stdout.write(
+        `Published mailbox pointer\n  identity: ${identityDid}\n  mailbox:  ${mailboxDid}\n` +
+          `  correspondents now resolve this identity → the mailbox; a mailbox rotation is a non-event.\n`,
       );
       break;
     }

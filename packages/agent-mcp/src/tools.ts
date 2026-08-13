@@ -476,13 +476,20 @@ export const HEARTHOLD_TOOLS: HeartholdTool[] = [
       const km = boundKeymaster(ctx.runtime) as any;
       const family: Array<Record<string, unknown>> = [];
       for (const m of roster) {
-        let reachable = false; let endpoint: string | undefined;
+        // Q2: resolve the roster's STABLE identity DID to its CURRENT mailbox via a published HearthholdMailbox
+        // pointer on the identity's DID document; fall back to the DID itself (it may already BE a served
+        // mailbox). Then check the ADDRESSABLE DID's DIDComm endpoint for reachability. `mailboxDid` is what
+        // hearthold_send/_reply should address — so a mailbox rotation (a re-pointed identity) is a non-event.
+        let mailboxDid = m.did; let reachable = false; let endpoint: string | undefined;
         try {
-          const doc = await km.resolveDID(m.did);
-          const svc = (doc?.didDocument?.service ?? []).find((s: any) => s.type === 'DIDCommMessaging');
+          const idDoc = await km.resolveDID(m.did);
+          const ptr = (idDoc?.didDocument?.service ?? []).find((s: any) => s.type === 'HearthholdMailbox');
+          if (typeof ptr?.serviceEndpoint === 'string' && ptr.serviceEndpoint.startsWith('did:')) mailboxDid = ptr.serviceEndpoint;
+          const mboxDoc = mailboxDid === m.did ? idDoc : await km.resolveDID(mailboxDid);
+          const svc = (mboxDoc?.didDocument?.service ?? []).find((s: any) => s.type === 'DIDCommMessaging');
           endpoint = svc?.serviceEndpoint; reachable = !!svc;
         } catch { /* unresolvable / unreachable */ }
-        family.push({ name: m.name, ...(m.role ? { role: m.role } : {}), did: m.did, reachable, ...(endpoint ? { endpoint } : {}) });
+        family.push({ name: m.name, ...(m.role ? { role: m.role } : {}), did: m.did, mailboxDid, reachable, ...(endpoint ? { endpoint } : {}) });
       }
       return { me: ctx.identity, family };
     },
