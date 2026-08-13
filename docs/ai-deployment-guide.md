@@ -30,7 +30,7 @@ mistake this architecture exists to prevent.
 
 **Read this before running a single `init`, `kb-init`, `kb-seed`, or e2e script.** This is the
 single most common mistake an agent operating Hearthold will make, and it already happened once for
-real (see `REGISTRY-HYGIENE-BRIEF.md` and `did-creation-source.md` in the repo root — a two-week
+real (see `REGISTRY-HYGIENE-BRIEF.md` in `docs/` — a two-week
 incident that put ~800 net-new agent DIDs on the public hyperswarm registry from test/demo runs whose
 identities were never meant to be public).
 

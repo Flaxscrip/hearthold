@@ -1,40 +1,45 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code (claude.ai/code) — or any AI assistant or contributor — working in this
+repository for the first time. Start here, then follow the links into `docs/`.
 
 ## What this is
 
-Hearthold gives a person a home-bound custodian agent for their private data history (the "7th
+Hearthold gives a person a home-bound custodian agent for their private data history (their "7th
 Capital") plus a world-facing companion that can request **verifiable evidence** from that history —
 proving a fact without disclosing the data behind it. It is built on **Archon `did:cid`** identity
 infrastructure (`@didcid/*` packages) and enforces one principle throughout: **separate the custodian
-of data from the agent that acts in the world**, so neither alone can reconstruct the whole.
+of data from the agent that acts in the world**, so neither alone can reconstruct the whole. Authority
+to act is a **signed, scoped, revocable capability object** (Alan Karp's object-capability model),
+verified at the point of use — never a role or a standing permission.
 
 The design is expressed as separate agents, each its own `did:cid` with an independently-custodied
 Keymaster wallet:
 
 - **Warden** (`packages/warden`) — home Keeper / custodian & enforcer. Holds the full vault, classifies
-  artefacts on-device, serves evidence, enforces the access-control policy. Control plane's *enforcer*.
+  artefacts on-device, serves evidence, enforces the access-control policy. The reference monitor every
+  disclosure crosses.
 - **Emissary** (`packages/emissary`) — world-facing companion. Observes local context, submits it home,
-  later requests evidence and presents it to third parties. Holds a scoped, revocable delegation.
-  **Formerly named "Witness"** — see the rename note below.
+  later invokes a capability to request evidence and presents it to third parties. Holds a scoped,
+  revocable delegation. **Formerly named "Witness"** — see the rename note below.
 - **Sovereign** (`packages/sovereign`) — the principal, held by the **Signet** 2nd-factor app. Signs the
-  Warden's policy (Ruleset) and co-signs sensitive disclosures with a proof-of-human assertion. Control
-  plane's *authorizer*.
+  Warden's policy (Ruleset) and co-signs sensitive disclosures with a proof-of-human assertion. The
+  control plane's authorizer.
 - **Verifier** (`packages/verifier`) — a third party that requests + checks proofs. Trust rests on the
   **issuer's** signature, never the Warden's word.
 
-The Warden enforces; the Sovereign authorizes the rules; the Emissary acts under delegation.
-Disclosure is **issuer-attested**: the Warden derives and signs a fact and carries provenance as
-content hashes — Hearthold never emits a reputation score, only a verifiable, decomposable evidence
-graph (`docs/evidence-graph.md`).
+The Warden enforces; the Sovereign authorizes the rules; the Emissary acts under delegation; the
+Verifier trusts only signatures. Disclosure is **issuer-attested**: the Warden derives and signs a fact
+and carries provenance as content hashes — Hearthold never emits a reputation score, only a verifiable,
+decomposable evidence graph (`docs/evidence-graph.md`). The object-capability invocation & attenuation
+model — mint, delegate-with-narrowing, invoke, revoke — is in `docs/invocation.md`.
 
 ## Naming: the Witness → Emissary rename
 
 The world-facing role was renamed **Witness → Emissary**. Newer code, docs, and package names use
-`emissary`. Some older briefs, symbols, script names, and the top-level `README.md` still say "Witness"
-— treat them as the same role. `packages/witness/` and `apps/witness/` are vestigial stubs (empty
-`src`, no manifest); the live companion is `packages/emissary`. When adding code, use `emissary`.
+`emissary`. Some older symbols and script names still say "Witness" — treat them as the same role.
+`packages/witness/` and `apps/witness/` are vestigial stubs (empty `src`, no manifest); the live
+companion is `packages/emissary`. When adding code, use `emissary`.
 
 ## Build & test
 
@@ -49,10 +54,10 @@ npm run build          # tsc --build across all package references
 npm run clean          # tsc --build --clean
 ```
 
-There is **no test runner** — verification is via end-to-end scripts in `scripts/*.ts`, run directly
+There is **no unit-test runner** — verification is via end-to-end scripts in `scripts/*.ts`, run directly
 with `node --experimental-strip-types` (each `e2e:*` npm script builds first, then runs the `.ts`).
 They exercise real flows against a **live Archon node** in isolated data dirs (e.g. `.hearthold-e2e/`,
-never your real `~/.hearthold`).
+never a real `~/.hearthold`).
 
 ```bash
 export HEARTHOLD_PASSPHRASE='any-dev-pass'
@@ -97,18 +102,20 @@ packages/
                     protocol.ts / payload.ts     the Hearthold wire protocol; in-band sealing
                     security.ts                  sensitivity × authorization tiers × disclosure modes
                     evidence.ts / prove.ts       evidence graph mint + verify
+                    capability*.ts / attenuation.ts   object-capability invocation + attenuation chains
                     ruleset.ts                   Sovereign-signed policy chains (signRuleset/verify)
-                    pairwise.ts                  fresh pairwise DID per audience/counterparty (H1)
+                    pairwise.ts                  fresh pairwise DID per audience/counterparty
                     dtg.ts / trust-registry.ts   Trust Graph & Delegation, trust registry
                     kb.ts / recall.ts            Knowledge Base spaces + recall
                     single-use.ts                single-use txn / burn-on-reuse
   control-types/  shared control-plane DTOs (no deps)
   cgpr-types/     CGPR JSON Schemas (Consent-Gated Preference Requests), registered as Archon schemas
   a2a-gateway/    edge adapter translating A2A ⇄ internal DIDComm; holds no secrets, governed by Ruleset
+  agent-mcp/      an MCP server exposing each agent's control plane to a restricted AI (per-role verbs)
   warden/ emissary/ sovereign/ verifier/ registry/   the runnable agents (bin in each package.json)
 apps/             Vite browser front-ends: emissary, kb-portal, signet-approver, warden-console
 scripts/          e2e-*.ts / demo-*.ts / roleplay-*.ts — run with node --experimental-strip-types
-docs/             architecture, security-model, evidence-graph, PLAN.md, a2a-cgpr, kb-spaces, …
+docs/             architecture, security-model, invocation, evidence-graph, PLAN, ROADMAP, briefs, …
 deploy/           systemd unit + nginx conf for the hosted KB Mage (see deploy/INSTALL.md)
 ```
 
@@ -117,7 +124,7 @@ each app dir. They talk to a running agent's control-plane HTTP port.
 
 ## Architectural invariants (don't trade these away)
 
-These come from the security model and the A2A/CGPR brief (`A2A-BRIEF.md`, `docs/security-model.md`,
+These come from the security model and the A2A/CGPR brief (`docs/A2A-BRIEF.md`, `docs/security-model.md`,
 `docs/a2a-cgpr.md`) and are enforced structurally, not by convention:
 
 - **Deny-by-default release ladder.** Every disclosure crosses `decideRelease()`. Sensitive content
@@ -129,6 +136,9 @@ These come from the security model and the A2A/CGPR brief (`A2A-BRIEF.md`, `docs
 - **No subject identifier before approval.** No message in a CGPR flow (including denials) may carry the
   Sovereign DID, a pairwise DID, or any account handle before the human approves. The CGPR ticket schema
   has *no* subject field by construction.
+- **Attenuation is monotonic.** A delegated capability can only narrow (`core/attenuation.ts`,
+  `core/capability-chain.ts`); widening is refused at issuance and unrepresentable in a verified chain,
+  so there is no confused deputy. Revocation is per-hop and fail-closed.
 - **Pairwise DID per audience/counterparty.** External grants and DTG edges are issued to a fresh
   pairwise DID (`core/pairwise.ts`); the pairwise→Sovereign linkage lives in one Warden-side store
   (`warden/pairwise-store.ts`) and is excluded from every evidence graph and summary. Reusing a stable
@@ -144,4 +154,4 @@ These come from the security model and the A2A/CGPR brief (`A2A-BRIEF.md`, `docs
 Per-agent wallets, the vault, and indexes live under `HEARTHOLD_DATA_ROOT` (default `~/.hearthold`) and
 are gitignored (`.hearthold/`, `*.wallet.json`, `data/`). Every agent process unlocks its wallet with
 `HEARTHOLD_PASSPHRASE` (separate wallets, so a shared dev value is fine). Copy `.env.example` → `.env`
-(gitignored). Never commit wallet/vault state.
+(gitignored). Never commit wallet or vault state.
