@@ -20,6 +20,7 @@ import {
   grantAuthorization,
   selfSigner,
   signKbRequest,
+  Sensitivity,
   type KbRequestStatement,
   type KbResultMessage,
 } from '@hearthold/core';
@@ -95,8 +96,15 @@ async function main(): Promise<void> {
   const s2 = await putDoc(alice, aliceId.did, 'profile', BLAZON_V2, 'shared');
   assert(sup(s2) === 1, 're-publish overwrites the shared Blazon: superseded 1');
   assert((await docsIn(SPACE, aliceId.did, 'profile')) === 1, "exactly ONE shared 'profile' (Blazon) doc for Alice");
+  // Regression guard (the capstone bug HATPro found): this e2e runs under the QUARANTINE classifier, so
+  // every doc is stored SEALED — the strongest case. Bob authenticates factor1 (challenge/response, no
+  // Signet step-up). The OLD get-doc applied the recall ceiling (factor1 → ≤MEDIUM) and REFUSED a SEALED
+  // read. A get-doc is an ADDRESSED, membership-authorized read, and the owner's promote-to-shared IS the
+  // disclosure decision — so a promoted Blazon must be readable regardless of classifier sensitivity.
+  const sharedDoc = (await store.list()).find((a) => a.metadata?.kb === SPACE && a.metadata?.contributor === aliceId.did && a.metadata?.docKey === 'profile')!;
+  assert(sharedDoc.sensitivity === Sensitivity.SEALED, 'the shared Blazon doc is stored SEALED (quarantine classifier — the strongest read case)');
   const bobReadsBlazon = await getDoc(bob, bobId.did, 'profile', aliceId.did);
-  assert(txt(bobReadsBlazon) === BLAZON_V2 && (bobReadsBlazon as { scope?: string }).scope === 'shared', "Bob reads Alice's Blazon = the CURRENT shared value (not v1, not her private profile)");
+  assert(txt(bobReadsBlazon) === BLAZON_V2 && (bobReadsBlazon as { scope?: string }).scope === 'shared', "a factor1 partner reads the SEALED promoted Blazon = CURRENT value (no ceiling on an addressed, membership-authorized read)");
   assert(txt(bobReadsBlazon) !== PROFILE_V2, "Bob's shared read never returns Alice's PRIVATE profile value");
 
   process.stdout.write('\n▸ an absent document is a clean empty state\n');

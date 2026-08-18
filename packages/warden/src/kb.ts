@@ -403,10 +403,13 @@ export class KbService {
     if (!artefact) {
       return { type: 'hearthold/kb-result', version: PROTOCOL_VERSION, action: 'get-doc', docKey, owner: targetOwner, text: null };
     }
-    // Same sensitivity ceiling as recall — this KB is reachable through a public Mage portal, so a
-    // factor1 read never surfaces a document above MEDIUM; factor2 (proof-of-human) may reach SEALED.
-    const ceiling = (readAuthz.requiredAssurance ?? 'factor1') === 'factor2' ? Sensitivity.SEALED : Sensitivity.MEDIUM;
-    if (artefact.sensitivity > ceiling) return kbErr('document sensitivity exceeds your read clearance');
+    // NO sensitivity ceiling here — unlike recall. The ceiling (recall's `kbCeiling`) protects FUZZY
+    // public-portal search from surfacing SEALED content to a coarse factor1 reader. A `get-doc` is not
+    // fuzzy discovery: it is an ADDRESSED read of one known docKey, already authorized by partition
+    // membership (shared-read for a promoted SHARED doc) or ownership (a PRIVATE doc is only the caller's
+    // own). For a shared doc, the owner's explicit promote-to-shared IS the disclosure decision — the
+    // classifier's fail-safe sensitivity must not override the owner's deliberate publish of their Blazon
+    // to the shared-read audience. So authorization, not the classifier's guess, gates an addressed read.
     if (artefact.sealedTo) return kbErr('member-key documents are not yet direct-readable (use the recall/query path)');
     const plaintext = await unsealAsWarden(this.warden, artefact.ciphertext);
     const text = (JSON.parse(plaintext) as { text: string }).text;
