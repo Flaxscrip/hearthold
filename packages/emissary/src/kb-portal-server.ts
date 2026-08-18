@@ -121,20 +121,22 @@ export function startKbPortalServer(opts: KbPortalOptions): ControlServer {
 
       // ── Session-authenticated KB ops ──
       'POST /api/kb/session-request': async ({ body }) => {
-        const { token, kbId, action, query, k, kind, text, scope } = (body ?? {}) as {
+        const { token, kbId, action, query, k, kind, text, scope, docKey, owner } = (body ?? {}) as {
           token?: string;
           kbId?: string;
-          action?: 'query' | 'update';
+          action?: 'query' | 'update' | 'put-doc' | 'get-doc';
           query?: string;
           k?: number;
           kind?: string;
           text?: string;
           scope?: 'shared' | 'private';
+          docKey?: string;
+          owner?: string;
         };
         if (!token || !kbId || !action) throw new Error('token, kbId and action are required');
         const reply = await transport.request(
           wardenDid,
-          { type: 'hearthold/kb-session-request', version: PROTOCOL_VERSION, token, kbId, action, query, k, kind, text, scope },
+          { type: 'hearthold/kb-session-request', version: PROTOCOL_VERSION, token, kbId, action, query, k, kind, text, scope, docKey, owner },
           // Long enough to outlast a factor-2 step-up (the Warden may be awaiting the member's Signet).
           { timeoutMs: 200_000 },
         );

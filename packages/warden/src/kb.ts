@@ -22,6 +22,7 @@ import {
   verifyKbRequestSignature,
   sealForWarden,
   sealToKey,
+  unsealAsWarden,
   contentId,
   PROTOCOL_VERSION,
   Sensitivity,
@@ -304,11 +305,20 @@ export class KbService {
     return approved ? null : `${action} was not authorized by the Sovereign (${required} step-up declined)`;
   }
 
-  /** Seal + classify + index a contribution into partition `kb`. When `sealTo` (a member partition's
-   *  public key) is given, the payload is sealed to it (write-host: the Warden cannot open it at rest, and
-   *  the artefact is marked `sealedTo` so recall opens it with the member's session-rewrapped key); else it
-   *  is sealed to the Warden as before. Classification runs on the plaintext in memory, before sealing. */
-  private async storeContribution(did: string, kind: string, text: string, kb: string, sealTo?: CipherPublicJwk): Promise<KbResultMessage> {
+  /** Seal + classify + store + index one artefact into partition `kb`, returning its id and whether it
+   *  indexed. When `sealTo` (a member partition's public key) is given, the payload is sealed to it
+   *  (write-host: the Warden cannot open it at rest, and the artefact is marked `sealedTo` so recall
+   *  opens it with the member's session-rewrapped key); else it is sealed to the Warden. When `docKey`
+   *  is given, the artefact carries it in metadata so `put-doc`/`get-doc` can address it as a document.
+   *  Classification runs on the plaintext in memory, before sealing. */
+  private async sealStoreIndex(
+    did: string,
+    kind: string,
+    text: string,
+    kb: string,
+    opts?: { docKey?: string; sealTo?: CipherPublicJwk },
+  ): Promise<{ id: string; indexed: boolean }> {
+    const sealTo = opts?.sealTo;
     const payload = JSON.stringify({ text });
     const ciphertext = sealTo ? sealToKey(this.warden.cipher, sealTo, payload) : await sealForWarden(this.warden, this.opts.wardenDid, payload);
     const classification = await createClassifier(this.config).classify({ kind, text });
@@ -321,7 +331,7 @@ export class KbService {
       sensitivity: classification.sensitivity,
       ciphertext,
       ...(sealTo ? { sealedTo: { partition: kb } } : {}),
-      metadata: { ...classification.metadata, kb, contributor: did },
+      metadata: { ...classification.metadata, kb, contributor: did, ...(opts?.docKey ? { docKey: opts.docKey } : {}) },
     };
     await this.store.put(artefact);
     // Index (embed) so recall can find it. NON-SILENT: if the embedder is down/overloaded the artefact
@@ -338,7 +348,79 @@ export class KbService {
           `NOT searchable until \`warden kb-reindex --kb ${kb}\`\n`,
       );
     }
+    return { id, indexed };
+  }
+
+  /** Append-log contribution (the `update` action): every write is a new content-addressed artefact. */
+  private async storeContribution(did: string, kind: string, text: string, kb: string, sealTo?: CipherPublicJwk): Promise<KbResultMessage> {
+    const { id, indexed } = await this.sealStoreIndex(did, kind, text, kb, { sealTo });
     return { type: 'hearthold/kb-result', version: PROTOCOL_VERSION, action: 'update', artefactId: id, indexed };
+  }
+
+  /** OVERWRITE semantics for a named document: drop this contributor's prior versions of `docKey` in
+   *  partition `kb` (store + index) so the document reads back as one coherent current value. Only ever
+   *  supersedes the SAME contributor's own doc under that key — never another member's. Returns the
+   *  count removed. */
+  private async supersedeDoc(kb: string, docKey: string, contributor: string): Promise<number> {
+    const priors = (await this.store.list()).filter(
+      (a) => a.metadata?.kb === kb && a.metadata?.docKey === docKey && a.metadata?.contributor === contributor,
+    );
+    if (priors.length === 0) return 0;
+    const ids = priors.map((a) => a.id);
+    await this.store.remove(ids);
+    await this.index.remove(ids);
+    return priors.length;
+  }
+
+  /** Read one named document directly (the `get-doc` action) — the current value, not a RAG answer.
+   *  A SHARED document (in the KB's shared partition) is readable by anyone with shared read, keyed by
+   *  its owner; a PRIVATE document is only ever the caller's own. Another member's private partition is
+   *  never reachable. Returns null text when no such document is visible. Warden-sealed docs only for
+   *  now (member-key/`sealedTo` docs need the session-rewrapped key — recall path). */
+  private async getDoc(
+    did: string,
+    docKey: string,
+    targetOwner: string,
+    own: { id: string } | null,
+  ): Promise<KbResultMessage> {
+    const readAuthz = await this.opts.registry.authorize({ entity_id: did, action: 'read', resource: this.opts.kbId });
+    const sharedRead = readAuthz.authorized;
+    if (!sharedRead && !own) return kbErr('not authorized to read this KB');
+    const all = await this.store.list();
+    const find = (kb: string, owner: string): Artefact | undefined =>
+      all.find((a) => a.metadata?.kb === kb && a.metadata?.docKey === docKey && a.metadata?.contributor === owner);
+    // Prefer the shared copy (promoted / public); fall back to the caller's OWN private copy.
+    let artefact: Artefact | undefined;
+    let scope: 'shared' | 'private' | undefined;
+    if (sharedRead) {
+      artefact = find(this.opts.kbId, targetOwner);
+      if (artefact) scope = 'shared';
+    }
+    if (!artefact && own && targetOwner === did) {
+      artefact = find(own.id, did);
+      if (artefact) scope = 'private';
+    }
+    if (!artefact) {
+      return { type: 'hearthold/kb-result', version: PROTOCOL_VERSION, action: 'get-doc', docKey, owner: targetOwner, text: null };
+    }
+    // Same sensitivity ceiling as recall — this KB is reachable through a public Mage portal, so a
+    // factor1 read never surfaces a document above MEDIUM; factor2 (proof-of-human) may reach SEALED.
+    const ceiling = (readAuthz.requiredAssurance ?? 'factor1') === 'factor2' ? Sensitivity.SEALED : Sensitivity.MEDIUM;
+    if (artefact.sensitivity > ceiling) return kbErr('document sensitivity exceeds your read clearance');
+    if (artefact.sealedTo) return kbErr('member-key documents are not yet direct-readable (use the recall/query path)');
+    const plaintext = await unsealAsWarden(this.warden, artefact.ciphertext);
+    const text = (JSON.parse(plaintext) as { text: string }).text;
+    return {
+      type: 'hearthold/kb-result',
+      version: PROTOCOL_VERSION,
+      action: 'get-doc',
+      docKey,
+      owner: targetOwner,
+      text,
+      kind: artefact.kind,
+      updatedAt: artefact.storedAt,
+      scope,
+    };
   }
 
   /**
@@ -348,7 +430,16 @@ export class KbService {
    */
   private async execute(
     did: string,
-    req: { action: 'query' | 'update'; query?: string; k?: number; kind?: string; text?: string; scope?: 'shared' | 'private' },
+    req: {
+      action: 'query' | 'update' | 'put-doc' | 'get-doc';
+      query?: string;
+      k?: number;
+      kind?: string;
+      text?: string;
+      scope?: 'shared' | 'private';
+      docKey?: string;
+      owner?: string;
+    },
     sessionToken?: string,
   ): Promise<KbResultMessage> {
     // Open enrollment: a proven DID's first authenticated action auto-joins (grant + partition), capped. This
@@ -394,6 +485,39 @@ export class KbService {
         scope: (c.kb === own?.id ? 'private' : c.kb === this.opts.kbId ? 'shared' : undefined) as 'shared' | 'private' | undefined,
       }));
       return { type: 'hearthold/kb-result', version: PROTOCOL_VERSION, action: 'query', answer: result.answer, citations };
+    }
+
+    if (req.action === 'get-doc') {
+      // Read one named document directly — the current coherent value, not a RAG answer. A shared doc
+      // is readable by anyone with shared read (keyed by its owner); a private doc is only the caller's
+      // own. `owner` may target another member ONLY for a shared read (shared content is public); it can
+      // never reach another member's private partition (see getDoc).
+      if (!req.docKey) return kbErr('docKey is required for get-doc');
+      return this.getDoc(did, req.docKey, req.owner ?? did, own);
+    }
+
+    if (req.action === 'put-doc') {
+      // Overwrite-semantics write of a named document: supersede this contributor's prior version of the
+      // key in the target partition, then store the new one. Same partition-by-scope + authorization +
+      // step-up as `update`; only the storage semantics differ (one coherent current value, not a log).
+      if (!req.docKey) return kbErr('docKey is required for put-doc');
+      if (!req.kind || !req.text) return kbErr('kind and text are required for put-doc');
+      const putScope = req.scope ?? this.opts.defaultScope ?? 'shared';
+      if (putScope === 'private') {
+        if (!own) return kbErr('no private partition for you on this KB (the space may not grant member partitions)');
+        const stepUp = await this.clearAssurance(did, 'write', `put-doc (private) “${req.docKey}” to ${this.opts.kbId}`);
+        if (stepUp) return kbErr(stepUp);
+        const superseded = await this.supersedeDoc(own.id, req.docKey, did);
+        const { id, indexed } = await this.sealStoreIndex(did, req.kind, req.text, own.id, { docKey: req.docKey, sealTo: own.partitionPub });
+        return { type: 'hearthold/kb-result', version: PROTOCOL_VERSION, action: 'put-doc', artefactId: id, docKey: req.docKey, superseded, indexed };
+      }
+      const sharedWriteAuth = (await this.opts.registry.authorize({ entity_id: did, action: 'write', resource: this.opts.kbId })).authorized;
+      if (!sharedWriteAuth) return kbErr('not authorized to write this KB');
+      const stepUp = await this.clearAssurance(did, 'write', `put-doc “${req.docKey}” to ${this.opts.kbId}`);
+      if (stepUp) return kbErr(stepUp);
+      const superseded = await this.supersedeDoc(this.opts.kbId, req.docKey, did);
+      const { id, indexed } = await this.sealStoreIndex(did, req.kind, req.text, this.opts.kbId, { docKey: req.docKey });
+      return { type: 'hearthold/kb-result', version: PROTOCOL_VERSION, action: 'put-doc', artefactId: id, docKey: req.docKey, superseded, indexed };
     }
 
     // update — resolve the target partition by scope.

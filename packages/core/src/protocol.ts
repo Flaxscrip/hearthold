@@ -245,7 +245,7 @@ export interface KbChallengeMessage {
 
 /** What the Sovereign signs — proves DID control and binds to the Warden's nonce. */
 export interface KbRequestStatement {
-  action: 'query' | 'update';
+  action: 'query' | 'update' | 'put-doc' | 'get-doc';
   /** The Sovereign's DID (must match the signature and a KB group member). */
   requester: string;
   kbId: string;
@@ -261,6 +261,14 @@ export interface KbRequestStatement {
    *  one. Omit to use the space's default (`defaultScope`). Ignored for queries (which union the
    *  member's visible set). */
   scope?: 'shared' | 'private';
+  /** Structured-document key (`put-doc`/`get-doc`): a stable name for an OVERWRITE-semantics document
+   *  (e.g. `'profile'`). A re-`put-doc` supersedes the prior version rather than appending, so a
+   *  document reads back as one coherent current value (not an append-log). */
+  docKey?: string;
+  /** `get-doc` only: the target document owner's DID when reading a SHARED document (default: the
+   *  caller — read your own). A shared document is readable by anyone with shared read; a private
+   *  document is only ever the caller's own (another member's private partition is never reachable). */
+  owner?: string;
 }
 /** A KB request statement plus the Sovereign's detached signature (`keymaster.addProof`). */
 export type SignedKbRequest = KbRequestStatement & { proof?: unknown };
@@ -322,13 +330,17 @@ export interface KbSessionRequestMessage {
   version: typeof PROTOCOL_VERSION;
   token: string;
   kbId: string;
-  action: 'query' | 'update';
+  action: 'query' | 'update' | 'put-doc' | 'get-doc';
   query?: string;
   k?: number;
   kind?: string;
   text?: string;
   /** KB Spaces: target the shared partition or the member's private one (update only; default per space). */
   scope?: 'shared' | 'private';
+  /** Structured-document key (`put-doc`/`get-doc`) — overwrite-semantics doc name, e.g. `'profile'`. */
+  docKey?: string;
+  /** `get-doc` only: target owner DID for a SHARED read (default: the caller). */
+  owner?: string;
 }
 
 // ── Partition-key rewrap (Phase 2 / guardianship-threat-model §4a) ──────────────────────────────────
@@ -446,6 +458,31 @@ export type KbResultMessage =
       /** Whether the contribution was embedded into the recall index. `false` = stored but NOT yet
        *  searchable (the embedder was unavailable); recover with `warden kb-reindex`. */
       indexed?: boolean;
+    }
+  | {
+      type: 'hearthold/kb-result';
+      version: typeof PROTOCOL_VERSION;
+      action: 'put-doc';
+      artefactId: string;
+      docKey: string;
+      /** How many prior versions of this document were superseded by this write (overwrite semantics).
+       *  0 = first write; ≥1 = an update that replaced the previous coherent value. */
+      superseded: number;
+      indexed?: boolean;
+    }
+  | {
+      type: 'hearthold/kb-result';
+      version: typeof PROTOCOL_VERSION;
+      action: 'get-doc';
+      docKey: string;
+      /** The document owner's DID (the caller for a private/own read, the target for a shared read). */
+      owner: string;
+      /** The current document text, or `null` when no such document is visible to the caller. */
+      text: string | null;
+      kind?: string;
+      /** When this version was written. */
+      updatedAt?: string;
+      scope?: 'shared' | 'private';
     }
   | {
       type: 'hearthold/kb-error';
