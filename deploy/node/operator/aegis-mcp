@@ -22,7 +22,8 @@ NET="${AEGIS_NET:-aegis_internal}"                          # the sealed node ne
 IMAGE="${AEGIS_AGENT_MCP_IMAGE:-hearthold:agent-mcp}"       # the linux-native agent-mcp image
 GK="${AEGIS_GATEKEEPER_URL:-http://gatekeeper:4224}"        # in-network gatekeeper (never a host port)
 REG="${ARCHON_DEFAULT_REGISTRY:-local}"
-FAMENV="$HERE/../family/family.env"
+PASSENV="${AEGIS_AGENT_PASS_ENV:-$HERE/../family/agent-pass.env}"     # per-agent secrets (P1): AEGIS_PASS_<AGENT>=...
+FAMENV="$HERE/../family/family.env"                                   # LEGACY shared FAMILY_PASSPHRASE (deprecated)
 MCP_SRC="${AEGIS_AGENT_MCP_SRC:-$HOME/hearthold/packages/agent-mcp}"  # source for `build`
 
 _err() { printf '%s: %s\n' "$SELF" "$*" >&2; }
@@ -63,11 +64,45 @@ write_envfile() { # <rel-wallet-path> <tmpenv>
     echo "HEARTHOLD_WALLET_TYPE=json"
     echo "HEARTHOLD_WALLET_PATH=/node-data/$1"
     echo "HEARTHOLD_REGISTRY=$REG"
-    # passphrase precedence: AEGIS_WALLET_PASS → family.env FAMILY_PASSPHRASE → ambient ARCHON_PASSPHRASE
+    # passphrase precedence (P1 — one secret PER AGENT, never a shared file):
+    #   1. AEGIS_WALLET_PASS            explicit one-off override (wins)
+    #   2. AEGIS_PASS_<AGENT>           per-agent, from the env OR the $PASSENV store — the canonical P1 source
+    #   3. FAMILY_PASSPHRASE in $FAMENV LEGACY shared secret (deprecated; kept only for old setups)
+    #   4. ARCHON_PASSPHRASE            ambient fallback
+    # <AGENT> is derived from the wallet path (identities/agents/<agent>/…), so `aegis-mcp sevenfold` and a raw
+    # warden-path binding both resolve the SAME per-agent secret with nothing set by the caller.
+    _agent=$(printf '%s' "$1" | sed -E 's#.*agents/([^/]+)/.*#\1#')
+    _pk="AEGIS_PASS_$(printf '%s' "$_agent" | tr '[:lower:]-' '[:upper:]_')"
     if [ -n "${AEGIS_WALLET_PASS:-}" ]; then printf 'HEARTHOLD_PASSPHRASE=%s\n' "$AEGIS_WALLET_PASS"
+    elif [ -n "${!_pk:-}" ]; then printf 'HEARTHOLD_PASSPHRASE=%s\n' "${!_pk}"
+    elif [ -f "$PASSENV" ] && grep -qE "^$_pk=." "$PASSENV"; then printf 'HEARTHOLD_PASSPHRASE=%s\n' "$(grep -E "^$_pk=" "$PASSENV" | head -1 | cut -d= -f2-)"
     elif [ -f "$FAMENV" ] && grep -qE '^FAMILY_PASSPHRASE=.' "$FAMENV"; then grep -E '^FAMILY_PASSPHRASE=' "$FAMENV" | sed 's/^FAMILY_PASSPHRASE=/HEARTHOLD_PASSPHRASE=/'
     elif [ -n "${ARCHON_PASSPHRASE:-}" ]; then printf 'HEARTHOLD_PASSPHRASE=%s\n' "$ARCHON_PASSPHRASE"
-    else _err "no passphrase (set AEGIS_WALLET_PASS or FAMILY_PASSPHRASE in $FAMENV)"; exit 1; fi
+    else _err "no passphrase for agent '$_agent' — set $_pk in $PASSENV (or AEGIS_WALLET_PASS for a one-off)"; exit 1; fi
+    # Family roster (Q3): the parent-signed roster.json → the [{name,did,role?}] shape hearthold_family reads.
+    # Injected here because the in-container process can't see `.mcp.json` env (Sevenfold's finding); the launcher
+    # forwards it into the binding env-file so name-resolution ("message Hearthold" → a real DID) works.
+    _roster="$DATA/identities/agents/roster.json"
+    _rj='[]'
+    if [ -f "$_roster" ]; then
+      _rj=$(node -e 'try{const r=require(process.argv[1]);process.stdout.write(JSON.stringify(Object.entries(r.agents||{}).map(([name,v])=>({name,did:v.did,...(v.role?{role:v.role}:{})}))))}catch{process.stdout.write("[]")}' "$_roster" 2>/dev/null)
+      [ -n "$_rj" ] || _rj='[]'
+    fi
+    # GUARD (2026-08-17, stale-MCP bell trap): a roster-less server silently returns hearthold_family:[] for its
+    # whole lifetime — the misconfig hides as a dark family bell instead of surfacing. Refuse to launch on an EMPTY
+    # roster (missing/malformed roster.json OR zero agents) so it fails LOUD. Override for a deliberately
+    # family-less node: AEGIS_MCP_ALLOW_EMPTY_ROSTER=1.
+    if [ "$_rj" = '[]' ]; then
+      if [ "${AEGIS_MCP_ALLOW_EMPTY_ROSTER:-}" = 1 ]; then
+        _err "family roster empty — launching WITHOUT HEARTHOLD_FAMILY_ROSTER (AEGIS_MCP_ALLOW_EMPTY_ROSTER=1); hearthold_family will return []"
+      else
+        if [ -f "$_roster" ]; then _why="$_roster has no usable agents"; else _why="$_roster missing"; fi
+        _err "REFUSING to launch — $_why; hearthold_family would return [] (the dark-family-bell trap). Fix the roster, or set AEGIS_MCP_ALLOW_EMPTY_ROSTER=1 for a deliberately family-less node."
+        exit 1
+      fi
+    else
+      printf 'HEARTHOLD_FAMILY_ROSTER=%s\n' "$_rj"
+    fi
     # facade control planes await per-agent provisioning; read-ish slice (whoami/read_card) needs none.
     [ -n "${AEGIS_MCP_WARDEN_URL:-}" ]   && echo "HEARTHOLD_WARDEN_CONTROL_URL=$AEGIS_MCP_WARDEN_URL"
     [ -n "${AEGIS_MCP_SIGNET_URL:-}" ]   && echo "HEARTHOLD_SIGNET_CONTROL_URL=$AEGIS_MCP_SIGNET_URL"
@@ -88,9 +123,12 @@ guard_image() {
 # Auto-wire the agent's Warden control plane (facade verbs: pass_card / list_inbound / accept / recall …) when
 # its plane is up — so the MCP "just works" with no env. In-network service name (the MCP runs on the sealed net);
 # explicit AEGIS_MCP_WARDEN_URL always wins. Only hearthold/sevenfold have a Warden plane today.
-autowire_facade() { # <agent>
+autowire_facade() { # <agent-or-wallet-path>
   [ -n "${AEGIS_MCP_WARDEN_URL:-}" ] && return 0        # explicit override wins
-  local svc="$1-agent-warden"
+  # Accept a plain agent name OR a wallet path (identities/agents/<name>/…) — derive the name either way, so a
+  # path-bound `.mcp.json` autowires its Warden plane the same as `aegis-mcp <name>`.
+  local name; name=$(printf '%s' "$1" | sed -E 's#.*agents/([^/]+)/.*#\1#')
+  local svc="$name-agent-warden"
   if docker ps --format '{{.Names}}' 2>/dev/null | grep -q -- "-$svc-"; then
     export AEGIS_MCP_WARDEN_URL="http://$svc:${AEGIS_MCP_WARDEN_PORT:-4310}"
     _err "facade → $AEGIS_MCP_WARDEN_URL (agent Warden plane up)"
@@ -102,8 +140,11 @@ do_run() { # <rel>
   tmpenv=$(mktemp)   # global (not local): the EXIT trap fires after this function returns
   trap 'shred -u "${tmpenv:-}" 2>/dev/null || rm -f "${tmpenv:-}"' EXIT
   write_envfile "$1" "$tmpenv"
+  # Read-only by default (the read-ish verbs need no writes). The family send/reply verbs MINT (bindCredential +
+  # issueCredential write the wallet), so they need RW — opt in with AEGIS_MCP_RW=1. Keep :ro otherwise.
+  local mode=ro; [ "${AEGIS_MCP_RW:-}" = 1 ] && mode=rw
   # foreground (not exec) so the trap shreds after the client disconnects; stdio passes through transparently.
-  docker run --rm -i --network "$NET" --env-file "$tmpenv" -v "$DATA:/node-data:ro" "$IMAGE"
+  docker run --rm -i --network "$NET" --env-file "$tmpenv" -v "$DATA:/node-data:$mode" "$IMAGE"
 }
 
 # ---- check: start the server, confirm it binds as a DID, then tear down ----
