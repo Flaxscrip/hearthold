@@ -23,8 +23,15 @@ export interface HeartholdControlConfig {
   wardenUrl?: string;
   signetUrl?: string;
   emissaryUrl?: string;
-  /** Optional bearer for a session-guarded control plane (`X-Hearthold-Session`). Usually unset for a bound agent. */
+  /** Bearer for a session-guarded control plane (`X-Hearthold-Session`). Usually unset for a bound agent: on a
+   *  require-session (multi-member) node the MCP self-logs-in to mint one (see `establishSession` in tools.ts),
+   *  so this holds either a pre-provided token (`HEARTHOLD_CONTROL_TOKEN`) or a self-minted session bearer. */
   token?: string;
+  /** Epoch ms when a self-minted `token` expires — for proactive re-login before it lapses. */
+  tokenExpiresAt?: number;
+  /** Registry the self-login `createResponse` must use, passed EXPLICITLY. The ephemeral default is
+   *  `hyperswarm`, which hangs on an egress-isolated node; a bound agent uses its own (`local`) registry. */
+  registry?: string;
 }
 
 /**
@@ -77,6 +84,7 @@ export function loadAgentMcpConfig(env: NodeJS.ProcessEnv = process.env, argv: s
       signetUrl: pick(env, 'HEARTHOLD_SIGNET_CONTROL_URL'),
       emissaryUrl: pick(env, 'HEARTHOLD_EMISSARY_CONTROL_URL'),
       token: pick(env, 'HEARTHOLD_CONTROL_TOKEN'),
+      registry: defaultRegistry,
     },
     role: readRole(env, argv),
   };

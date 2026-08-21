@@ -34,7 +34,45 @@ export interface HeartholdTool {
 
 const NO_ARGS = { type: 'object', properties: {}, additionalProperties: false } as const;
 
-/** Thin control-plane facade. A missing URL is a clear, actionable error (the read tools still work). */
+/** Should we PROACTIVELY re-login before a scoped call? Only when a self-minted token EXISTS and is within
+ *  30s of expiry — to avoid a mid-call lapse. We deliberately do NOT proactively log in when there is no
+ *  token: on a single-member node (no requireSession) a scoped call succeeds tokenless via the Sovereign
+ *  fallback, and minting a session there would change the viewer. The initial login is handled REACTIVELY
+ *  on a 401, which only happens on a require-session node. A pre-provided `HEARTHOLD_CONTROL_TOKEN` (no known
+ *  expiry) is ridden as-is until it 401s. */
+function sessionExpiring(ctx: HeartholdToolContext): boolean {
+  return !!ctx.control.token && ctx.control.tokenExpiresAt !== undefined && ctx.control.tokenExpiresAt < Date.now() + 30_000;
+}
+
+/**
+ * Obtain a Warden control-plane session by SELF-LOGIN — the fix for a require-session (multi-member) node
+ * where the agent-mcp could ride a session but never obtain one, so scoped reads (mail, inbound) 401'd.
+ * The MCP is bound to the member's wallet, so it signs its own login challenge: that `createResponse` IS the
+ * AgentGate's standing self-approval — no separate Signet daemon call. Caches the bearer into `ctx.control`.
+ */
+async function establishSession(ctx: HeartholdToolContext): Promise<void> {
+  const base = ctx.control.wardenUrl;
+  if (!base) throw new Error('cannot establish a session without the Warden control URL (HEARTHOLD_WARDEN_CONTROL_URL)');
+  const km = boundKeymaster(ctx.runtime) as { createResponse(challenge: string, opts?: Record<string, unknown>): Promise<string> };
+  // 1. start — a pure control-plane auth challenge. NO callback: a bound agent holds its own wallet and
+  //    createResponses locally, so there is no separate wallet/browser to route the response POST back to.
+  const start = await fetch(`${base}/api/login/start`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+  if (!start.ok) throw new Error(`login/start → ${start.status}: ${await start.text()}`);
+  const challenge = ((await start.json()) as { challenge: string }).challenge;
+  // 2. self-sign — the AgentGate's standing self-approval. registry EXPLICIT: the ephemeral default is
+  //    hyperswarm, which hangs on an egress-isolated node; a bound agent uses its own (local) registry.
+  const response = await km.createResponse(challenge, { registry: ctx.control.registry ?? 'local' });
+  // 3. complete — mint the bearer + note its expiry for proactive re-login.
+  const done = await fetch(`${base}/api/login/complete`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ response }) });
+  if (!done.ok) throw new Error(`login/complete → ${done.status}: ${await done.text()}`);
+  const session = (await done.json()) as { token: string; expiresAt?: string };
+  ctx.control.token = session.token;
+  ctx.control.tokenExpiresAt = session.expiresAt ? new Date(session.expiresAt).getTime() : undefined;
+}
+
+/** Thin control-plane facade. A missing URL is a clear, actionable error (the read tools still work). On a
+ *  Warden call, self-establishes a session (proactively if none/expiring, and on a 401) so scoped routes work
+ *  on a require-session node — the bound agent logs itself in; no env token needed. */
 async function control(
   ctx: HeartholdToolContext,
   base: string | undefined,
@@ -49,11 +87,21 @@ async function control(
         `the keymaster-direct tools (hearthold_whoami / hearthold_read_card) work without it`,
     );
   }
-  const res = await fetch(`${base}${path}`, {
-    method,
-    headers: { 'content-type': 'application/json', ...(ctx.control.token ? { 'x-hearthold-session': ctx.control.token } : {}) },
-    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-  });
+  const doFetch = (): Promise<Response> =>
+    fetch(`${base}${path}`, {
+      method,
+      headers: { 'content-type': 'application/json', ...(ctx.control.token ? { 'x-hearthold-session': ctx.control.token } : {}) },
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    });
+  // Session is a Warden concern (the login routes + requireSession gate live there). Self-login only when
+  // it can help: a Warden target, a Warden URL, and a bound keymaster to sign the challenge.
+  const canSession = which === 'Warden' && !!ctx.control.wardenUrl && !!ctx.runtime.keymaster;
+  if (canSession && sessionExpiring(ctx)) await establishSession(ctx).catch(() => undefined); // proactive re-login before expiry
+  let res = await doFetch();
+  if (res.status === 401 && canSession) {
+    await establishSession(ctx); // a scoped route refused (require-session node) → obtain a session, retry ONCE (no loop)
+    res = await doFetch();
+  }
   const text = await res.text();
   let json: unknown;
   try {
