@@ -28,6 +28,24 @@ export const SENSITIVITY_NAMES: readonly SensitivityName[] = [
   'SEALED',
 ];
 
+/**
+ * Canonical vocabulary for the words that were historically overloaded — so every agent and GUI cites ONE
+ * source instead of tracking prose. Mirrors `docs/terminology.md` (the repo's source of truth); keep the two
+ * in sync. Import `HEARTHOLD_TERMINOLOGY.Sphere` etc. rather than re-explaining a term in local copy.
+ */
+export type HeartholdTerm = 'Sphere' | 'community' | 'space' | 'KB' | 'KbSpace' | 'partition';
+export const HEARTHOLD_TERMINOLOGY: Readonly<Record<HeartholdTerm, string>> = {
+  Sphere:
+    'A named publication target: the (Gatekeeper URL, registry) operations publish onto (core/sphere.ts). The anchoring layer — never a KB, partition, space, or community. A shared KB rides on a Sphere but is not one.',
+  community:
+    'A group of members under a shared issuer/registry (a C-DID issuing VMC membership; the PVM "G" factor). Formerly called a "sphere" — that usage is retired.',
+  space:
+    'The app-layer aggregator bundle — a partition/space + Artefact.owner/scope + a kind-scoped delegation. Formerly overloaded as "sphere".',
+  KB: 'A shared, collaborative Knowledge Base identified by a kbId (the collaborative pool).',
+  KbSpace: 'A KB with per-member private partitions turned on (memberPartitions).',
+  partition: 'A shared vs private DB within a KB. Not a personal vault — that is a "vault".',
+};
+
 /** A Hearthold agent's public identity. */
 export interface AgentIdentity {
   role: 'warden' | 'emissary' | 'sovereign' | 'verifier' | 'registry';

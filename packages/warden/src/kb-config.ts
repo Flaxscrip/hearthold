@@ -53,6 +53,15 @@ export interface KbConfig {
   openEnrollment?: boolean;
   /** Open-enrollment ceiling: refuse a NEW member once the KB has this many (existing members still act). */
   maxMembers?: number;
+  /**
+   * On open-enrollment, also grant the writeGroup — i.e. publish-to-shared (promote) rights. Default `true`
+   * (back-compat, the HATPro self-service model: a self-joiner can both draft and publish). Set `false` for a
+   * CURATED public space: a self-joiner gets read + a private draft partition, but publishing to the shared
+   * record requires explicit writeGroup membership — the curator set the Sovereign grants. Private drafts are
+   * always allowed (they need only the member's own partition, not the writeGroup); this flag gates the
+   * shared/public write alone. `openEnrollment` must be on for it to have any effect.
+   */
+  enrollGrantsPromote?: boolean;
 }
 
 const sha16 = (s: string): string => createHash('sha256').update(s).digest('hex').slice(0, 16);
@@ -252,13 +261,17 @@ export async function openEnroll(
     (await handle.keymaster.testGroup(kb.readGroup, did).catch(() => false));
   if (already) return { enrolled: false };
   if (kb.maxMembers !== undefined) {
-    const g = (await handle.keymaster.getGroup(kb.writeGroup).catch(() => null)) as { members?: string[] } | null;
+    // Count the readGroup — the true membership. In a CURATED space the writeGroup holds only the curator
+    // set, so capping on it would (wrongly) bound curators instead of members. readGroup holds everyone.
+    const g = (await handle.keymaster.getGroup(kb.readGroup).catch(() => null)) as { members?: string[] } | null;
     if ((g?.members?.length ?? 0) >= kb.maxMembers) {
       return { enrolled: false, reason: 'this KB is not accepting new members (enrollment is full)' };
     }
   }
   await grantAuthorization(handle, kb.readGroup, did);
-  await grantAuthorization(handle, kb.writeGroup, did);
+  // Publish-to-shared (writeGroup) is granted on self-join UNLESS the space is curated: then a self-joiner
+  // gets read + a private draft partition, and promote-to-shared stays with the explicitly-granted curators.
+  if (kb.enrollGrantsPromote !== false) await grantAuthorization(handle, kb.writeGroup, did);
   if (kb.memberPartitions) await provisionMemberPartition(handle, config, kb.kbId, did);
   return { enrolled: true };
 }

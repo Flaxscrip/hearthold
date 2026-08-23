@@ -408,19 +408,19 @@ choice.**
   sufficient, matching how `docs/credential-delivery/FINDINGS.md` already
   treats a subject-side `importDIDs` as "best-effort," Warden-driven
   plumbing, not a disclosure event.
-- **Into a sphere with peers** (a group/registry other members can read) —
+- **Into a community with peers** (a group/registry other members can read) —
   this is **publication**, full stop, and should be treated exactly like any
   other irreversible disclosure this codebase already gates. The grounded
   distinction: importing operations into a Gatekeeper that peers on
   `hyperswarm` (or any shared registry) means those peers' own resolves will
   now see the imported DID's chain — `shareDb()` (`hyperswarm-mediator.ts:355`)
   distributes whatever this node holds, unconditionally, to every connected
-  peer. There is no code path that imports "into a shared sphere" but
+  peer. There is no code path that imports "into a shared community" but
   suppresses redistribution — the mediator doesn't discriminate by how an
-  operation arrived. So "promotion into a peered sphere" **should** want
+  operation arrived. So "promotion into a peered community" **should** want
   Sovereign co-sign, the same step-up this repo already requires for sensitive
   disclosure (`decideRelease()`, `docs/security-model.md`) — because
-  functionally it *is* a disclosure: other spheres members receive content
+  functionally it *is* a disclosure: other community members receive content
   the Warden alone vetted.
 
 **The DMZ as the natural policy point.** Today's `verify: true` on `resolveDID`
@@ -524,7 +524,7 @@ confirm."
 
 **The design.** Hyperswarm's connection gate — whatever form it takes — keys
 on a raw public key with no semantic meaning; Archon's notion of "who belongs
-to this sphere" is expressed entirely in `did:cid` documents and group
+to this community" is expressed entirely in `did:cid` documents and group
 membership. The binding needed is an explicit, signed statement: *this DID
 attests that this swarm public key is its own*, published the same way
 Archon already publishes other service/network material into a DID document —
@@ -534,7 +534,7 @@ multiaddrs under `didDocumentData.node.ipfs`
 output above), so there's existing precedent in this exact node for a DID
 document carrying network-identity material, just for IPFS/libp2p rather than
 a raw hyperswarm key. A DID-signed swarm-key claim would slot into the same
-shape. A sync process (not the firewall callback itself) would watch sphere
+shape. A sync process (not the firewall callback itself) would watch community
 membership (group/registry changes) and DID-signed key claims, and
 materialize an in-memory allowlist — because the firewall hook, if used, is
 **synchronous**: it cannot itself resolve a DID, check a group, or make any

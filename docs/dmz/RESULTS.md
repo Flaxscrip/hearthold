@@ -79,7 +79,7 @@ not a silent assumption.
 | **OPEN** | Warden constructs a DMZ, **interrogates the target for peerlessness (`listRegistries()`)**, and refuses a peered/undetermined one before any session exists. | No — reversible, local, publishes nothing ([`../CO-SIGN-POLICY.md`](../CO-SIGN-POLICY.md)). |
 | **IMPORT** | Pull the counterparty's operation export into the DMZ. Best-effort: falls back to the native-resolvable path where import is gated; **fails closed** if a required DID doesn't resolve. | No |
 | **VERIFY** | `resolveDID(verify:true)` replays the chain and re-checks **every** operation's signature, including **across key epochs** (the rotation-safety property); `verifyProof` verifies a payload against the epoch that signed it. | No |
-| **DECIDE** | Compute the **keep closure** (below); the Sovereign decides what to keep. | Keep-into-a-peered-sphere is publication → co-sign; keep-local → Warden ([`../CO-SIGN-POLICY.md`](../CO-SIGN-POLICY.md)). |
+| **DECIDE** | Compute the **keep closure** (below); the Sovereign decides what to keep. | Keep-into-a-peered-community is publication → co-sign; keep-local → Warden ([`../CO-SIGN-POLICY.md`](../CO-SIGN-POLICY.md)). |
 | **TEARDOWN** | Destroy the session; every further call **fails closed** (`DmzSessionClosedError`); residue set is empty. The instance's data dies with the ephemeral instance. | No |
 
 **Export is full-chain-from-genesis, no pagination** (grounded live: 9 ops, op0 = `create` with empty

@@ -5,6 +5,10 @@ Sevenfold align. **One sentence:** the *Knowledge Base* is about **shared, colla
 members around one custodian**; the *trinity* is about **personal, sovereign custody — each Sovereign running
 its own three services over its own vault.** They compose; they are not the same axis.
 
+> **Citable in code:** the reserved/overloaded terms (*Sphere*, *community*, *space*, *KB*, *KB Space*,
+> *partition*) are exported as `HEARTHOLD_TERMINOLOGY` in `@hearthold/control-types` — import that instead of
+> re-explaining a term in local copy. This doc stays the source of truth; keep the two in sync.
+
 ---
 
 ## Model A — the shared Knowledge Base (multi-user)
@@ -88,6 +92,8 @@ You are a **Sovereign** (your own trinity + vault) who can **also** be a **KB me
 
 - **AgentGate** — an AI agent's Signet gate: self-approves within the parent-signed allowance, escalates above.
 - **assurance policy** — a KB's Sovereign-signed per-verb step-up requirement (`factor1`/`factor2`).
+- **community** — a group of members under a shared issuer/registry (a **C-DID** issuing **VMC** membership; the
+  PVM "G" factor). **Formerly called a "sphere"** in some docs — that usage is **retired** (see *Sphere* below).
 - **Emissary** — a Sovereign's world-facing companion (contribute/present). One-third of the trinity.
 - **governor** — the DID that signs a policy: a KB's assurance-policy signer, or the family parent.
 - **KB member** — a DID authorized (via a group) to read/write a shared KB.
@@ -95,6 +101,12 @@ You are a **Sovereign** (your own trinity + vault) who can **also** be a **KB me
 - **private partition** — a member's private DB inside a KB Warden (member-key sealed; write-host/read-guest).
 - **Signet** — a Sovereign's 2nd-factor authorizer (PIN for humans, AgentGate for agents).
 - **Sovereign** — the principal: a `did:cid` identity (person or AI agent).
+- **Sphere** — a named **publication target**: the `(Gatekeeper URL, registry)` operations publish onto
+  (`core/sphere.ts`; `publishToSphere` fails closed on a mismatch). It is **the anchoring layer, not the
+  application layer** — a Sphere is **never** a KB, a partition, a space, or a community. "A shared Sphere
+  between Sovereigns" = one Gatekeeper+registry two Sovereigns both anchor on. A shared KB *rides on* a
+  Sphere but is not one. (The app-layer "sphere" meanings are retired: **community** for a membership body,
+  **space/partition** for a KB compartment.)
 - **trinity** — a Sovereign's three services: Warden · Emissary · Signet.
 - **vault** — a Sovereign's own private data history (its 7th Capital).
 - **Verifier** — a third party that requests + checks proofs (not part of a trinity).
