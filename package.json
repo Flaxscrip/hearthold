@@ -121,6 +121,7 @@
     "e2e:kb-spaces": "npm run build && HEARTHOLD_CLASSIFIER=quarantine node --experimental-strip-types scripts/e2e-kb-spaces.ts",
     "e2e:kb-open-enroll": "npm run build && HEARTHOLD_CLASSIFIER=quarantine node --experimental-strip-types scripts/e2e-kb-open-enroll.ts",
     "e2e:kb-docs": "npm run build && HEARTHOLD_CLASSIFIER=quarantine HEARTHOLD_DATA_ROOT=.hearthold-e2e-docs node --experimental-strip-types scripts/e2e-kb-docs.ts",
+    "e2e:city-of-mages": "npm run build && HEARTHOLD_CLASSIFIER=quarantine HEARTHOLD_DATA_ROOT=.hearthold-e2e-city-of-mages node --experimental-strip-types scripts/e2e-city-of-mages.ts",
     "provision:hatpro": "npm run build && node --experimental-strip-types scripts/provision-hatpro-kb.ts",
     "e2e:kb-member-key": "npm run build && node --experimental-strip-types scripts/e2e-kb-member-key.ts",
     "e2e:kb-spaces-enable": "npm run build && HEARTHOLD_CLASSIFIER=quarantine node --experimental-strip-types scripts/e2e-kb-spaces-enable.ts",
