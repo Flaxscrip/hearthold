@@ -20,7 +20,7 @@ export interface IssuedLeaf {
   issuer: string;
   /** DID of the subject — the Sovereign the credential is about. */
   subject: string;
-  /** Best-effort credential type (e.g. 'SphereMembership'). */
+  /** Best-effort credential type (e.g. 'CommunityMembership'). */
   credentialType: string;
   /** The credential's schema DID — a verifier requires the leaf by this in a composite challenge. */
   schema?: string;

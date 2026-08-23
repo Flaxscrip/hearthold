@@ -108,7 +108,7 @@ it from their own wallet, then the gamer accepts it:
 
 ```bash
 # community manager (its own HEARTHOLD_DATA_ROOT): issue to the gamer's DID
-node packages/sovereign/dist/index.js issue <gamer-did> SphereMembership 'sphere=Example Sphere' role=Raid-Lead
+node packages/sovereign/dist/index.js issue <gamer-did> CommunityMembership 'community=Example Community' role=Raid-Lead
 #   → prints the credential DID, the schema DID, and the issuer DID (the verifier needs the last two)
 
 # gamer: accept it into the vault
