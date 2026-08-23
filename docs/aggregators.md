@@ -35,7 +35,7 @@ Almost every piece already exists:
 | Custody scoping | `Artefact.owner` + `scope` (`warden/src/store.ts:18`); partitions / KB spaces (`kb-spaces.md`) |
 | Scoped, revocable authority object | The invocation/attenuation capability layer (`invocation.md`) |
 
-**What is genuinely new:** (a) the *ingest-only* role restriction (§3); (b) the **Sphere** organizing unit
+**What is genuinely new:** (a) the *ingest-only* role restriction (§3); (b) the **Space** organizing unit
 (§4); (c) the phone↔home **sync-and-prune** custody flow (§5); (d) a per-source **connector** seam (§6);
 and (e) source-specialized **derivation** — for GPS, stay-points/visits and a location-aware sensitivity
 model (§7).
@@ -56,24 +56,25 @@ This *strengthens* PVM: maximal source access, minimal Hearthold authority. In c
 capability, and the Emissary daemon in aggregator mode refuses the `invoke` path outright — not by policy,
 by not holding the key to it.
 
-## 4. The Sphere model — one Warden, many source-domains
+## 4. The Space model — one Warden, many source-domains
 
-A **Sphere** is a *source-scoped data domain under a single Warden's custody.* Phone-GPS is one Sphere;
+A **Space** is a *source-scoped data domain under a single Warden's custody.* Phone-GPS is one Space;
 Phone-Photos another; the filesystem another. All share the **one Home Warden** (the custodian never
-fragments) but each Sphere carries its own:
+fragments) but each Space carries its own:
 
 - **aggregator DID + ingest delegation** (kind-scoped, revocable, independently);
 - **kind-namespace** (e.g. `location`, with sub-kinds `location/fix`, `location/visit`, `location/trajectory`);
 - **sensitivity policy** (GPS defaults far higher than, say, public bookmarks);
 - **retention & compaction policy** (raw fixes prune aggressively; derived visits persist);
 - **derived indexes** (the queryable substrate, §7);
-- **isolation for the visible set** — a Sphere is a partition; recall/forge over it is scoped server-side,
+- **isolation for the visible set** — a Space is a partition; recall/forge over it is scoped server-side,
   exactly as `kb-spaces.md` derives the visible set from the authenticated session, never from request content.
 
-Implementation-wise a Sphere layers on the existing primitives: a partition/space + `Artefact.owner/scope`
-+ a kind-scoped delegation. "Sphere" is the *user-facing* name for that bundle. (Term note: Archon uses
-"sphere" loosely for a controller's DID domain; we're overloading it at the app layer — worth a conscious
-decision to keep or rename to "partition/space" before it ships.)
+Implementation-wise a Space layers on the existing primitives: a partition/space + `Artefact.owner/scope`
++ a kind-scoped delegation. "Space" is the *user-facing* name for that bundle. (Term note: "Sphere" is now
+**reserved** for the Archon *publication target* — the `(Gatekeeper URL, registry)` operations anchor onto
+(`core/sphere.ts`; see [`terminology.md`](terminology.md)). This app-layer bundle was briefly called a
+"Sphere"; it is now called a **space** so the reserved word is never overloaded at the app layer.)
 
 ## 5. Custody & sync — raw moves home, sealed + receipted, over a private underlay
 
@@ -118,7 +119,7 @@ SourceConnector:
   does NOT classify · does NOT disclose · does NOT derive authority — it normalizes + submits
 ```
 
-Filesystem indexer, GPS, photos, calendar, email, wearables each become a connector emitting a Sphere's
+Filesystem indexer, GPS, photos, calendar, email, wearables each become a connector emitting a Space's
 kinds. The Warden classifies + custodies + derives, unchanged. Connectors are the only platform-specific
 code; everything downstream is shared.
 
@@ -180,14 +181,14 @@ the most valuable class (alibi, "didn't enter the restricted zone").
   `decideRelease()` with the human gate and pairwise DIDs, unchanged.
 - **On-device.** Classification and derivation run on Hearthold-controlled devices; raw content is only ever
   sealed-in-transit and sealed-at-rest; nothing leaves for a third party.
-- **Deny-by-default ingestion.** Untrusted submissions quarantine (SEALED) until the Sphere's aggregator is
+- **Deny-by-default ingestion.** Untrusted submissions quarantine (SEALED) until the Space's aggregator is
   autofile-trusted; a missing classifier fails everything to SEALED.
-- **Revocable per Sphere.** Killing a Sphere's aggregator delegation stops the feed immediately and severs
+- **Revocable per Space.** Killing a Space's aggregator delegation stops the feed immediately and severs
   any authority derived from it.
 
 ## 10. Phasing
 
-- **P0 — this doc + the class.** Ingest-only role, Sphere definition, connector seam, sync/prune protocol,
+- **P0 — this doc + the class.** Ingest-only role, Space definition, connector seam, sync/prune protocol,
   sensitivity model. (No behavior change.)
 - **P1 — the aggregator role + generic connector.** Ingest-only Emissary mode (refuses `invoke`); the
   `SourceConnector` seam; **filesystem indexer** as the simplest first connector (no sensor/custody split).
@@ -197,13 +198,13 @@ the most valuable class (alibi, "didn't enter the restricted zone").
   synthetic trace → private recall → SEALED on a clinic geofence.
 - **P3 — verifiable movement proofs.** Evidence over the location index: residency-days, was/was-not-at,
   proof-of-residence. Includes the completeness-commitment for negative proofs. The Archon showcase.
-- **P4 — more Spheres.** Photos, calendar, wearables reuse P1's seam.
+- **P4 — more Spaces.** Photos, calendar, wearables reuse P1's seam.
 
 ## 11. Open questions
 
-1. **"Sphere" vs "partition/space"** — adopt the user-facing term or fold into existing vocabulary? (§4)
+1. **Naming** — resolved: the app-layer bundle is a **space**; "Sphere" is reserved for the Archon publication target (§4).
 2. **On-phone pre-derivation** — how much, if any, before sync? (bandwidth vs re-derivability tradeoff, §5)
 3. **Negative-proof commitment** — completeness-commitment scheme + window semantics (§7.4).
 4. **Sensitive-place geofences** — user-declared, inferred, or both; how to review/correct them (§7.2).
-5. **Retention** — default raw-archive retention vs derived-index retention per Sphere (§4).
+5. **Retention** — default raw-archive retention vs derived-index retention per Space (§4).
 6. **Phone platform** — iOS/Android background-location constraints shape the connector and cadence (§6).
