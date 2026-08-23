@@ -5,6 +5,10 @@ Sevenfold align. **One sentence:** the *Knowledge Base* is about **shared, colla
 members around one custodian**; the *trinity* is about **personal, sovereign custody — each Sovereign running
 its own three services over its own vault.** They compose; they are not the same axis.
 
+> **Citable in code:** the reserved/overloaded terms (*Sphere*, *community*, *space*, *KB*, *KB Space*,
+> *partition*) are exported as `HEARTHOLD_TERMINOLOGY` in `@hearthold/control-types` — import that instead of
+> re-explaining a term in local copy. This doc stays the source of truth; keep the two in sync.
+
 ---
 
 ## Model A — the shared Knowledge Base (multi-user)
