@@ -1,0 +1,5 @@
+# TypeScript sources are always text for diff purposes. `warden/src/partition-store.ts` embedded a raw
+# NUL byte as its composite-key separator, so git classified the file as binary and rendered every change
+# to it as "Binary files differ" — silently hiding it from review. The separator is now a `\0` escape, but
+# this guards against a recurrence in any .ts file.
+*.ts diff

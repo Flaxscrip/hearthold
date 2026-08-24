@@ -6,11 +6,17 @@
  */
 
 import type { Sensitivity, DisclosureMode } from './security.js';
+import type { SpendApprovalDetail } from './escalation.js';
+import type { CipherPublicJwk } from './payload.js';
+import type { CapabilityInvocation, Discharge } from './capability.js';
+import type { ChainCapabilityGrant } from './capability-chain.js';
+import type { DischargeRequest } from './invocation-monitor.js';
+import type { GatekeeperEvent } from '@didcid/gatekeeper/types';
 
 export const PROTOCOL_VERSION = '0.4.0' as const;
 
 /** Kinds of observation the Emissary can submit. Extended over time. */
-export type WitnessKind = 'event' | 'location' | 'activity' | 'browsing' | 'document';
+export type WitnessKind = 'event' | 'location' | 'activity' | 'browsing' | 'document' | 'book' | 'link' | 'image';
 
 // ── Emissary → Warden: submission ──────────────────────────────────────────────
 
@@ -25,17 +31,29 @@ export interface WitnessSubmission {
   ciphertext: string;
   /** Optional sensitivity the Emissary proposes; the Warden's classifier decides authoritatively. */
   proposedSensitivity?: Sensitivity;
+  /**
+   * A `createResponse` DID presenting the Emissary's delegation credential in answer to the Warden's
+   * challenge. Authorizes the submission by a PRESENTED credential (kinds + member + proven holder +
+   * issuer-trust via `verifyProof`) instead of a local ACL lookup. See docs/invocation.md §5.
+   */
+  delegationProof?: string;
 }
 
 /** Warden → Emissary: acknowledgement of a stored submission. */
 export interface SubmissionReceipt {
   type: 'hearthold/submission-receipt';
   version: typeof PROTOCOL_VERSION;
-  /** Stable id of the stored artefact (content hash of the ciphertext). */
+  /** Stable id of the stored artefact (content hash of the ciphertext) — known immediately, before processing. */
   artefactId: string;
-  /** Sensitivity the Warden assigned (post-classification, or quarantine default). */
-  assignedSensitivity: Sensitivity;
+  /**
+   * Sensitivity the Warden assigned (post-classification). ABSENT on the immediate `queued` ack — a
+   * submission is a PROPOSAL, so the honest fast reply is "received & queued", and the caption/classify
+   * runs in the background; the final sensitivity arrives via the `submission-stored` SSE.
+   */
+  assignedSensitivity?: Sensitivity;
   storedAt: string;
+  /** True on the immediate ack (accepted, queued for background caption/classify → born-obsidian for triage). */
+  queued?: boolean;
 }
 
 // ── Emissary → Warden: evidence (with per-request step-up) ──────────────────────
@@ -61,8 +79,6 @@ export interface EvidenceRequest {
   disclosureMode: DisclosureMode;
   /** Which artefacts back the claim (kind + optional window). Required to assemble evidence. */
   spec?: EvidenceClaimSpec;
-  /** The DID the claim is about (the Sovereign). Defaults to the Warden's configured Sovereign. */
-  subjectDid?: string;
   /** How long the minted proof should stay valid (`validUntil`). Defaults to the Warden's setting. */
   validForMinutes?: number;
   /** Third-party `issued` credentials (by DID) the Sovereign holds, to compose into the proof. */
@@ -131,9 +147,15 @@ export interface ProofRequestMessage {
   schema?: string;
 }
 
-/** A proof-of-human assertion the Signet produces when the Sovereign approves a disclosure. */
+/**
+ * A presence assertion the Signet produces when a Sovereign approves a disclosure. For a HUMAN Sovereign
+ * this is proof-of-human (`pin`/`passphrase`/`biometric`/`face-liveness`). For an AI-AGENT Sovereign it is
+ * `agent` — proof-of-AGENT: the agent's own key deliberately co-signs a within-scope act at its Signet
+ * (docs/agent-family.md). The field records the method; consumers that require human presence should check
+ * for `method !== 'agent'`.
+ */
 export interface HumanPresenceAssertion {
-  method: 'pin' | 'passphrase' | 'biometric' | 'face-liveness';
+  method: 'pin' | 'passphrase' | 'biometric' | 'face-liveness' | 'agent';
   /** Assurance level (higher = stronger presence evidence), cf. NIST AAL. */
   level: number;
   timestamp: string;
@@ -223,7 +245,7 @@ export interface KbChallengeMessage {
 
 /** What the Sovereign signs — proves DID control and binds to the Warden's nonce. */
 export interface KbRequestStatement {
-  action: 'query' | 'update';
+  action: 'query' | 'update' | 'put-doc' | 'get-doc';
   /** The Sovereign's DID (must match the signature and a KB group member). */
   requester: string;
   kbId: string;
@@ -239,6 +261,14 @@ export interface KbRequestStatement {
    *  one. Omit to use the space's default (`defaultScope`). Ignored for queries (which union the
    *  member's visible set). */
   scope?: 'shared' | 'private';
+  /** Structured-document key (`put-doc`/`get-doc`): a stable name for an OVERWRITE-semantics document
+   *  (e.g. `'profile'`). A re-`put-doc` supersedes the prior version rather than appending, so a
+   *  document reads back as one coherent current value (not an append-log). */
+  docKey?: string;
+  /** `get-doc` only: the target document owner's DID when reading a SHARED document (default: the
+   *  caller — read your own). A shared document is readable by anyone with shared read; a private
+   *  document is only ever the caller's own (another member's private partition is never reachable). */
+  owner?: string;
 }
 /** A KB request statement plus the Sovereign's detached signature (`keymaster.addProof`). */
 export type SignedKbRequest = KbRequestStatement & { proof?: unknown };
@@ -300,13 +330,46 @@ export interface KbSessionRequestMessage {
   version: typeof PROTOCOL_VERSION;
   token: string;
   kbId: string;
-  action: 'query' | 'update';
+  action: 'query' | 'update' | 'put-doc' | 'get-doc';
   query?: string;
   k?: number;
   kind?: string;
   text?: string;
   /** KB Spaces: target the shared partition or the member's private one (update only; default per space). */
   scope?: 'shared' | 'private';
+  /** Structured-document key (`put-doc`/`get-doc`) — overwrite-semantics doc name, e.g. `'profile'`. */
+  docKey?: string;
+  /** `get-doc` only: target owner DID for a SHARED read (default: the caller). */
+  owner?: string;
+}
+
+// ── Partition-key rewrap (Phase 2 / guardianship-threat-model §4a) ──────────────────────────────────
+// The read-guest handshake. The Warden holds a member's private-partition keys wrapped to the member's
+// key (it cannot open them at rest). On a member's session, the Warden asks that member's OWN Signet to
+// unwrap them and rewrap them to a Warden EPHEMERAL session key, so the Warden can transiently RAG the
+// member's own content. Warden ⇄ the member's Signet, both Hearthold — never an app, never the governor.
+export interface PartitionRewrapRequestMessage {
+  type: 'hearthold/partition-rewrap-request';
+  version: typeof PROTOCOL_VERSION;
+  /** Binds the rewrapped keys to one session (zeroized when it ends). */
+  sessionId: string;
+  /** The Warden's EPHEMERAL per-session public key — the member rewraps to it; the long-term key stays home. */
+  wardenSessionPub: CipherPublicJwk;
+  /** ONLY the session member's own partitions (scoped, §4.1): partitionId + its member-wrapped private key. */
+  partitions: { partitionId: string; wrapped: string }[];
+  /** Warden-issued single-use nonce (replay guard). */
+  nonce: string;
+}
+
+export interface PartitionRewrapResponseMessage {
+  type: 'hearthold/partition-rewrap-response';
+  version: typeof PROTOCOL_VERSION;
+  sessionId: string;
+  /** False iff the member's proof-of-human failed / they declined. */
+  approved: boolean;
+  /** Present iff approved: each partition key rewrapped to `wardenSessionPub`. */
+  rewrapped?: { partitionId: string; rewrapped: string }[];
+  reason?: string;
 }
 
 // ── KB assurance step-up (factor 2): the Warden asks the member out-of-band to authorize an action ──
@@ -324,6 +387,11 @@ export interface KbApprovalRequestMessage {
   resource: string;
   /** A human-readable description of the action (Warden-authored). */
   summary: string;
+  /**
+   * Present when this step-up is an agent-family SPEND escalation — the amount/agent/band the Signet renders
+   * as a spend decision (docs/agent-family.md). Absent for a plain KB assurance step-up.
+   */
+  spend?: SpendApprovalDetail;
 }
 
 /** Member's Signet → Warden: the out-of-band decision. */
@@ -353,6 +421,25 @@ export type RulesetSignResponseMessage =
   | { type: 'hearthold/ruleset-sign-response'; version: typeof PROTOCOL_VERSION; approved: true; signed: unknown }
   | { type: 'hearthold/ruleset-sign-response'; version: typeof PROTOCOL_VERSION; approved: false; reason: string };
 
+// ── Guardianship member-acknowledgment (Phase 5 / guardianship-threat-model §3) ──────────────────────
+// The other half of the amendment rule: a guardianship edge is authored by the GOVERNOR's Signet
+// (ruleset-sign, above) but authorizes nothing until the SUBJECT member's OWN key acknowledges it. The
+// Warden asks the subject member to co-sign the base Ruleset; the ack proof never leaves without a fresh
+// proof-of-human at the member's Signet. This is what makes guardianship grantable-but-never-seizable.
+export interface MemberAckRequestMessage {
+  type: 'hearthold/member-ack-request';
+  version: typeof PROTOCOL_VERSION;
+  /** The governor-signed guardianship Ruleset the subject member is asked to acknowledge. */
+  ruleset: unknown;
+  /** Warden-authored description shown at the member's Signet (who watches them, over what, until when). */
+  summary: string;
+}
+
+/** Subject member → Warden: their acknowledgment proof over the base Ruleset (approved), or a decline. */
+export type MemberAckResponseMessage =
+  | { type: 'hearthold/member-ack-response'; version: typeof PROTOCOL_VERSION; approved: true; memberAck: unknown }
+  | { type: 'hearthold/member-ack-response'; version: typeof PROTOCOL_VERSION; approved: false; reason: string };
+
 /** Warden → Sovereign (via Mage): the result of an authorized KB request, or a refusal. */
 export type KbResultMessage =
   | {
@@ -371,6 +458,31 @@ export type KbResultMessage =
       /** Whether the contribution was embedded into the recall index. `false` = stored but NOT yet
        *  searchable (the embedder was unavailable); recover with `warden kb-reindex`. */
       indexed?: boolean;
+    }
+  | {
+      type: 'hearthold/kb-result';
+      version: typeof PROTOCOL_VERSION;
+      action: 'put-doc';
+      artefactId: string;
+      docKey: string;
+      /** How many prior versions of this document were superseded by this write (overwrite semantics).
+       *  0 = first write; ≥1 = an update that replaced the previous coherent value. */
+      superseded: number;
+      indexed?: boolean;
+    }
+  | {
+      type: 'hearthold/kb-result';
+      version: typeof PROTOCOL_VERSION;
+      action: 'get-doc';
+      docKey: string;
+      /** The document owner's DID (the caller for a private/own read, the target for a shared read). */
+      owner: string;
+      /** The current document text, or `null` when no such document is visible to the caller. */
+      text: string | null;
+      kind?: string;
+      /** When this version was written. */
+      updatedAt?: string;
+      scope?: 'shared' | 'private';
     }
   | {
       type: 'hearthold/kb-error';
@@ -406,6 +518,184 @@ export type CgprRelayResponseMessage =
   | { type: 'hearthold/cgpr-response'; version: typeof PROTOCOL_VERSION; status: 'denied'; reason: string };
 
 /** Warden → Emissary: a request was refused (e.g. not authorized). */
+/**
+ * Deliver a verifiable credential to a subject agent on a node that may NOT share a registry with the
+ * issuer. Cross-node DID resolution carries only the public W3C DID document, never the encrypted
+ * `didDocumentData` — so the VC's content cannot be pulled by reference and must travel in-band. This
+ * message ships the IMMUTABLE ops the subject needs to make the VC locally resolvable + verifiable: the
+ * VC asset ops and its schema ops (both content-addressed, safe to cache). The issuer Agent DID is
+ * deliberately NOT shipped by default — identities are mutable, so the receiver resolves the issuer
+ * FRESH over the peer at verify/authcrypt time rather than trusting a copy that goes stale offline.
+ * authcrypt at the transport layer already authenticates the issuer as the sender.
+ */
+export interface CredentialDeliveryMessage {
+  type: 'hearthold/credential-delivery';
+  version: typeof PROTOCOL_VERSION;
+  /** The VC asset DID the subject should accept. */
+  credentialDid: string;
+  /** The schema DID the VC conforms to (shipped so the subject can verify it locally). */
+  schemaDid: string;
+  /**
+   * `exportDIDs`-shaped ops, in dependency order (schema before VC; issuer first iff shipped), for the
+   * subject's gatekeeper to `importDIDs` + `processEvents`. Only ever the immutable VC + schema — unless
+   * `includesIssuerThrowaway` is set, in which case the leading entry is the issuer Agent DID as a
+   * documented REFRESHABLE THROWAWAY (never authoritative), a stopgap until Archon core's peer fallback
+   * carries `didDocumentData` and no import is needed at all.
+   */
+  ops: GatekeeperEvent[][];
+  /** True iff `ops` leads with the issuer Agent DID (opt-in throwaway; the default is false — no issuer). */
+  includesIssuerThrowaway?: boolean;
+  /**
+   * OPTIONAL recipient-readable rendering of the VC's claims, sealed to `toDid` by the sender (who can read
+   * the VC). Ships beside the immutable provenance `ops` so a readable pass hands over content the recipient
+   * can actually decrypt — the ops stay the provenance anchor (verifyChain), this is the readable layer. A
+   * bigger disclosure than provenance-only, so it is sender-opt-in (`POST /api/card/pass` `readable:true`).
+   */
+  recipientSealed?: string;
+}
+
+/**
+ * The subject's reply to a `CredentialDeliveryMessage`: whether it accepted the VC, and (if the caller
+ * wired the VC→KB bridge) the artefact id the accepted credential was ingested to.
+ */
+export interface CredentialDeliveryAckMessage {
+  type: 'hearthold/credential-delivery-ack';
+  version: typeof PROTOCOL_VERSION;
+  credentialDid: string;
+  accepted: boolean;
+  /** Present on failure — the reason the subject could not import/accept (never leaks wallet internals). */
+  reason?: string;
+  /** Present iff the caller wired KB ingest and it succeeded — the artefact id in the subject's partition. */
+  ingestedArtefactId?: string;
+}
+
+// ── Emissary → Warden: request a fresh, Warden-minted challenge to present against ──────────────────
+//
+// The credential-request ceremony needs the VERIFIER to mint the challenge (the audience binding). The
+// presenter asks the Warden for one, answers it with `createResponse`, and sends the response as its
+// `delegationProof` / invocation `presentation`. The Warden asserts the answered challenge is the one it
+// minted (fresh, single-use / TTL-bound) — audit-3 §1. Without this, a presentation is a bearer token.
+
+export interface ChallengeRequestMessage {
+  type: 'hearthold/challenge-request';
+  version: typeof PROTOCOL_VERSION;
+  /** What the presentation is for — selects the schema + trusted issuer the challenge requires. */
+  purpose: 'invocation' | 'delegation';
+}
+
+export interface ChallengeResponseMessage {
+  type: 'hearthold/challenge-response';
+  version: typeof PROTOCOL_VERSION;
+  /** The Warden-minted challenge DID to answer with `createResponse`. */
+  challenge: string;
+  /**
+   * For a `delegation` challenge: the delegation credential DID(s) the Warden has issued to THIS caller that
+   * it should `acceptCredential` before presenting — so an Emissary self-provisions its held delegation when
+   * it fetches a challenge, rather than needing a separate delivery push to a possibly-offline daemon.
+   */
+  acceptCredentials?: string[];
+}
+
+// ── Warden → owner's Signet: obtain a consent discharge for a sensitive disclosure ──────────────────
+//
+// The direct control-plane channel (the Emissary is never on it — §7.7). The Warden authors the request; the
+// Signet runs the owner's fresh proof-of-human gate and, on approval, signs a discharge bound to the act's txn.
+
+export interface DischargeRequestMessage {
+  type: 'hearthold/discharge-request';
+  version: typeof PROTOCOL_VERSION;
+  /** The Warden-authored discharge request (act txn, predicate, the owner to sign, human-readable reason). */
+  request: DischargeRequest;
+}
+
+export interface DischargeResponseMessage {
+  type: 'hearthold/discharge-response';
+  version: typeof PROTOCOL_VERSION;
+  approved: boolean;
+  /** The signed consent, present iff approved — bound to `request.txn`/`predicate` and signed by `request.by`. */
+  discharge?: Discharge;
+  reason?: string;
+}
+
+/**
+ * Delegator → delegate's Emissary: hand over a held chain-capability (the child hop + its ancestor disclosures)
+ * so the recipient can invoke it (and further-delegate). authcrypt authenticates the delegator as sender at the
+ * transport layer. The recipient persists it in its HeldChainStore. Also how a Sovereign seeds a ROOT grant.
+ */
+export interface ChainGrantMessage {
+  type: 'hearthold/chain-grant';
+  version: typeof PROTOCOL_VERSION;
+  grant: ChainCapabilityGrant;
+}
+
+/**
+ * Emissary → its governing Sovereign: register a hop it just delegated onward, so the Sovereign's WATCH can
+ * render the live delegation forest (item 5). Envelope-only provenance — child/parent/holder/counter, never
+ * caveats or secrets. The Sovereign can independently verify it against the public chain (`reconstructLineage`).
+ */
+export interface HopRegisteredMessage {
+  type: 'hearthold/hop-registered';
+  version: typeof PROTOCOL_VERSION;
+  childVcDid: string;
+  parentVcDid: string;
+  holder: string;
+  counter: number;
+}
+
+/** Emissary → its governing Sovereign: a hop it issued was revoked — mark it in the watch. */
+export interface HopRevokedMessage {
+  type: 'hearthold/hop-revoked';
+  version: typeof PROTOCOL_VERSION;
+  childVcDid: string;
+}
+
+/**
+ * The A2A message-flow the Sovereign WATCHES (item 5, Slice B) — "watch the encrypted messages pass". An agent
+ * reports to its governing Sovereign each time it exercises a capability: who → whom, under what authority, and
+ * the OUTCOME — never the disclosed content (that goes to the audience, not the governor). Monitoring, not
+ * surveillance: the Sovereign governs the flow + authority, and reads the content only when it was disclosed to
+ * it (a readable, co-signed pass). Envelope-only by construction.
+ */
+export interface FlowEvent {
+  /** The agent that acted (sender). */
+  from: string;
+  /** The counterparty — the Warden for an invocation, a recipient for a card pass. */
+  to: string;
+  /** `invocation` | `chain-invocation` | `card-pass` | … */
+  kind: string;
+  /** The capability governing the act, when applicable (e.g. the chain leaf's Asset DID). */
+  governingCapabilityDid?: string;
+  /** The witness kind disclosed — metadata, never the claim's content. */
+  witnessKind?: string;
+  /** The outcome the governor may see: `granted` | `denied`. */
+  decision?: string;
+  ts: string;
+}
+
+export interface FlowEventMessage {
+  type: 'hearthold/flow-event';
+  version: typeof PROTOCOL_VERSION;
+  flow: FlowEvent;
+}
+
+/**
+ * Emissary → its governing Sovereign: ask to co-sign an authority-mutating act (delegate a slice of family
+ * authority onward, or revoke a hop) BEFORE performing it. The Sovereign's gate decides — a human PINs, an
+ * AI-agent Sovereign's AgentGate self-approves within its parent-signed allowance. This is what keeps the keyless
+ * delegate/revoke routes from being an unauthenticated grab of family authority (audit-5).
+ */
+export interface ActionApprovalRequestMessage {
+  type: 'hearthold/action-approval-request';
+  version: typeof PROTOCOL_VERSION;
+  action: { action: string; resource: string; summary: string };
+}
+
+export interface ActionApprovalResponseMessage {
+  type: 'hearthold/action-approval-response';
+  version: typeof PROTOCOL_VERSION;
+  approved: boolean;
+}
+
 export interface ErrorMessage {
   type: 'hearthold/error';
   version: typeof PROTOCOL_VERSION;
@@ -413,10 +703,17 @@ export interface ErrorMessage {
 }
 
 export type HearthholdMessage =
+  | ChainGrantMessage
+  | HopRegisteredMessage
+  | HopRevokedMessage
+  | FlowEventMessage
+  | ActionApprovalRequestMessage
+  | ActionApprovalResponseMessage
   | WitnessSubmission
   | SubmissionReceipt
   | EvidenceRequest
   | EvidenceResponse
+  | CapabilityInvocation
   | ProofRequestMessage
   | ProofPresentationMessage
   | ApprovalRequestMessage
@@ -429,11 +726,21 @@ export type HearthholdMessage =
   | KbLoginCompleteMessage
   | KbSessionMessage
   | KbSessionRequestMessage
+  | PartitionRewrapRequestMessage
+  | PartitionRewrapResponseMessage
   | KbApprovalRequestMessage
   | KbApprovalResponseMessage
   | RulesetSignRequestMessage
   | RulesetSignResponseMessage
+  | MemberAckRequestMessage
+  | MemberAckResponseMessage
   | KbResultMessage
   | CgprRelayRequestMessage
   | CgprRelayResponseMessage
+  | CredentialDeliveryMessage
+  | CredentialDeliveryAckMessage
+  | ChallengeRequestMessage
+  | ChallengeResponseMessage
+  | DischargeRequestMessage
+  | DischargeResponseMessage
   | ErrorMessage;

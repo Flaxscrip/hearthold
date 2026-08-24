@@ -290,7 +290,7 @@ function ContributePanel({ session }: { session: Session }) {
           </button>
         ))}
       </div>
-      <textarea rows={3} placeholder="A fact the guild should know…" value={text} onChange={(e) => setText(e.target.value)} />
+      <textarea rows={3} placeholder="A fact the sphere should know…" value={text} onChange={(e) => setText(e.target.value)} />
       <button onClick={add} disabled={busy || !text.trim()}>
         {busy ? 'contributing…' : 'Contribute'}
       </button>

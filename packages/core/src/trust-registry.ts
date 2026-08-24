@@ -6,7 +6,7 @@
  * `{authorized, message}`), so a verifier trusts a **registry** instead of a hardcoded issuer list.
  *
  * Two implementations behind one `TrustEvaluator` seam:
- *   - `HttpTrustRegistry` — consume a remote TRQP registry (the ecosystem/guild registry, outward).
+ *   - `HttpTrustRegistry` — consume a remote TRQP registry (the ecosystem/sphere registry, outward).
  *   - `GroupTrustRegistry` — run a registry in-process over **Archon groups** (the Sovereign's own
  *     registry of its Emissaries, inward). Membership in the group bound to `(action, resource)` *is*
  *     the authorization — exactly archon-trust-registry's "groups are the authorization store", but

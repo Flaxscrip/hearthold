@@ -13,6 +13,18 @@ export interface Artefact {
   /** Sealed payload — bare ciphertext addressed to the Warden. Never plaintext. */
   ciphertext: string;
   metadata: Record<string, unknown>;
+  /** Household member DID this artefact belongs to. Attributed on submit (Phase 1); backfilled to the
+   *  configured Sovereign for pre-family data. Undefined = not yet attributed (treated as the Sovereign's). */
+  owner?: string;
+  /** Partition origin: the shared household pool, or the owner's private partition. Default 'private'. */
+  scope?: 'shared' | 'private';
+  /**
+   * Which key seals `ciphertext`. Absent = the Warden's own key (`sealForWarden` / `unsealAsWarden`, the
+   * default). `{ partition }` = a member-partition public key (`sealToKey`) the Warden CANNOT open at rest;
+   * a reader needs the member's session-rewrapped key (`openWithKey`). Set only by the member-key write
+   * path (Phase 6 cutover); the resolver in `recall.ts` routes on it.
+   */
+  sealedTo?: { partition: string };
 }
 
 /**

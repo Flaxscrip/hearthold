@@ -9,6 +9,10 @@
  *   5. Grant reuse → verifier refuses (single-use burn).
  *   6. Denial carries ticketId and nothing else.
  *   7. Pairwise: two audiences → unlinkable subjects.
+ *   8. Key custody enforced in the CGPR path: when the Sovereign SIGNS a key-custody policy that keys a
+ *      counterparty itself (subject-keyed), the Warden is refused from minting a CGPR disclosure identity
+ *      for it — fail closed, nothing minted. (The Sovereign controls that key in the Signet, not the
+ *      custodian.) Proves `keyCustodyRuleset` is threaded through the live gateway flow, not just core.
  *
  * Isolated data root; run:  npm run e2e:cgpr
  */
@@ -39,6 +43,7 @@ const assert = (cond: unknown, msg: string): void => {
 };
 const ALLOW_PORT = 4319;
 const DENY_PORT = 4320;
+const CUSTODY_PORT = 4321;
 
 /** A wire transcript — every request + response the counterparty exchanges, for the grep check. */
 const transcript: string[] = [];
@@ -83,6 +88,8 @@ async function main(): Promise<void> {
   const sovId = await ensureIdentity(sovereign, config);
   const c1Id = await ensureIdentity(c1, config);
   const c2Id = await ensureIdentity(c2, config);
+  const bank = await openKeymaster('emissary', config, pass); // a subject-keyed counterparty (a KYC anchor)
+  const bankId = await ensureIdentity(bank, config);
 
   await new VaultStore(warden.dataFolder).put({
     id: hex('pref-1'), kind: 'document', observedAt: '2026-07-01T12:00:00Z',
@@ -95,13 +102,23 @@ async function main(): Promise<void> {
   });
   const allowChain = [await signRuleset(sovereign, base({ capabilities: { verbs: ['grant'], kinds: ['document'] } }))];
   const denyChain = [await signRuleset(sovereign, base({ capabilities: { verbs: ['grant'], kinds: ['location'] } }))]; // not 'document'
+  // A key-custody policy the Sovereign signs SEPARATELY from the gateway Ruleset: it keys the `bank`
+  // relationship itself (subject-keyed). Signed by the Sovereign (actor = sovId), pinned as the mint's
+  // custody source — so the gateway may authorize the request yet the Warden is still refused the mint.
+  const custodyChain = [
+    await signRuleset(sovereign, {
+      actor: sovId.did, actorKind: 'sovereign', resource: 'key-custody', version: 1, previous: null,
+      capabilities: { keyCustody: { default: 'warden', subject: [bankId.did] } },
+      ceiling: Sensitivity.SEALED, status: 'active',
+    }),
+  ];
 
   const store = new FilePairwiseStore(warden);
-  const svc = (chain: typeof allowChain): CgprService =>
-    new CgprService(warden, config, { gatewayRuleset: chain, sovereignDid: sovId.did, pairwiseStore: store, kind: 'document' });
-  const backend = (chain: typeof allowChain): CgprBackend => ({
+  const svc = (chain: typeof allowChain, keyCustodyRuleset?: typeof allowChain): CgprService =>
+    new CgprService(warden, config, { gatewayRuleset: chain, sovereignDid: sovId.did, pairwiseStore: store, kind: 'document', keyCustodyRuleset });
+  const backend = (chain: typeof allowChain, keyCustodyRuleset?: typeof allowChain): CgprBackend => ({
     submit: async (req) => {
-      const r = await svc(chain).handle(req);
+      const r = await svc(chain, keyCustodyRuleset).handle(req);
       return r.status === 'granted'
         ? { status: 'granted', credential: r.credential, schemaDid: r.schemaDid, validUntil: r.validUntil }
         : { status: 'denied', reason: r.reason };
@@ -113,6 +130,10 @@ async function main(): Promise<void> {
   });
   const gwDeny = await new Promise<ReturnType<typeof startA2aGateway>>((res) => {
     const g = startA2aGateway({ port: DENY_PORT, publicUrl: `http://127.0.0.1:${DENY_PORT}`, backend: backend(denyChain), onListening: () => res(g) });
+  });
+  // Same authorizing gateway Ruleset as ALLOW, but wired with the Sovereign's key-custody policy.
+  const gwCustody = await new Promise<ReturnType<typeof startA2aGateway>>((res) => {
+    const g = startA2aGateway({ port: CUSTODY_PORT, publicUrl: `http://127.0.0.1:${CUSTODY_PORT}`, backend: backend(allowChain, custodyChain), onListening: () => res(g) });
   });
 
   try {
@@ -186,6 +207,22 @@ async function main(): Promise<void> {
     assert(subject1 !== subject2, 'C1 and C2 get DISTINCT pairwise subjects');
     process.stdout.write('✓ [7] two audiences → unlinkable pairwise subjects\n');
 
+    // ── 8. Key custody enforced in the CGPR path ──
+    // The gateway authorizes the request (allowChain), but the Sovereign's signed key-custody policy keys
+    // the bank itself — so the Warden is refused the disclosure mint. Fail closed as a graceful denial: a
+    // bare cgpr-decision (no leaked reason, like check 6), and nothing minted.
+    const custodyBefore = await store.find(bankId.did);
+    const custodyTask = (await rpc(CUSTODY_PORT, 'message/send', sendArtifact(ticket(scopes), bankId.did))).result as any;
+    assert(custodyTask?.status?.state === 'completed', `subject-keyed request completes as a clean decision (got ${custodyTask?.status?.state})`);
+    assert(!grantOf(custodyTask), 'nothing minted for the subject-keyed audience');
+    const custodyDecision = decisionOf(custodyTask);
+    assert(
+      custodyDecision && JSON.stringify(Object.keys(custodyDecision).sort()) === JSON.stringify(['decision', 'ticketId']) && custodyDecision.decision === 'denied',
+      `subject-keyed audience refused as a bare denial — no reason leaks (got ${JSON.stringify(custodyDecision)})`,
+    );
+    assert((await store.find(bankId.did)) === custodyBefore, 'no pairwise DID minted for the subject-keyed audience');
+    process.stdout.write('✓ [8] key custody enforced — Warden refused to mint a disclosure identity for a Sovereign-keyed audience\n');
+
     // ── 1 (wire-grep): the Sovereign DID never appears anywhere on the wire ──
     const wire = transcript.join('\n');
     assert(!wire.includes(sovId.did), 'the Sovereign DID must NEVER appear on the wire');
@@ -193,10 +230,11 @@ async function main(): Promise<void> {
     assert(subject1 !== sovId.did && subject2 !== sovId.did, 'no pairwise subject equals the Sovereign');
     process.stdout.write(`✓ [1] wire-capture: Sovereign DID absent across ${transcript.length} recorded frames\n`);
 
-    process.stdout.write('\n✓ CGPR conformance: all 7 checks pass\n');
+    process.stdout.write('\n✓ CGPR conformance: all 7 checks pass (+ key-custody enforcement)\n');
   } finally {
     gwAllow.close();
     gwDeny.close();
+    gwCustody.close();
   }
   process.exit(0);
 }

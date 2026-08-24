@@ -20,6 +20,9 @@ import {
   ensureIdentity,
   ensureDelegationSchema,
   issueDelegation,
+  acceptDelegation,
+  requestProof,
+  presentProof,
   sealForWarden,
   DidCommTransport,
   IDENTITY_NAME,
@@ -57,15 +60,15 @@ async function main(): Promise<void> {
   const witnessId = await ensureIdentity(witness, config);
   check('warden + witness ready', wardenId.did.startsWith('did:') && witnessId.did.startsWith('did:'));
 
-  step('Issue + record a delegation for the Emissary');
+  step('Issue a delegation credential; the Emissary accepts it (no local ACL record needed)');
   const schemaDid = await ensureDelegationSchema(warden);
   const validUntil = new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString();
   const delegationDid = await issueDelegation(warden, witnessId.did, schemaDid, {
     kinds: ['event', 'location', 'activity'],
     validUntil,
   });
-  await new DelegationStore(warden).record(witnessId.did, delegationDid);
-  check('delegation issued + recorded', delegationDid.startsWith('did:'));
+  await acceptDelegation(witness, delegationDid);
+  check('delegation issued + accepted', delegationDid.startsWith('did:'));
 
   step('Warden serves over DIDComm');
   const wardenTransport = new DidCommTransport(warden, IDENTITY_NAME.warden, config.nodeUrl);
@@ -88,22 +91,33 @@ async function main(): Promise<void> {
       wardenId.did,
       JSON.stringify({ place: 'Paris, FR', lat: 48.8566, note: 'e2e observation' }),
     );
+    // The Emissary PRESENTS its delegation: the Warden requests the credential, the Emissary answers.
+    const challenge = await requestProof(warden, { schema: schemaDid, trustedIssuers: [wardenId.did] });
+    const delegationProof = await presentProof(witness, challenge);
     const submission: WitnessSubmission = {
       type: 'hearthold/witness-submission',
       version: PROTOCOL_VERSION,
       kind: 'location',
       observedAt: new Date().toISOString(),
       ciphertext,
+      delegationProof,
     };
     const reply = await witnessTransport.request(wardenId.did, submission, { pollMs: 1000 });
     check('reply is a submission receipt', reply.type === 'hearthold/submission-receipt');
     const receipt = reply.type === 'hearthold/submission-receipt' ? reply : null;
-    check(`quarantined by default (SEALED=${Sensitivity.SEALED})`, receipt?.assignedSensitivity === Sensitivity.SEALED);
+    // Ack-before-caption: the reply is an immediate "received & queued" ack (artefactId known, no sensitivity
+    // yet); classify/store runs in the background and the artefact lands born-obsidian shortly after.
+    check('the ack is immediate "queued" (received, not yet classified)', receipt?.queued === true && !!receipt?.artefactId);
 
-    step('Vault holds the (encrypted) artefact');
-    const vault = await new WardenService(warden).listArtefacts();
-    const stored = vault.find((a) => a.id === receipt?.artefactId);
-    check('artefact present in vault', stored != null);
+    step('Vault holds the (encrypted) artefact after the background processing lands it');
+    const svc = new WardenService(warden);
+    let stored: Awaited<ReturnType<typeof svc.listArtefacts>>[number] | undefined;
+    for (let i = 0; i < 50 && !stored; i++) {
+      stored = (await svc.listArtefacts()).find((a) => a.id === receipt?.artefactId);
+      if (!stored) await new Promise((r) => setTimeout(r, 200));
+    }
+    check('artefact present in vault (background store completed)', stored != null);
+    check(`quarantined by default (SEALED=${Sensitivity.SEALED})`, stored?.sensitivity === Sensitivity.SEALED);
     check('stored payload is ciphertext, not plaintext', !!stored && !stored.ciphertext.includes('Paris'));
   } finally {
     stop();

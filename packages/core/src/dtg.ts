@@ -27,6 +27,7 @@ import {
   resolvePairwiseDid,
   isPairwiseDid,
   enforcePairwiseSubject,
+  enforceKeyCustody,
   type PairwiseStore,
 } from './pairwise.js';
 
@@ -78,7 +79,7 @@ export const RCARD_TYPE = 'RelationshipCard';
 
 /** Context of a witnessing event (DTG VWC `witnessContext`). */
 export interface WitnessContext {
-  /** Human-readable event name, e.g. "Example Guild raid form-up". */
+  /** Human-readable event name, e.g. "Example Sphere raid form-up". */
   event?: string;
   /** Session or nonce identifier — the Emissary-as-session-recorder anchor. */
   sessionId?: string;
@@ -199,6 +200,9 @@ export async function issueVrcToCounterparty(
     /** The issuer's stable identity the R-DID stands in for (linkage; never disclosed). */
     issuerDid: string;
     activeRuleset: SignedRuleset | null;
+    /** The Sovereign's key-custody policy (`enforceKeyCustody`); defaults to `activeRuleset`. If it marks
+     *  `counterparty` subject-keyed, a non-Sovereign issuer may not mint a fresh R-DID for it. */
+    keyCustodyRuleset?: SignedRuleset | null;
     createdAt: string;
     registry?: string;
     validUntil?: string;
@@ -215,6 +219,14 @@ export async function issueVrcToCounterparty(
     identityDid = args.bootstrapMdid;
     pairwise = await isPairwiseDid(store, identityDid);
   } else {
+    // Key-custody chokepoint (fail closed): a non-Sovereign issuer may not mint an R-DID for a
+    // relationship the Sovereign chose to key itself.
+    const custody = enforceKeyCustody({
+      ruleset: args.keyCustodyRuleset ?? args.activeRuleset,
+      audience: args.counterparty,
+      mintedBy: issuer.role === 'sovereign' ? 'subject' : 'warden',
+    });
+    if (!custody.ok) throw new Error(custody.reason);
     const rec = await resolvePairwiseDid(issuer, store, {
       audience: args.counterparty,
       subjectDid: args.issuerDid,

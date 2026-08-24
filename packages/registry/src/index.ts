@@ -2,6 +2,8 @@
 import {
   loadConfig,
   openKeymaster,
+  passphraseFor,
+  runKeyMaintenance,
   ensureIdentity,
   GroupTrustRegistry,
   createRegistryGroup,
@@ -31,13 +33,16 @@ Usage:
   registry check <action> <resource> <did>     Query: is <did> authorized?
   registry list                                List bindings and their members
   registry serve [port]                        Serve TRQP over HTTP (default port 4262)
+  registry rotate                              Rotate signing keys (incident response)
+  registry passphrase <new>                    Re-encrypt the wallet under a new passphrase
+  registry wallet-check                        Health-check the wallet
   registry help                                Show this message
 
   <action>   ∈ issue | verify | hold | present | revoke
   <resource>   a schema DID (outward) or a sensitivity level e.g. HIGH (inward); '*' = any
 
 Env:
-  HEARTHOLD_PASSPHRASE   wallet passphrase (required)
+  HEARTHOLD_PASSPHRASE   wallet passphrase — shared or per-role _REGISTRY (required)
   HEARTHOLD_NODE_URL     Archon node (Drawbridge) URL; default http://flaxlap.local:4222
   HEARTHOLD_DATA_ROOT    default ~/.hearthold
 `;
@@ -76,8 +81,7 @@ async function main(): Promise<void> {
   }
 
   const config = loadConfig();
-  const passphrase = process.env.HEARTHOLD_PASSPHRASE;
-  if (!passphrase) throw new Error('HEARTHOLD_PASSPHRASE is required');
+  const passphrase = passphraseFor('registry');
 
   const handle = await openKeymaster('registry', config, passphrase);
   const id = await ensureIdentity(handle, config);
@@ -165,6 +169,17 @@ async function main(): Promise<void> {
       };
       process.on('SIGINT', shutdown);
       process.on('SIGTERM', shutdown);
+      break;
+    }
+    case 'rotate':
+    case 'passphrase':
+    case 'wallet-check': {
+      // Incident response (L1): rotate signing keys, re-encrypt the wallet, or health-check it. Named
+      // `wallet-check` here because `check` is the registry's trust-authorization command.
+      if (cmd === 'rotate') await ensureIdentity(handle, config);
+      const op = cmd === 'wallet-check' ? 'check' : cmd;
+      const result = await runKeyMaintenance(handle, op, process.argv[3]);
+      process.stdout.write(`${result}\n`);
       break;
     }
     default:

@@ -1,7 +1,6 @@
 import {
   Sensitivity,
   DEFAULT_SENSITIVITY,
-  relaxNeedsConfirmation,
   loadConfig,
   type HearthholdConfig,
 } from '@hearthold/core';
@@ -14,7 +13,12 @@ export interface Classification {
   sensitivity: Sensitivity;
   /** Free-form tags/metadata the model extracted, used by the index. */
   metadata: Record<string, unknown>;
-  /** Whether relaxing below the quarantine default needs human confirmation. */
+  /**
+   * The classifier could NOT confidently classify (model down / bad output → fail-safe SEALED), so the
+   * submission MUST be confirmed regardless of the policy threshold. A confident classification sets this
+   * `false`; the ingestion QUARANTINE policy (`confirmAtOrBelow` + per-Emissary autofile trust) is applied
+   * downstream in `handleSubmission`, not here — the classifier's job is the sensitivity label, not policy.
+   */
   needsHumanConfirmation: boolean;
 }
 
@@ -103,7 +107,7 @@ export class OllamaClassifier implements Classifier {
       return {
         sensitivity,
         metadata: { tags: parsed.tags ?? [], reason: parsed.reason ?? '', model: this.model },
-        needsHumanConfirmation: relaxNeedsConfirmation(sensitivity),
+        needsHumanConfirmation: false, // classified confidently; quarantine policy is applied in handleSubmission
       };
     } catch (err) {
       // Fail safe: quarantine and flag for review.

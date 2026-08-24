@@ -16,6 +16,7 @@ import {
 
 import { VaultStore } from './store.js';
 import { IndexStore } from './index-store.js';
+import { belongsToSpace } from './partition-store.js';
 import { OllamaEmbedder } from './recall.js';
 
 /** Minimal embedder seam so the backfill is testable without a live Ollama. */
@@ -50,7 +51,9 @@ export async function reindexKb(
   const report: ReindexReport = { scanned: 0, alreadyIndexed: 0, backfilled: 0, skipped: 0, failed: 0 };
   for (const a of await store.list()) {
     const kb = a.metadata?.kb as string | undefined;
-    if (opts.kb !== undefined && kb !== opts.kb) continue;
+    // Scope to the whole space — shared partition + every member's private one. Bare equality would skip
+    // private content, leaving an owner's own contributions permanently unsearchable to them.
+    if (opts.kb !== undefined && !belongsToSpace(kb, opts.kb)) continue;
     report.scanned++;
     if (await index.has(a.id)) {
       report.alreadyIndexed++;

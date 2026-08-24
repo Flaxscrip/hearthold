@@ -1,14 +1,41 @@
 {
   "files": [],
   "references": [
-    { "path": "packages/control-types" },
-    { "path": "packages/core" },
-    { "path": "packages/cgpr-types" },
-    { "path": "packages/a2a-gateway" },
-    { "path": "packages/warden" },
-    { "path": "packages/emissary" },
-    { "path": "packages/sovereign" },
-    { "path": "packages/verifier" },
-    { "path": "packages/registry" }
+    {
+      "path": "packages/control-types"
+    },
+    {
+      "path": "packages/core"
+    },
+    {
+      "path": "packages/cgpr-types"
+    },
+    {
+      "path": "packages/a2a-gateway"
+    },
+    {
+      "path": "packages/warden"
+    },
+    {
+      "path": "packages/emissary"
+    },
+    {
+      "path": "packages/sovereign"
+    },
+    {
+      "path": "packages/verifier"
+    },
+    {
+      "path": "packages/registry"
+    },
+    {
+      "path": "packages/agent-mcp"
+    },
+    {
+      "path": "packages/signet-tui"
+    },
+    {
+      "path": "packages/emissary-tui"
+    }
   ]
 }

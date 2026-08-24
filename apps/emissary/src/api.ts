@@ -4,7 +4,8 @@ import type {
   ControlEvent,
   EmissarySnapshot,
   SubmitResponse,
-  ProveResponse,
+  InvokeRequest,
+  InvokeResponse,
 } from '@hearthold/control-types';
 
 const BASE = (import.meta.env.VITE_CONTROL_URL as string | undefined) ?? 'http://127.0.0.1:4312';
@@ -33,14 +34,9 @@ export const api = {
   base: BASE,
   snapshot: () => get<EmissarySnapshot>('/api/snapshot'),
   submit: (kind: string, text: string) => post<SubmitResponse>('/api/submit', { kind, text }),
-  prove: (req: {
-    claim: string;
-    kind: string;
-    from?: string;
-    to?: string;
-    structured?: Record<string, unknown>;
-    validForMinutes?: number;
-  }) => post<ProveResponse>('/api/prove', req),
+  // Forge: the daemon runs the full invocation ceremony with its own wallet + scope capability and blocks
+  // while the Warden gets the owner's consent for a sensitive claim. Returns granted | denied verbatim.
+  invoke: (req: InvokeRequest) => post<InvokeResponse>('/api/invoke', req),
 };
 
 /** Subscribe to the daemon's SSE event stream; `onEvent` fires per pushed event. */

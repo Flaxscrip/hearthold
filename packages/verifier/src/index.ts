@@ -2,6 +2,8 @@
 import {
   loadConfig,
   openKeymaster,
+  passphraseFor,
+  runKeyMaintenance,
   ensureIdentity,
   requestProof,
   verifyProof,
@@ -23,10 +25,13 @@ Usage:
                                                       (HEARTHOLD_TRUST_REGISTRY_URL). <presenterDid> is
                                                       whoever fields the request — the Sovereign, or
                                                       the Emissary projector. Optional key=value claims.
+  verifier rotate                                     Rotate signing keys (incident response)
+  verifier passphrase <new>                           Re-encrypt the wallet under a new passphrase
+  verifier check                                      Health-check the wallet
   verifier help                                       Show this message
 
 Env:
-  HEARTHOLD_PASSPHRASE           wallet passphrase (required)
+  HEARTHOLD_PASSPHRASE           wallet passphrase — shared or per-role _VERIFIER (required)
   HEARTHOLD_NODE_URL             Archon node (Drawbridge) URL; default http://flaxlap.local:4222
   HEARTHOLD_DATA_ROOT            default ~/.hearthold
   HEARTHOLD_TRUST_REGISTRY_URL   a TRQP registry to authorize issuers via (instead of/with issuerDid)
@@ -41,8 +46,7 @@ async function main(): Promise<void> {
   }
 
   const config = loadConfig();
-  const passphrase = process.env.HEARTHOLD_PASSPHRASE;
-  if (!passphrase) throw new Error('HEARTHOLD_PASSPHRASE is required');
+  const passphrase = passphraseFor('verifier');
 
   const handle = await openKeymaster('verifier', config, passphrase);
   const id = await ensureIdentity(handle, config);
@@ -144,6 +148,15 @@ async function main(): Promise<void> {
         process.stdout.write(`\n✗ NOT VERIFIED: ${result.reason}\n`);
         process.exitCode = 1;
       }
+      break;
+    }
+    case 'rotate':
+    case 'passphrase':
+    case 'check': {
+      // Incident response (L1): rotate signing keys, re-encrypt the wallet, or health-check it.
+      if (cmd === 'rotate') await ensureIdentity(handle, config);
+      const result = await runKeyMaintenance(handle, cmd, process.argv[3]);
+      process.stdout.write(`${result}\n`);
       break;
     }
     default:

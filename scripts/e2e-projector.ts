@@ -1,7 +1,7 @@
 /**
  * End-to-end test of the **Emissary-as-projector** path (milestone W).
  *
- *   Guild issues "Raid-Lead" (with schema) ──► Sovereign accepts
+ *   Sphere issues "Raid-Lead" (with schema) ──► Sovereign accepts
  *   Sovereign serves over DIDComm (Signet PIN gates each disclosure)
  *   Emissary serves over DIDComm as the world-facing projector — relays proof-requests to the Sovereign
  *   Verifier: requestProof → send proof-request to the WITNESS → Emissary relays to Sovereign →
@@ -9,7 +9,7 @@
  *
  * The verifier never addresses the Sovereign directly: it talks to the Emissary (the Mage that
  * projects), and the Emissary relays to the Signet (the First Person that approves). Four real
- * identities: guild = warden, holder/approver = sovereign, projector = witness, relying party = verifier.
+ * identities: sphere = warden, holder/approver = sovereign, projector = witness, relying party = verifier.
  *
  * Run:  npm run e2e:projector
  */
@@ -46,10 +46,10 @@ const check = (label: string, ok: boolean): void => {
 };
 const step = (m: string): void => process.stdout.write(`\n▸ ${m}\n`);
 
-const GUILD_SCHEMA = {
+const SPHERE_SCHEMA = {
   $schema: 'http://json-schema.org/draft-07/schema#',
   type: 'object',
-  properties: { type: { type: 'string' }, guild: { type: 'string' }, role: { type: 'string' } },
+  properties: { type: { type: 'string' }, sphere: { type: 'string' }, role: { type: 'string' } },
   required: ['type'],
   additionalProperties: true,
 } as const;
@@ -58,24 +58,24 @@ async function main(): Promise<void> {
   const config = { ...loadConfig(), dataRoot: DATA_ROOT };
   process.stdout.write(`Hearthold Emissary-as-projector e2e\n  node: ${config.nodeUrl}\n  data: ${DATA_ROOT}\n`);
 
-  step('Provision guild (issuer), sovereign (holder/approver), witness (projector), verifier');
-  const guild: KeymasterHandle = await openKeymaster('warden', config, PASSPHRASE);
+  step('Provision sphere (issuer), sovereign (holder/approver), witness (projector), verifier');
+  const sphere: KeymasterHandle = await openKeymaster('warden', config, PASSPHRASE);
   const sovereign: KeymasterHandle = await openKeymaster('sovereign', config, PASSPHRASE);
   const witness: KeymasterHandle = await openKeymaster('emissary', config, PASSPHRASE);
   const verifier: KeymasterHandle = await openKeymaster('verifier', config, PASSPHRASE);
-  const guildId = await ensureIdentity(guild, config);
+  const sphereId = await ensureIdentity(sphere, config);
   const sovereignId = await ensureIdentity(sovereign, config);
   const witnessId = await ensureIdentity(witness, config);
   await ensureIdentity(verifier, config);
-  check('identities ready', guildId.did.startsWith('did:') && witnessId.did.startsWith('did:'));
+  check('identities ready', sphereId.did.startsWith('did:') && witnessId.did.startsWith('did:'));
 
-  step('Guild issues a membership credential to the Sovereign');
-  const schemaDid = await guild.keymaster.createSchema(GUILD_SCHEMA);
-  const bound = await guild.keymaster.bindCredential(sovereignId.did, {
+  step('Sphere issues a membership credential to the Sovereign');
+  const schemaDid = await sphere.keymaster.createSchema(SPHERE_SCHEMA);
+  const bound = await sphere.keymaster.bindCredential(sovereignId.did, {
     schema: schemaDid,
-    claims: { type: 'GuildMembership', guild: 'Example Guild', role: 'Raid-Lead' },
+    claims: { type: 'SphereMembership', sphere: 'Example Sphere', role: 'Raid-Lead' },
   });
-  const credDid = await guild.keymaster.issueCredential(bound, { schema: schemaDid });
+  const credDid = await sphere.keymaster.issueCredential(bound, { schema: schemaDid });
   await acceptCredential(sovereign, credDid);
   check('sovereign holds the credential', credDid.startsWith('did:'));
 
@@ -88,7 +88,7 @@ async function main(): Promise<void> {
 
   // The verifier asks the WITNESS (projector), never the Sovereign directly.
   const askProof = async (): Promise<HearthholdMessage> => {
-    const challengeDid = await requestProof(verifier, { schema: schemaDid, trustedIssuers: [guildId.did] });
+    const challengeDid = await requestProof(verifier, { schema: schemaDid, trustedIssuers: [sphereId.did] });
     return verifierTransport.request(
       witnessId.did,
       { type: 'hearthold/proof-request', version: PROTOCOL_VERSION, challengeDid },
@@ -108,7 +108,7 @@ async function main(): Promise<void> {
       const pres = reply.type === 'hearthold/proof-presentation' ? (reply as ProofPresentationMessage) : null;
       check('carries the Signet proof-of-human (pin, level 1)', pres?.humanProof?.method === 'pin' && pres?.humanProof?.level === 1);
       const result = await verifyProof(verifier, pres?.responseDid ?? '', {
-        trustedIssuers: [guildId.did],
+        trustedIssuers: [sphereId.did],
         requiredClaims: { role: 'Raid-Lead' },
       });
       check('proof verifies', result.ok === true);

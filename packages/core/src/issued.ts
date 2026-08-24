@@ -16,11 +16,11 @@ export interface IssuedLeaf {
   trustClass: 'issued';
   /** DID of the third-party credential. */
   credentialDid: string;
-  /** DID of the external issuer (e.g. a guild manager). */
+  /** DID of the external issuer (e.g. a sphere manager). */
   issuer: string;
   /** DID of the subject — the Sovereign the credential is about. */
   subject: string;
-  /** Best-effort credential type (e.g. 'GuildMembership'). */
+  /** Best-effort credential type (e.g. 'CommunityMembership'). */
   credentialType: string;
   /** The credential's schema DID — a verifier requires the leaf by this in a composite challenge. */
   schema?: string;
@@ -66,6 +66,43 @@ export class IssuedStore {
   }
 }
 
+/** The Archon VC shape the leaf builder reads (a structural subset of the keymaster's credential). */
+export interface ResolvedCredential {
+  issuer: string;
+  type: string[];
+  credentialSubject?: Record<string, unknown>;
+  validUntil?: string;
+  credentialSchema?: { id?: string };
+}
+
+/**
+ * Build an `issued` leaf from a resolved VC — the pure VC→leaf mapping, with NO store dependency, so a
+ * caller that verified a foreign credential inside a DMZ can extract the closure off the DMZ keymaster
+ * (`session.keymaster.getCredential`) before teardown, exactly as a native caller extracts it off its own.
+ */
+export function buildIssuedLeaf(credentialDid: string, vc: ResolvedCredential): IssuedLeaf {
+  const subjectFields = { ...(vc.credentialSubject ?? {}) } as Record<string, unknown>;
+  const subject = String(subjectFields.id ?? '');
+  delete subjectFields.id;
+
+  const specificType = vc.type.find((t) => t !== 'VerifiableCredential');
+  const credentialType = String(subjectFields.type ?? specificType ?? 'VerifiableCredential');
+
+  return {
+    trustClass: 'issued',
+    credentialDid,
+    issuer: vc.issuer,
+    subject,
+    credentialType,
+    schema: vc.credentialSchema?.id,
+    claims: subjectFields,
+    descriptionSource: 'issuer-asserted',
+    status: 'valid',
+    validUntil: vc.validUntil,
+    acceptedAt: new Date().toISOString(),
+  };
+}
+
 /**
  * Read an accepted third-party credential (the holder/subject must already hold it) and record it
  * as an `issued` leaf in the vault. Returns the leaf.
@@ -78,29 +115,7 @@ export async function recordIssuedCredential(
   const vc = await handle.keymaster.getCredential(credentialDid);
   if (!vc) throw new Error(`credential not held / not resolvable: ${credentialDid}`);
 
-  const subjectFields = { ...(vc.credentialSubject ?? {}) } as Record<string, unknown>;
-  const subject = String(subjectFields.id ?? '');
-  delete subjectFields.id;
-
-  const specificType = vc.type.find((t) => t !== 'VerifiableCredential');
-  const credentialType = String(subjectFields.type ?? specificType ?? 'VerifiableCredential');
-
-  const schema = (vc as { credentialSchema?: { id?: string } }).credentialSchema?.id;
-
-  const leaf: IssuedLeaf = {
-    trustClass: 'issued',
-    credentialDid,
-    issuer: vc.issuer,
-    subject,
-    credentialType,
-    schema,
-    claims: subjectFields,
-    descriptionSource: 'issuer-asserted',
-    status: 'valid',
-    validUntil: vc.validUntil,
-    acceptedAt: new Date().toISOString(),
-  };
-
+  const leaf = buildIssuedLeaf(credentialDid, vc as ResolvedCredential);
   await new IssuedStore(vaultFolder).put(leaf);
   return leaf;
 }

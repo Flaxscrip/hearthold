@@ -35,16 +35,16 @@ async function main(): Promise<void> {
 
   process.stdout.write('▸ Below threshold → not claimable, claim refused\n');
   for (let i = 0; i < 3; i++) await submitDoc(i);
-  const s0 = (await claimableMarks(warden, [candidate]))[0]!;
+  const s0 = (await claimableMarks(warden, [candidate], sovId.did, sovId.did))[0]!;
   assert(s0.count === 3 && !s0.claimable, 'Librarian I shows 3/5 — not yet claimable');
-  const early = await claimMark(warden, { candidate, subjectDid: sovId.did });
+  const early = await claimMark(warden, { candidate, subjectDid: sovId.did }, sovId.did);
   assert(!early.issued && early.count === 3, 'claiming below threshold does not issue (Warden re-counts)');
 
   process.stdout.write('\n▸ Cross the threshold → claimable → Warden issues\n');
   for (let i = 3; i < 6; i++) await submitDoc(i); // now 6 documents
-  const s1 = (await claimableMarks(warden, [candidate]))[0]!;
+  const s1 = (await claimableMarks(warden, [candidate], sovId.did, sovId.did))[0]!;
   assert(s1.count === 6 && s1.claimable, 'Librarian I is now claimable (6 ≥ 5)');
-  const claimed = await claimMark(warden, { candidate, subjectDid: sovId.did });
+  const claimed = await claimMark(warden, { candidate, subjectDid: sovId.did }, sovId.did);
   assert(claimed.issued === true, 'the Warden issues the Mark');
   if (!claimed.issued) throw new Error('unreachable');
   assert(claimed.credentialDid.startsWith('did:'), 'the Mark is a real credential DID');

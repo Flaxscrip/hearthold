@@ -27,17 +27,29 @@ export async function ensureMarkSchema(warden: KeymasterHandle): Promise<string>
   return ensureSchema(warden, 'sevenfold-mark-schema', openSchema('SevenfoldMark'));
 }
 
-/** How many vault artefacts count toward a Mark's spec (axes-free: kind match only for P1). */
-async function countFor(warden: KeymasterHandle, spec: MarkCandidate['spec']): Promise<number> {
+/**
+ * How many vault artefacts count toward a Mark's spec (axes-free: kind match only for P1). Scoped to the
+ * claiming member's VISIBLE set — their own items (`owner`, defaulting to the Sovereign for legacy items)
+ * plus shared household items — so a Mark can't be earned off, or leak the count of, another member's data.
+ */
+async function countFor(warden: KeymasterHandle, spec: MarkCandidate['spec'], owner: string, sovereignDid?: string): Promise<number> {
   const items = await new VaultStore(warden.dataFolder).list();
-  return items.filter((a) => !spec.kind || a.kind === spec.kind).length;
+  return items.filter((a) => {
+    const visible = (a.owner ?? sovereignDid) === owner || a.scope === 'shared';
+    return visible && (!spec.kind || a.kind === spec.kind);
+  }).length;
 }
 
-/** For each candidate Mark, the current count and whether it's claimable (count ≥ threshold). */
-export async function claimableMarks(warden: KeymasterHandle, candidates: MarkCandidate[]): Promise<MarkStatus[]> {
+/** For each candidate Mark, the claiming member's own count and whether it's claimable (count ≥ threshold). */
+export async function claimableMarks(
+  warden: KeymasterHandle,
+  candidates: MarkCandidate[],
+  owner: string,
+  sovereignDid?: string,
+): Promise<MarkStatus[]> {
   return Promise.all(
     candidates.map(async (c) => {
-      const count = await countFor(warden, c.spec);
+      const count = await countFor(warden, c.spec, owner, sovereignDid);
       return { markName: c.markName, count, threshold: c.threshold, claimable: count >= c.threshold };
     }),
   );
@@ -50,9 +62,11 @@ export async function claimableMarks(warden: KeymasterHandle, candidates: MarkCa
 export async function claimMark(
   warden: KeymasterHandle,
   args: { candidate: MarkCandidate; subjectDid: string },
+  sovereignDid?: string,
 ): Promise<MarkClaimResult> {
   const { candidate, subjectDid } = args;
-  const count = await countFor(warden, candidate.spec);
+  // Re-count over the CLAIMANT's own visible set — never the whole household (subjectDid is the owner).
+  const count = await countFor(warden, candidate.spec, subjectDid, sovereignDid);
   if (count < candidate.threshold) {
     return { issued: false, markName: candidate.markName, count, threshold: candidate.threshold };
   }

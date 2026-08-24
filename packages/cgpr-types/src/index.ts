@@ -42,6 +42,12 @@ export interface CgprTicket {
   scopes: string[];
   purpose: string;
   privacyControls?: CgprPrivacyControls;
+  /**
+   * Broker B's detached signature over the ticket (added by `keymaster.addProof`). The gateway verifies it
+   * and checks B is a trusted CGPR broker — the ticket is B's vouch for C, the design's root of authority.
+   * Absent ⇒ an unsigned ticket, which a verifying gateway refuses.
+   */
+  proof?: unknown;
 }
 
 /** C's self-description — C identifying ITSELF (for audience-binding), never A. */
@@ -91,6 +97,7 @@ const ticketShape = {
     singleUse: { const: true },
     scopes: { type: 'array', items: { type: 'string' }, minItems: 1 },
     purpose: { type: 'string' },
+    proof: { type: 'object' },
     privacyControls: {
       type: 'object',
       additionalProperties: false,

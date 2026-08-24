@@ -32,12 +32,7 @@ mistake this architecture exists to prevent.
 **Read this before running a single `init`, `kb-init`, `kb-seed`, or e2e script.** This is the
 single most common mistake an agent operating Hearthold will make, and it already happened once for
 real: a two-week incident that put ~800 net-new agent DIDs on the public hyperswarm registry from
-test/demo runs whose identities were never meant to be public.
-
-> **Note:** the write-ups of that incident (`REGISTRY-HYGIENE-BRIEF.md`, `did-creation-source.md`) are
-> **not committed to this repo** — they exist in no git ref, so don't send an agent looking for them.
-> If you still have them, committing them here would give this section its evidence back. The rule
-> below stands on its own regardless, and is verifiable from `packages/core/src/config.ts` in one line.
+test/demo runs whose identities were never meant to be public (see `docs/REGISTRY-HYGIENE-BRIEF.md`).
 
 **The rule:** every `did:cid` you create is a permanent, public, gossiped registration unless you
 explicitly opt it into the `local` registry. Verify the stake yourself — `packages/core/src/config.ts:37`
@@ -277,7 +272,7 @@ worth knowing before you operate one:
   member's own Warden, closes this gap — check `docs/kb-spaces.md` for status before promising it.)
 - **Two structural invariants apply to every KB you operate, shared or private** (from
   `docs/knowledge-portal.md`): the KB never becomes a store of a member's whole personal history (a
-  member may *contribute* a consented, derived fact — the KB itself must stay a guild brain, not a
+  member may *contribute* a consented, derived fact — the KB itself must stay a community brain, not a
   surveillance surface), and **query logging is off by default** — the Warden answers a query in
   memory and does not persist who asked what. Don't add per-DID query logging as an "ops metric"
   without treating that as a deliberate, reviewed policy change, not a convenience.

@@ -1,0 +1,24 @@
+{
+  "name": "@hearthold/agent-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Agent-as-Sovereign MCP — Hearthold custodian verbs (hearthold_*) that AUGMENT Archon's @didcid/mcp-server; identity bound per instance.",
+  "bin": {
+    "hearthold-agent-mcp": "./dist/index.js"
+  },
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./tools": { "types": "./dist/tools.d.ts", "import": "./dist/tools.js" },
+    "./server": { "types": "./dist/server.d.ts", "import": "./dist/server.js" },
+    "./config": { "types": "./dist/config.d.ts", "import": "./dist/config.js" }
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@didcid/mcp-server": "^0.3.0",
+    "@modelcontextprotocol/sdk": "^1.30.0"
+  }
+}

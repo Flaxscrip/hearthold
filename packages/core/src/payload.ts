@@ -33,3 +33,51 @@ export async function unsealAsWarden(warden: KeymasterHandle, ciphertext: string
   if (!keys) throw new Error('warden has no current-id keypair');
   return warden.cipher.decryptMessage(keys.privateJwk, ciphertext);
 }
+
+// ── Member-key partitions (guardianship-threat-model.md §0/§4a) ────────────────────────────────────
+//
+// A member's PRIVATE partition is sealed to a per-partition keypair, NOT to the Warden. Because the
+// cipher is ECDH-ES (sealing needs only the recipient's PUBLIC key), the Warden can hold the partition
+// public key and keep WRITING private submissions to it — a "write-host" — while being unable to DECRYPT
+// them at rest. The partition PRIVATE key is wrapped to the member's DID key (`wrapKeyForDid`); only the
+// member can unwrap it, and on login their Signet rewraps it to a Warden ephemeral session key so the
+// Warden can transiently RAG the member's own content (the read-guest role, wired in Phase 2). A rooted
+// governor reading another member's partition at rest gets ciphertext it cannot open.
+
+/** A cipher public key (recipient of a seal). Derived from the cipher API so we don't couple to @didcid/cipher. */
+export type CipherPublicJwk = Parameters<KeymasterHandle['cipher']['encryptMessage']>[0];
+/** A cipher private key (holder of a seal). */
+export type CipherPrivateJwk = Parameters<KeymasterHandle['cipher']['decryptMessage']>[0];
+export interface CipherKeypair {
+  publicJwk: CipherPublicJwk;
+  privateJwk: CipherPrivateJwk;
+}
+
+/** Mint a fresh partition keypair. The Warden keeps the public half (write-host); the private half is wrapped to the member. */
+export function generatePartitionKeypair(cipher: KeymasterHandle['cipher']): CipherKeypair {
+  return cipher.generateRandomJwk();
+}
+
+/** Seal a plaintext to a raw recipient public key (a partition key). Bare ciphertext; zero registry footprint. */
+export function sealToKey(cipher: KeymasterHandle['cipher'], recipientPub: CipherPublicJwk, plaintext: string): string {
+  return cipher.encryptMessage(recipientPub, plaintext);
+}
+
+/** Open a ciphertext with a held private key (e.g. a per-session rewrapped partition key). */
+export function openWithKey(cipher: KeymasterHandle['cipher'], recipientPriv: CipherPrivateJwk, ciphertext: string): string {
+  return cipher.decryptMessage(recipientPriv, ciphertext);
+}
+
+/** Wrap a partition private key to a recipient DID's key — only the holder of that DID's key can unwrap it. */
+export async function wrapKeyForDid(handle: KeymasterHandle, recipientDid: string, privateJwk: CipherPrivateJwk): Promise<string> {
+  const doc = await handle.keymaster.resolveDID(recipientDid);
+  const pub = handle.keymaster.getPublicKeyJwk(doc);
+  return handle.cipher.encryptMessage(pub, JSON.stringify(privateJwk));
+}
+
+/** Unwrap a wrapped partition private key with the holder's current-id key (the member, at their Signet). */
+export async function unwrapKey(handle: KeymasterHandle, wrapped: string): Promise<CipherPrivateJwk> {
+  const keys = await handle.keymaster.fetchKeyPair();
+  if (!keys) throw new Error('no current-id keypair to unwrap the partition key');
+  return JSON.parse(handle.cipher.decryptMessage(keys.privateJwk, wrapped)) as CipherPrivateJwk;
+}

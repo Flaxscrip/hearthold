@@ -13,6 +13,7 @@ import { sealForWarden, contentId, type KeymasterHandle, type HearthholdConfig }
 import { createClassifier } from './classifier.js';
 import { VaultStore, type Artefact } from './store.js';
 import { IndexStore } from './index-store.js';
+import { belongsToSpace } from './partition-store.js';
 import { OllamaEmbedder } from './recall.js';
 
 export interface DemoFact {
@@ -28,7 +29,7 @@ export const DEMO_SETS: Record<string, DemoFact[]> = {
     { kind: 'document', text: 'The Emissary (also called the Mage) is the world-facing companion: it captures local context and carries proofs to third parties. It holds minimal data and no deciding secret.' },
     { kind: 'document', text: 'The Sovereign is the First Person, held by the Signet app. The Signet co-signs sensitive disclosures with a graded proof-of-human, and governs the Warden’s policy.' },
     { kind: 'document', text: 'The Privacy Is Value Model (PVM) holds that privacy is not a cost but a form of capital: control over disclosure is what makes personal history valuable rather than merely exposed.' },
-    { kind: 'document', text: 'A Knowledge Portal is a shared, authorized Knowledge Base a community queries and updates through a public Mage, while a private Warden holds the data — the guild brain, never a personal vault.' },
+    { kind: 'document', text: 'A Knowledge Portal is a shared, authorized Knowledge Base a community queries and updates through a public Mage, while a private Warden holds the data — the sphere brain, never a personal vault.' },
     { kind: 'document', text: 'Authentication uses challenge/response: the member signs a Warden-issued challenge with their own wallet. Keys never leave the wallet and never touch the portal.' },
     { kind: 'event', text: 'Hearthold’s Knowledge Portal first ran end-to-end just before midnight on July 7th, 2026 — its first stored fact was the record of its own birth.' },
   ],
@@ -79,11 +80,17 @@ export async function seedKb(
   return { loaded, set: setName };
 }
 
-/** Remove every artefact + index entry belonging to `kbId` (identity, groups, policy untouched). */
-export async function resetKb(warden: KeymasterHandle, kbId: string): Promise<{ removed: number }> {
+/**
+ * Remove every artefact + index entry belonging to `kbId` — its shared partition *and* every member's
+ * private one (identity, groups, policy, and the partition records themselves untouched). Reports the
+ * split so an operator can see private content was actually cleared rather than skipped.
+ */
+export async function resetKb(warden: KeymasterHandle, kbId: string): Promise<{ removed: number; shared: number; private: number }> {
   const store = new VaultStore(warden.dataFolder);
-  const ids = (await store.list()).filter((a) => a.metadata?.kb === kbId).map((a) => a.id);
+  const doomed = (await store.list()).filter((a) => belongsToSpace(a.metadata?.kb as string | undefined, kbId));
+  const ids = doomed.map((a) => a.id);
   const removed = await store.remove(ids);
   await new IndexStore(warden.dataFolder).remove(ids);
-  return { removed };
+  const shared = doomed.filter((a) => a.metadata?.kb === kbId).length;
+  return { removed, shared, private: doomed.length - shared };
 }

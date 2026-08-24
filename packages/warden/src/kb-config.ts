@@ -11,6 +11,8 @@ import {
   activeRuleset,
   selfSigner,
   Sensitivity,
+  generatePartitionKeypair,
+  wrapKeyForDid,
   type KeymasterHandle,
   type HearthholdConfig,
   type Ruleset,
@@ -20,7 +22,9 @@ import {
 } from '@hearthold/core';
 
 import { KbService, type KbActionApprover } from './kb.js';
-import { PartitionStore, type PartitionRecord } from './partition-store.js';
+import { PartitionStore, partitionIdFor, type PartitionRecord } from './partition-store.js';
+import { SessionKeyStore } from './session-keys.js';
+import type { RewrapChannel } from './rewrap.js';
 
 /**
  * Persisted KB provisioning for a Warden: the resource (a KB *space*), its shared-partition access
@@ -39,6 +43,25 @@ export interface KbConfig {
   memberPartitions?: boolean;
   /** Where a scope-less contribution lands. Default 'shared'. Personal-profile spaces set 'private'. */
   defaultScope?: 'shared' | 'private';
+  /**
+   * Open enrollment (docs/kb-spaces.md, HATPro): a proven-DID's FIRST authenticated action auto-joins the KB —
+   * granted read+write and (if `memberPartitions`) a private partition — instead of requiring a Sovereign's
+   * `kb-grant`. Zero-barrier onboarding for a public self-service KB. Deliberately off by default; only an
+   * AUTHENTICATED DID (it proved key control before `execute`) is admitted, so no spoofed DID gets in. Cap it
+   * with `maxMembers` — an unbounded open KB is a partition-flood surface.
+   */
+  openEnrollment?: boolean;
+  /** Open-enrollment ceiling: refuse a NEW member once the KB has this many (existing members still act). */
+  maxMembers?: number;
+  /**
+   * On open-enrollment, also grant the writeGroup — i.e. publish-to-shared (promote) rights. Default `true`
+   * (back-compat, the HATPro self-service model: a self-joiner can both draft and publish). Set `false` for a
+   * CURATED public space: a self-joiner gets read + a private draft partition, but publishing to the shared
+   * record requires explicit writeGroup membership — the curator set the Sovereign grants. Private drafts are
+   * always allowed (they need only the member's own partition, not the writeGroup); this flag gates the
+   * shared/public write alone. `openEnrollment` must be on for it to have any effect.
+   */
+  enrollGrantsPromote?: boolean;
 }
 
 const sha16 = (s: string): string => createHash('sha256').update(s).digest('hex').slice(0, 16);
@@ -57,10 +80,24 @@ export async function provisionMemberPartition(
   const partitions = new PartitionStore(handle.dataFolder);
   const existing = await partitions.get(spaceId, ownerDid);
   if (existing) return existing;
-  const id = `${spaceId}::priv:${sha16(ownerDid)}`;
+  const id = partitionIdFor(spaceId, ownerDid);
   const group = await createRegistryGroup(handle, `kb-priv-${sha16(spaceId + ownerDid)}`, config.registry);
   await grantAuthorization(handle, group, ownerDid);
-  const rec: PartitionRecord = { spaceId, owner: ownerDid, id, group, location: { kind: 'local' }, createdAt: new Date().toISOString() };
+  // Member-key encryption (threat-model §0): mint a partition keypair; the Warden keeps the public half
+  // (seals private content, write-host) and stores the private half wrapped to the member (read-guest —
+  // it cannot open this at rest). The live seal/read cutover to this key rides Phase 2's session rewrap.
+  const kp = generatePartitionKeypair(handle.cipher);
+  const wrappedKey = await wrapKeyForDid(handle, ownerDid, kp.privateJwk);
+  const rec: PartitionRecord = {
+    spaceId,
+    owner: ownerDid,
+    id,
+    group,
+    location: { kind: 'local' },
+    createdAt: new Date().toISOString(),
+    partitionPub: kp.publicJwk,
+    wrappedKey,
+  };
   await partitions.put(rec);
   return rec;
 }
@@ -158,7 +195,7 @@ export async function readKbAssurance(handle: KeymasterHandle, chainAsset?: stri
 
 /**
  * File-backed store of the Warden's Knowledge Bases, keyed by `kbId`. One Warden identity custodies
- * many KBs (a password DB, a guild KB, a docs KB, …), each a resource with its own groups + governed
+ * many KBs (a password DB, a sphere KB, a docs KB, …), each a resource with its own groups + governed
  * policy. Migrates transparently from the old single-config shape.
  */
 export class KbConfigStore {
@@ -204,8 +241,50 @@ export class KbConfigStore {
   }
 }
 
+/**
+ * Open enrollment (`KbConfig.openEnrollment`): admit an already-AUTHENTICATED DID as a member of `kb` on its
+ * first action — grant read + write and (if `memberPartitions`) provision a private partition — instead of a
+ * Sovereign's `kb-grant`. Zero-barrier self-service onboarding (HATPro). **Idempotent** (an existing member is
+ * a no-op) and **capped** (`maxMembers` — a NEW member over the cap is refused; existing members keep acting).
+ * Only reached from `KbService.execute`, which runs AFTER authentication, so only a proven key-holder enrolls —
+ * never a spoofed DID. Returns whether an enrollment happened + a reason to surface when the cap is hit.
+ */
+export async function openEnroll(
+  handle: KeymasterHandle,
+  config: HearthholdConfig,
+  kb: KbConfig,
+  did: string,
+): Promise<{ enrolled: boolean; reason?: string }> {
+  if (!kb.openEnrollment) return { enrolled: false };
+  const already =
+    (await handle.keymaster.testGroup(kb.writeGroup, did).catch(() => false)) ||
+    (await handle.keymaster.testGroup(kb.readGroup, did).catch(() => false));
+  if (already) return { enrolled: false };
+  if (kb.maxMembers !== undefined) {
+    // Count the readGroup — the true membership. In a CURATED space the writeGroup holds only the curator
+    // set, so capping on it would (wrongly) bound curators instead of members. readGroup holds everyone.
+    const g = (await handle.keymaster.getGroup(kb.readGroup).catch(() => null)) as { members?: string[] } | null;
+    if ((g?.members?.length ?? 0) >= kb.maxMembers) {
+      return { enrolled: false, reason: 'this KB is not accepting new members (enrollment is full)' };
+    }
+  }
+  await grantAuthorization(handle, kb.readGroup, did);
+  // Publish-to-shared (writeGroup) is granted on self-join UNLESS the space is curated: then a self-joiner
+  // gets read + a private draft partition, and promote-to-shared stays with the explicitly-granted curators.
+  if (kb.enrollGrantsPromote !== false) await grantAuthorization(handle, kb.writeGroup, did);
+  if (kb.memberPartitions) await provisionMemberPartition(handle, config, kb.kbId, did);
+  return { enrolled: true };
+}
+
 /** Build a live `KbService` from one KB config. */
-function serviceFor(handle: KeymasterHandle, config: HearthholdConfig, wardenDid: string, kb: KbConfig, approver?: KbActionApprover): KbService {
+function serviceFor(
+  handle: KeymasterHandle,
+  config: HearthholdConfig,
+  wardenDid: string,
+  kb: KbConfig,
+  approver?: KbActionApprover,
+  readGuest?: { sessionKeys: SessionKeyStore; rewrapChannel: RewrapChannel },
+): KbService {
   // Governance policy (required assurance per action) is a Sovereign-signed Ruleset chain on the
   // ledger; the Warden reads + verifies it, PINNED to the governing DID (fail-closed on tamper or a
   // forged self-signature — a compromised Warden cannot rewrite policy it doesn't govern).
@@ -226,7 +305,10 @@ function serviceFor(handle: KeymasterHandle, config: HearthholdConfig, wardenDid
     approver,
     memberPartitions: kb.memberPartitions,
     defaultScope: kb.defaultScope,
+    openEnroll: kb.openEnrollment ? (did: string) => openEnroll(handle, config, kb, did) : undefined,
     partitions: kb.memberPartitions ? new PartitionStore(handle.dataFolder) : undefined,
+    sessionKeys: readGuest?.sessionKeys,
+    rewrapChannel: readGuest?.rewrapChannel,
   });
 }
 
@@ -239,7 +321,12 @@ export async function buildKbServices(
   config: HearthholdConfig,
   wardenDid: string,
   approver?: KbActionApprover,
+  rewrapChannel?: RewrapChannel,
 ): Promise<Map<string, KbService>> {
   const kbs = await new KbConfigStore(handle.dataFolder).list();
-  return new Map(kbs.map((kb) => [kb.kbId, serviceFor(handle, config, wardenDid, kb, approver)]));
+  // One read-guest key store shared across this Warden's KB services (tokens are unique per login, so the
+  // (token, partition) keying never collides). Present only when a rewrap channel is wired — the Phase-6
+  // member-key read path; without it, KB reads use the pre-cutover Warden-sealed path.
+  const readGuest = rewrapChannel ? { sessionKeys: new SessionKeyStore(), rewrapChannel } : undefined;
+  return new Map(kbs.map((kb) => [kb.kbId, serviceFor(handle, config, wardenDid, kb, approver, readGuest)]));
 }

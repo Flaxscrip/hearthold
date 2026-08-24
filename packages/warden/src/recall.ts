@@ -11,6 +11,7 @@
 
 import {
   unsealAsWarden,
+  openWithKey,
   rankByQuery,
   type Embedder,
   type IndexEntry,
@@ -18,6 +19,7 @@ import {
   type RecallCitation,
   type KeymasterHandle,
   type HearthholdConfig,
+  type CipherPrivateJwk,
 } from '@hearthold/core';
 
 import { VaultStore } from './store.js';
@@ -31,11 +33,19 @@ export class OllamaEmbedder implements Embedder {
   ) {}
 
   async embed(text: string): Promise<number[]> {
-    const res = await fetch(`${this.url}/api/embeddings`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ model: this.model, prompt: text.slice(0, 8000) }),
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${this.url}/api/embeddings`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ model: this.model, prompt: text.slice(0, 8000) }),
+        // Fail FAST on a transient stall (Tailscale blip, model reload, `ollama` restart) rather than hang
+        // until the proxy read-timeout (~3.5 min → 504). Mirrors classifier.ts's degrade-gracefully posture.
+        signal: AbortSignal.timeout(10_000),
+      });
+    } catch (err) {
+      throw new Error(`ollama embeddings unavailable: ${err instanceof Error ? err.message : String(err)}`);
+    }
     if (!res.ok) throw new Error(`ollama embeddings ${res.status}`);
     const data = (await res.json()) as { embedding?: number[] };
     if (!data.embedding?.length) throw new Error('ollama returned no embedding');
@@ -46,6 +56,14 @@ export class OllamaEmbedder implements Embedder {
 /** Resolves an artefact's plaintext at recall time (re-unseal). Injectable for tests. */
 export type ContentResolver = (artefactId: string) => Promise<string | null>;
 
+/**
+ * A per-session lookup of the transient (rewrapped) private key for a member partition, or undefined if
+ * that partition isn't unlocked this session. Supplied by `KbService.execute` from the `SessionKeyStore`
+ * so a member's OWN private-partition content (sealed to the partition's public key) can be opened during
+ * their live session — while at rest, and for anyone lacking the key, it stays ciphertext.
+ */
+export type PartitionKeyLookup = (partitionId: string) => CipherPrivateJwk | undefined;
+
 /** Answers a query from retrieved snippets. Injectable; the live one calls a local chat model. */
 export type Answerer = (query: string, passages: { observedAt: string; text: string }[]) => Promise<string>;
 
@@ -53,24 +71,35 @@ const SYSTEM_PROMPT = `You are a private recall assistant answering ONLY from th
 notes below. Answer the question concisely from the notes. If the notes don't contain the answer, say
 you don't have it. Do not invent facts. /no_think`;
 
+/** Shown to the user when the local model can't be reached — a clean, honest status instead of a hang. */
+const RECALL_UNAVAILABLE = 'Recall is temporarily unavailable — the local model did not respond. Try again shortly.';
+
 /** Build the live answerer: a local Ollama chat model over the retrieved passages. */
 export function ollamaAnswerer(url: string, model: string): Answerer {
   return async (query, passages) => {
     const context = passages.map((p, i) => `[${i + 1}] (${p.observedAt}) ${p.text}`).join('\n');
-    const res = await fetch(`${url}/api/chat`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        model,
-        stream: false,
-        options: { temperature: 0 },
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: `Notes:\n${context}\n\nQuestion: ${query}` },
-        ],
-      }),
-    });
-    if (!res.ok) throw new Error(`ollama chat ${res.status}`);
+    let res: Response;
+    try {
+      res = await fetch(`${url}/api/chat`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          stream: false,
+          options: { temperature: 0 },
+          messages: [
+            { role: 'system', content: SYSTEM_PROMPT },
+            { role: 'user', content: `Notes:\n${context}\n\nQuestion: ${query}` },
+          ],
+        }),
+        // Chat is far slower than embeddings (real RAG can take seconds) — allow 120s — but still bounded so a
+        // stalled/reloading model returns a clean status instead of hanging to the proxy timeout.
+        signal: AbortSignal.timeout(120_000),
+      });
+    } catch {
+      return RECALL_UNAVAILABLE;
+    }
+    if (!res.ok) return RECALL_UNAVAILABLE;
     const data = (await res.json()) as { message?: { content?: string } };
     return (data.message?.content ?? '').trim();
   };
@@ -83,6 +112,8 @@ export interface RecallOptions {
   /** Scope retrieval: one KB id, an array of ids (a member's visible set of partitions), `null` for the
    *  personal vault only, or omit for all. */
   kb?: string | string[] | null;
+  /** Scope the personal vault to a household member: their own artefacts ∪ shared-to-household (Phase 3). */
+  owner?: string;
 }
 
 export class RecallService {
@@ -97,20 +128,36 @@ export class RecallService {
     this.index = new IndexStore(dataFolder);
   }
 
-  /** Convenience factory wiring the live Ollama embedder/answerer + re-unseal resolver to a Warden. */
-  static forWarden(warden: KeymasterHandle, config: HearthholdConfig): RecallService {
+  /**
+   * Convenience factory wiring the live Ollama embedder/answerer + re-unseal resolver to a Warden.
+   *
+   * `keyFor` (optional) is the read-guest seam: an artefact sealed to a member partition (`sealedTo`) is
+   * opened with that partition's session-rewrapped key when `keyFor` returns it, else it stays ciphertext
+   * (correctly not readable — a member-key note with no session key is invisible, not silently *lost*: a
+   * later re-login re-unlocks it). Absent `keyFor` (or a Warden-sealed artefact) → `unsealAsWarden`, the
+   * unchanged default. No `sealedTo` artefacts exist until the Phase-6 write cutover, so this is inert now.
+   */
+  static forWarden(warden: KeymasterHandle, config: HearthholdConfig, keyFor?: PartitionKeyLookup): RecallService {
     const store = new VaultStore(warden.dataFolder);
+    const unwrap = (plain: string): string => {
+      // Submissions are sealed JSON `{text}`; fall back to the raw string.
+      try {
+        return (JSON.parse(plain) as { text?: string }).text ?? plain;
+      } catch {
+        return plain;
+      }
+    };
     const resolve: ContentResolver = async (id) => {
       const a = await store.get(id);
       if (!a) return null;
       try {
-        const plain = await unsealAsWarden(warden, a.ciphertext);
-        // Submissions are sealed JSON `{text}`; fall back to the raw string.
-        try {
-          return (JSON.parse(plain) as { text?: string }).text ?? plain;
-        } catch {
-          return plain;
+        const partition = a.sealedTo?.partition;
+        if (partition) {
+          const key = keyFor?.(partition);
+          if (!key) return null; // member-key artefact, no session key → not readable this session (not lost)
+          return unwrap(openWithKey(warden.cipher, key, a.ciphertext));
         }
+        return unwrap(await unsealAsWarden(warden, a.ciphertext));
       } catch {
         return null; // e.g. seed placeholder ciphertext — skip, don't break recall
       }
@@ -118,7 +165,7 @@ export class RecallService {
     return new RecallService(
       new OllamaEmbedder(config.ollamaUrl, config.embeddingModel),
       resolve,
-      ollamaAnswerer(config.ollamaUrl, config.classifierModel),
+      ollamaAnswerer(config.ollamaUrl, config.answerModel),
       warden.dataFolder,
     );
   }
@@ -129,8 +176,14 @@ export class RecallService {
     if (entries.length === 0) {
       return { query, answer: 'Nothing has been indexed yet.', citations: [], descriptionSource: 'machine-derived' };
     }
-    const queryEmbedding = await this.embedder.embed(query);
-    const ranked = rankByQuery(queryEmbedding, entries, { k: opts.k ?? 5, maxSensitivity: opts.maxSensitivity, kb: opts.kb });
+    let queryEmbedding: number[];
+    try {
+      queryEmbedding = await this.embedder.embed(query);
+    } catch {
+      // The embedder failed fast (timeout/stall) — return a clean status, never a hang or a 504.
+      return { query, answer: RECALL_UNAVAILABLE, citations: [], descriptionSource: 'machine-derived' };
+    }
+    const ranked = rankByQuery(queryEmbedding, entries, { k: opts.k ?? 5, maxSensitivity: opts.maxSensitivity, kb: opts.kb, owner: opts.owner });
 
     const passages: { observedAt: string; text: string }[] = [];
     const citations: RecallCitation[] = [];
@@ -138,7 +191,7 @@ export class RecallService {
       const text = await this.resolve(entry.artefactId);
       if (!text) continue;
       passages.push({ observedAt: entry.observedAt, text });
-      citations.push({ artefactId: entry.artefactId, kind: entry.kind, observedAt: entry.observedAt, score, kb: entry.kb });
+      citations.push({ artefactId: entry.artefactId, kind: entry.kind, observedAt: entry.observedAt, score, kb: entry.kb, scope: entry.scope });
     }
 
     if (passages.length === 0) {

@@ -1,0 +1,441 @@
+/**
+ * Verifier-enforced attenuation for VCs over Archon did:cid Asset DIDs — the verifier walks the chain and
+ * checks the subset relation at each hop (not issuer convention, and not cryptographic constraint).
+ *
+ * Each hop in a delegation chain is its OWN Asset DID, controlled by an Agent DID (the attenuating actor,
+ * e.g. the Warden). Two layers live in the asset:
+ *
+ *   - ENCRYPTED payload (`encryptJSON` → cipher_sender/cipher_receiver): the actual `authoritySet` + a
+ *     high-entropy `salt`, disclosed only on challenge/response (or holder-side decrypt).
+ *   - CLEARTEXT `pic` block (written via `mergeData` == Archon's setProperty): lineage, counter, a
+ *     version-PINNED parent pointer, a salted authority commitment, the parent's commitment, and a signed
+ *     attenuation assertion. Publicly resolvable — a third party verifies the whole chain with ZERO
+ *     decryption, by resolving Asset DIDs.
+ *
+ * Semantics are 100% Hearthold's. Archon stays dumb: it stores cleartext (mergeData), encrypts pairwise
+ * (encryptJSON), versions every update (new content-addressed versionId + versionSequence), and resolves —
+ * including `resolveDID(did, { versionSequence })`, the pinned-version read the tamper-evidence rests on.
+ * Archon never understands "authority" or "subset"; that logic is here, and the VERIFIER is the only
+ * enforcement point (issuance-time refusal is a courtesy, never relied upon).
+ *
+ * Trust model = Archon resolution itself. A verifier trusts whichever Gatekeeper it resolves through
+ * (own node = sovereign; SaaS = provider). We assume nothing stronger than resolution already requires.
+ */
+
+import { createHash, randomBytes } from 'node:crypto';
+
+import type { KeymasterHandle } from './keymaster.js';
+
+// ── Authority ────────────────────────────────────────────────────────────────────────────────────────
+
+/** A capability as a flat pair of sets. Attenuation = subset in BOTH dimensions (see `isSubset`). */
+export interface AuthoritySet {
+  operations: string[];
+  resources: string[];
+}
+
+/** What gets pairwise-encrypted into the VC payload. The salt defeats commitment brute-forcing. */
+export interface AuthoritySetPayload {
+  authoritySet: AuthoritySet;
+  salt: string;
+  /** Opaque capability-layer caveats bound into the commitment (attenuation.ts never interprets them). */
+  caveats?: unknown;
+}
+
+/** Set-normalize: dedupe + sort each dimension, so a commitment is order- and multiplicity-independent. */
+export function normalizeAuthoritySet(a: AuthoritySet): AuthoritySet {
+  return {
+    operations: [...new Set(a.operations)].sort(),
+    resources: [...new Set(a.resources)].sort(),
+  };
+}
+
+/** Cᵢ₊₁ ⊆ Cᵢ — every operation AND every resource of the child appears in the parent. */
+export function isSubset(child: AuthoritySet, parent: AuthoritySet): boolean {
+  const c = normalizeAuthoritySet(child);
+  const p = normalizeAuthoritySet(parent);
+  return c.operations.every((o) => p.operations.includes(o)) && c.resources.every((r) => p.resources.includes(r));
+}
+
+// ── Canonical serialization + commitment ───────────────────────────────────────────────────────────────
+
+/**
+ * Deterministic canonical JSON — a fixed subset of RFC 8785 (JCS) adequate for our value space (strings,
+ * string arrays, integers, booleans, null, plain objects; NO floats). Object keys are sorted recursively;
+ * arrays keep order (we set-normalize authority BEFORE hashing, so ordering there is already canonical).
+ * Fixing the form now makes every commitment reproducible by any independent verifier.
+ */
+export function canonicalize(value: unknown): string {
+  const enc = (v: unknown): string => {
+    if (v === null || typeof v === 'number' || typeof v === 'boolean') return JSON.stringify(v);
+    if (typeof v === 'string') return JSON.stringify(v);
+    if (Array.isArray(v)) return `[${v.map(enc).join(',')}]`;
+    if (typeof v === 'object') {
+      const o = v as Record<string, unknown>;
+      const keys = Object.keys(o).sort();
+      return `{${keys.map((k) => `${JSON.stringify(k)}:${enc(o[k])}`).join(',')}}`;
+    }
+    throw new Error(`canonicalize: unsupported value type ${typeof v}`);
+  };
+  return enc(value);
+}
+
+const sha256Hex = (s: string): string => createHash('sha256').update(s, 'utf8').digest('hex');
+
+/** A fresh 32-byte salt (hex) — 256 bits, so the small authority-set space is not enumerable. */
+export function freshSalt(): string {
+  return randomBytes(32).toString('hex');
+}
+
+/**
+ * The salted authority commitment: sha256 over the canonical `{ authoritySet(normalized), salt }`. Given a
+ * commitment alone (no salt), the authority set is NOT recoverable by enumeration — the salt dominates the
+ * preimage. Recompute-and-compare on disclosure binds the revealed set to the committed one.
+ */
+export function commit(authoritySet: AuthoritySet, salt: string, caveats?: unknown): string {
+  const preimage: Record<string, unknown> = { authoritySet: normalizeAuthoritySet(authoritySet), salt };
+  if (caveats !== undefined) preimage.caveats = caveats; // absent ⇒ byte-identical to the 2-arg commitment
+  return sha256Hex(canonicalize(preimage));
+}
+
+// ── The pic block (cleartext, resolvable) ────────────────────────────────────────────────────────────
+
+/** A parent reference pinned to a SPECIFIC version — never the bare DID (that would follow tampering). */
+export interface PrevPin {
+  did: string;
+  /** The parent's content-addressed versionId at pin time (asserted against the resolved doc). */
+  versionId: string;
+  /** The resolution key: `resolveDID(did, { versionSequence })` returns exactly this historical version. */
+  versionSequence: number;
+}
+
+/** The attenuating actor's signed claim that this hop's authority is a subset of its parent's. */
+export interface AttenuationAssertion {
+  issuer: string;
+  /** The DID this hop is delegated to — issuer-attested (covered by the signature), so the holder is read
+   *  from the CHAIN, not a wire body. A verifier binds the invoking caller to this via challenge/response. */
+  holder: string;
+  statement: string;
+  lineageId: string;
+  counter: number;
+  authorityCommitment: string;
+  parentAuthorityCommitment: string | null;
+  /** Added by keymaster.addProof — `proof.verificationMethod` names the signing DID (checked at (e)). */
+  proof?: { verificationMethod: string; proofValue: string; created: string; [k: string]: unknown };
+}
+
+export interface PicBlock {
+  lineageId: string;
+  counter: number;
+  prevCredential: PrevPin | null;
+  authorityCommitment: string;
+  parentAuthorityCommitment: string | null;
+  attenuationAssertion: AttenuationAssertion;
+}
+
+export const ATTENUATION_STATEMENT = 'authoritySet ⊆ parent.authoritySet';
+
+// ── Issuance ─────────────────────────────────────────────────────────────────────────────────────────
+
+/** The record threaded from a parent issuance into a child (carries the pin the child will embed). */
+export interface IssuedVc {
+  vcDid: string;
+  lineageId: string;
+  counter: number;
+  authoritySet: AuthoritySet;
+  salt: string;
+  /** The capability-layer caveats committed with this hop (opaque here; see capability-chain.ts). */
+  caveats?: unknown;
+  authorityCommitment: string;
+  /** THIS credential pinned at the version that carries its pic — what a child embeds as prevCredential. */
+  pin: PrevPin;
+  holder: string;
+}
+
+export interface IssueVcArgs {
+  issuer: KeymasterHandle;
+  /** Wallet id NAME of the attenuating Agent DID — becomes the asset controller AND the assertion signer. */
+  issuerName: string;
+  /** DID the authoritySet payload is pairwise-encrypted to. */
+  holder: string;
+  authoritySet: AuthoritySet;
+  /** Opaque caveats to bind into the commitment (the capability layer supplies and interprets these). */
+  caveats?: unknown;
+  registry: string;
+  /** Omit for the origin (counter 0, lineageId := the origin's own DID). */
+  parent?: IssuedVc;
+
+  // ── test-only knobs (build the attack artefacts the VERIFIER must reject; never used in real issuance) ──
+  /** Sign the attenuation assertion with a DIFFERENT id than the controller (FORGED-ASSERTION). */
+  forgeAssertionWith?: string;
+  /** Force a specific counter, bypassing parent+1 (COUNTER-SKIP). */
+  overrideCounter?: number;
+  /** Force parentAuthorityCommitment (forge the commitment chain / CROSS-LINEAGE). */
+  overrideParentCommitment?: string | null;
+  /** Force lineageId (CROSS-LINEAGE). */
+  overrideLineageId?: string;
+  /** Override the pinned parent pointer (CROSS-LINEAGE: pin L1 while claiming L2 lineage). */
+  overridePrev?: PrevPin | null;
+  /** Skip the issuance-time subset refusal (to actually MINT a non-subset child for the verifier to catch). */
+  skipSubsetGuard?: boolean;
+}
+
+/**
+ * Mint one hop. Encrypts the authoritySet payload to the holder, computes the salted commitment, signs the
+ * attenuation assertion with the issuer's key, and writes the cleartext pic via `mergeData`. Enforces
+ * attenuation at issuance too (refuses a non-subset child) — but this is belt-and-suspenders; the verifier
+ * is the security boundary.
+ */
+export async function issueVc(args: IssueVcArgs): Promise<IssuedVc> {
+  const km = args.issuer.keymaster;
+  await km.setCurrentId(args.issuerName);
+  const issuerDid = (await km.resolveDID(args.issuerName)).didDocument?.id ?? '';
+
+  const authoritySet = normalizeAuthoritySet(args.authoritySet);
+  const salt = freshSalt();
+  const authorityCommitment = commit(authoritySet, salt, args.caveats);
+
+  if (args.parent && !args.skipSubsetGuard && !isSubset(authoritySet, args.parent.authoritySet)) {
+    throw new Error(
+      `issuance refused: {${authoritySet.operations}/${authoritySet.resources}} ⊄ parent ` +
+        `{${args.parent.authoritySet.operations}/${args.parent.authoritySet.resources}}`,
+    );
+  }
+
+  const counter = args.overrideCounter ?? (args.parent ? args.parent.counter + 1 : 0);
+  const parentAuthorityCommitment =
+    args.overrideParentCommitment !== undefined
+      ? args.overrideParentCommitment
+      : args.parent
+        ? args.parent.authorityCommitment
+        : null;
+  const prevCredential = args.overridePrev !== undefined ? args.overridePrev : args.parent ? args.parent.pin : null;
+
+  // 1. Encrypt the payload → the VC's Asset DID. Its didDocumentData is the cipher; controller = issuer.
+  const vcDid = await km.encryptJSON(
+    { authoritySet, salt, ...(args.caveats !== undefined ? { caveats: args.caveats } : {}) },
+    args.holder,
+    { registry: args.registry },
+  );
+  const lineageId = args.overrideLineageId ?? (args.parent ? args.parent.lineageId : vcDid);
+
+  // 2. Sign the attenuation assertion (forgeable: signed by forgeAssertionWith if the test asks).
+  const assertionBody: AttenuationAssertion = {
+    issuer: issuerDid,
+    holder: args.holder,
+    statement: ATTENUATION_STATEMENT,
+    lineageId,
+    counter,
+    authorityCommitment,
+    parentAuthorityCommitment,
+  };
+  const attenuationAssertion = (await km.addProof(assertionBody, args.forgeAssertionWith ?? args.issuerName)) as AttenuationAssertion;
+
+  // 3. Write the cleartext pic beside the cipher (setProperty) → a new version.
+  const pic: PicBlock = { lineageId, counter, prevCredential, authorityCommitment, parentAuthorityCommitment, attenuationAssertion };
+  await km.mergeData(vcDid, { pic });
+
+  // 4. Pin THIS version (the one carrying the pic) for a child to embed.
+  const doc = await km.resolveDID(vcDid);
+  const meta = doc.didDocumentMetadata as { versionId?: string; versionSequence?: string };
+  const pin: PrevPin = { did: vcDid, versionId: meta.versionId ?? '', versionSequence: Number(meta.versionSequence ?? 0) };
+
+  return {
+    vcDid,
+    lineageId,
+    counter,
+    authoritySet,
+    salt,
+    ...(args.caveats !== undefined ? { caveats: args.caveats } : {}),
+    authorityCommitment,
+    pin,
+    holder: args.holder,
+  };
+}
+
+// ── Verifier (standalone; public resolution + signature verification only) ───────────────────────────────
+
+export interface VerifyOptions {
+  /** Any keymaster bound to the Gatekeeper the verifier trusts (own node = sovereign, SaaS = provider). */
+  keymaster: KeymasterHandle;
+  /** If set, the origin hop's controller MUST equal this DID (pin the root of trust). */
+  expectedRootIssuer?: string;
+  /** Stronger check: vcDid → revealed {authoritySet, salt} (from challenge/response or holder decrypt). */
+  disclosed?: Record<string, AuthoritySetPayload>;
+  maxHops?: number;
+  /** Require EVERY hop to be disclosed, so authority + caveats are bound to the commitment (no structural-
+   *  only accept). Reject any hop missing from `disclosed`. Use when the result must be enforced, not merely
+   *  proven well-formed. */
+  requireDisclosure?: boolean;
+  /** Optional caveat-narrowing predicate applied to adjacent disclosed hops `(child, parent) → ok?`. Injected
+   *  by the capability layer (attenuation stays generic — it never interprets caveats). */
+  caveatNarrows?: (child: unknown, parent: unknown) => boolean;
+  /** Revocation-by-default: a disclosed hop with no status pointer is REJECTED when true (single-hop parity —
+   *  a capability that can never be revoked is refused rather than trusted forever). */
+  requireStatus?: boolean;
+  /** Injected per-hop revocation check — the capability/monitor layer resolves the W3C StatusList (attenuation
+   *  stays generic and never interprets caveats). Called for each disclosed hop with `(caveats, hopController)`
+   *  where hopController is the hop's issuer. Fail-closed: a revoked or unavailable hop rejects the whole chain. */
+  checkHopStatus?: (caveats: unknown, hopController: string) => Promise<'ok' | 'revoked' | 'unavailable' | 'no-status'>;
+  /**
+   * Enforce the DELEGATION invariant: each hop must be issued by the parent hop's issuer-attested `holder`.
+   * **ON by default** — a well-formed delegation chain has this property, and without it anyone who has seen an
+   * ancestor's disclosed salt can mint a SIBLING hop carrying the parent's full authority (the sibling-hop forge).
+   * Set `false` ONLY for a non-delegation attenuation chain — e.g. a single attenuator minting hops for a
+   * separate holder (the generic-mechanics tests) — never on a real capability path.
+   */
+  requireDelegatorBinding?: boolean;
+}
+
+export interface VerifyResult {
+  ok: boolean;
+  reason?: string;
+  /** The check that failed, e.g. '(c)', '(d)', '(e)', '(⊆)', '(b)'. */
+  check?: string;
+  vc?: string;
+  counter?: number;
+  chainLength?: number;
+  /** The leaf hop's issuer-attested holder DID (from its signed assertion) — the caller to bind by proof. */
+  holder?: string;
+  /** The leaf's commitment-bound authority + caveats (present when the leaf was disclosed). Enforce THESE. */
+  leafAuthoritySet?: AuthoritySet;
+  leafCaveats?: unknown;
+}
+
+const signerOf = (a: AttenuationAssertion): string => (a.proof?.verificationMethod ?? '').split('#')[0] ?? '';
+
+/**
+ * Walk a leaf VC Asset DID to its origin, resolving each hop through the trusted Gatekeeper, and return
+ * ACCEPT or REJECT-with-reason. Zero decryption unless `disclosed` is supplied. Checks per hop:
+ *   (a) the hop resolves with a controller;
+ *   (e) its attenuation assertion is validly signed BY that controller (the expected issuer);
+ *       + the assertion's committed fields match the pic (no split-brain between signed claim and pic);
+ *   (b) the pinned parent version resolves and its content-addressed versionId matches the pin;
+ *   (c) counter == parent.counter + 1;
+ *   (d) parentAuthorityCommitment == the parent's OWN authorityCommitment (commitment chain consistent);
+ *       + lineageId is stable across the hop.
+ * With `disclosed`: recompute commit(set,salt)==commitment (bind), and enforce Cᵢ₊₁ ⊆ Cᵢ.
+ */
+export async function verifyAttenuationChain(leafVcDid: string, opts: VerifyOptions): Promise<VerifyResult> {
+  const km = opts.keymaster.keymaster;
+  const verifyProof = km.verifyProof.bind(km) as (o: unknown) => Promise<boolean>;
+  const disclosed = opts.disclosed ?? {};
+  const maxHops = opts.maxHops ?? 64;
+
+  const reject = (reason: string, check: string, vc: string, counter?: number): VerifyResult => ({ ok: false, reason, check, vc, counter });
+
+  let did = leafVcDid;
+  let useVersion: number | undefined;
+  // What the CHILD just processed asked of the node we are about to load (pin + the child's own pic/did).
+  let expectFromChild: { pin: PrevPin; childPic: PicBlock; childDid: string } | null = null;
+  let length = 0;
+  let leafHolder: string | undefined;
+  let leafReveal: AuthoritySetPayload | undefined;
+
+  for (let step = 0; step < maxHops; step++) {
+    const doc = await km.resolveDID(did, useVersion !== undefined ? { versionSequence: useVersion } : undefined);
+    const meta = doc.didDocumentMetadata as { versionId?: string };
+    const controller = (doc.didDocument as { controller?: string } | undefined)?.controller ?? '';
+    const pic = (doc.didDocumentData as { pic?: PicBlock } | undefined)?.pic;
+
+    // (b) — a pinned parent must resolve to EXACTLY the pinned content-addressed version.
+    if (expectFromChild && meta.versionId !== expectFromChild.pin.versionId) {
+      return reject(`pinned parent version ${expectFromChild.pin.versionSequence} resolved to ${meta.versionId}, expected ${expectFromChild.pin.versionId}`, '(b)', did);
+    }
+    // (a)
+    if (!controller) return reject('hop has no controller', '(a)', did);
+    if (!pic) return reject('hop carries no pic block', '(a)', did);
+
+    // (e) — assertion validly signed by the expected issuer (== this hop's controller), and self-consistent.
+    const asrt = pic.attenuationAssertion;
+    if (!asrt || !asrt.proof) return reject('hop carries no signed attenuation assertion', '(e)', did, pic.counter);
+    const sigOk = await verifyProof(asrt).catch(() => false);
+    if (!sigOk) return reject('attenuation assertion signature does not verify', '(e)', did, pic.counter);
+    if (signerOf(asrt) !== controller) {
+      return reject(`attenuation assertion signed by ${signerOf(asrt)}, not the hop's controller/issuer ${controller}`, '(e)', did, pic.counter);
+    }
+    if (
+      asrt.authorityCommitment !== pic.authorityCommitment ||
+      asrt.parentAuthorityCommitment !== pic.parentAuthorityCommitment ||
+      asrt.counter !== pic.counter ||
+      asrt.lineageId !== pic.lineageId ||
+      asrt.statement !== ATTENUATION_STATEMENT
+    ) {
+      return reject('signed assertion disagrees with the pic block (split-brain)', '(e)', did, pic.counter);
+    }
+
+    // disclosure binding for THIS hop: the revealed set must hash to the committed value.
+    const reveal = disclosed[did];
+    if (opts.requireDisclosure && !reveal) {
+      return reject('hop is not disclosed (required for enforcement — bind authority + caveats)', '(disclosure)', did, pic.counter);
+    }
+    if (reveal && commit(reveal.authoritySet, reveal.salt, reveal.caveats) !== pic.authorityCommitment) {
+      return reject('disclosed authoritySet+salt does not match the authorityCommitment', '(commit)', did, pic.counter);
+    }
+
+    // Per-hop revocation (fail-closed): EVERY hop in the chain must be live. Revoking an INTERMEDIATE hop
+    // therefore kills the whole subtree at the next invocation — the multi-hop kill-switch. The status pointer
+    // lives in the commitment-bound disclosed caveats, so a holder cannot strip it to dodge the check. Attenuation
+    // stays generic: the monitor injects StatusList resolution via checkHopStatus (expectedIssuer = this hop's
+    // controller/issuer). Runs only for disclosed hops — under requireDisclosure that is every hop.
+    if (reveal && (opts.requireStatus || opts.checkHopStatus)) {
+      const st = opts.checkHopStatus ? await opts.checkHopStatus(reveal.caveats, controller) : 'no-status';
+      if (st === 'revoked') return reject('a hop in the chain is revoked', '(revoked)', did, pic.counter);
+      if (st === 'unavailable') return reject('a hop’s revocation status is unavailable (fail-closed)', '(status)', did, pic.counter);
+      if (st === 'no-status' && opts.requireStatus) return reject('a hop carries no revocation status pointer (not revocable)', '(revocable)', did, pic.counter);
+    }
+
+    if (step === 0) {
+      leafHolder = asrt.holder;
+      leafReveal = reveal;
+    }
+
+    // Cross-hop checks: the child we just processed vs THIS parent.
+    if (expectFromChild) {
+      const child = expectFromChild.childPic;
+      if (child.counter !== pic.counter + 1) {
+        return reject(`counter ${child.counter} is not parent ${pic.counter} + 1`, '(c)', expectFromChild.childDid, child.counter);
+      }
+      if (child.parentAuthorityCommitment !== pic.authorityCommitment) {
+        return reject('child.parentAuthorityCommitment != parent.authorityCommitment (commitment chain break)', '(d)', expectFromChild.childDid, child.counter);
+      }
+      if (child.lineageId !== pic.lineageId) {
+        return reject(`lineage mismatch: child ${child.lineageId} vs parent ${pic.lineageId}`, '(lineage)', expectFromChild.childDid, child.counter);
+      }
+      // Bind the child hop to its DELEGATOR: it must be issued by the party THIS (parent) hop was delegated to
+      // (`asrt.holder`, the parent's issuer-attested holder). Without this, anyone who has ever seen an ancestor's
+      // disclosed salt — every downstream delegate, and the Warden on every invocation — could mint a SIBLING of
+      // that hop under their own DID carrying the parent's full authority, and pass every other check (they copy
+      // the parent's set, so subset + caveat-narrow trivially hold). Designation ≡ authority: only the delegate
+      // the parent NAMED may extend the chain. `child.attenuationAssertion` is already signature-verified (e).
+      if (opts.requireDelegatorBinding !== false && signerOf(child.attenuationAssertion) !== asrt.holder) {
+        return reject('child hop is not issued by the parent hop’s attested delegate (sibling-hop forge)', '(delegator)', expectFromChild.childDid, child.counter);
+      }
+      const childReveal = disclosed[expectFromChild.childDid];
+      if (reveal && childReveal && !isSubset(childReveal.authoritySet, reveal.authoritySet)) {
+        return reject('disclosed child authoritySet ⊄ parent authoritySet', '(⊆)', expectFromChild.childDid, child.counter);
+      }
+      if (reveal && childReveal && opts.caveatNarrows && !opts.caveatNarrows(childReveal.caveats, reveal.caveats)) {
+        return reject('disclosed child caveats widen the parent', '(caveats)', expectFromChild.childDid, child.counter);
+      }
+    }
+
+    length++;
+
+    if (pic.prevCredential === null) {
+      // Origin.
+      if (pic.counter !== 0) return reject(`origin counter is ${pic.counter}, expected 0`, '(c)', did, pic.counter);
+      if (pic.parentAuthorityCommitment !== null) return reject('origin carries a parentAuthorityCommitment', '(d)', did, pic.counter);
+      if (opts.expectedRootIssuer && controller !== opts.expectedRootIssuer) {
+        return reject(`origin controller ${controller} != expected root issuer ${opts.expectedRootIssuer}`, '(root)', did, pic.counter);
+      }
+      return { ok: true, chainLength: length, holder: leafHolder, leafAuthoritySet: leafReveal?.authoritySet, leafCaveats: leafReveal?.caveats };
+    }
+
+    expectFromChild = { pin: pic.prevCredential, childPic: pic, childDid: did };
+    did = pic.prevCredential.did;
+    useVersion = pic.prevCredential.versionSequence;
+  }
+
+  return reject(`chain exceeded ${maxHops} hops without reaching an origin`, '(depth)', did);
+}

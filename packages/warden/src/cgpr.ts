@@ -14,14 +14,13 @@ import { randomUUID } from 'node:crypto';
 
 import {
   assembleEvidence,
-  decideRelease,
   authorizeActor,
   activeRuleset,
   mintPairwiseGrant,
+  enforceKeyCustody,
   acceptCredential,
   pairwiseName,
   requiredLevelFor,
-  AuthzTier,
   PROTOCOL_VERSION,
   type SignedRuleset,
   type PairwiseStore,
@@ -83,6 +82,15 @@ export type CgprResult = CgprGrantResult | CgprDenyResult;
 export interface CgprServiceOptions {
   /** The gateway actor's Sovereign-signed Ruleset chain (constraint #3). */
   gatewayRuleset: SignedRuleset[];
+  /**
+   * The Sovereign's key-custody policy chain (`RulesetCapabilities.keyCustody`), if any — a SEPARATE
+   * signed choice from the gateway Ruleset: which counterparties the Sovereign keys itself in the Signet
+   * (subject-keyed) vs. lets the Warden hold (Warden-keyed). Threaded into the pairwise mint chokepoint so
+   * `enforceKeyCustody` fails closed here — a custodial gateway Warden may not mint a disclosure identity
+   * for an audience the Sovereign chose to control. Omit ⇒ the gateway Ruleset is the fallback (no
+   * `keyCustody` capability ⇒ everything resolves Warden-keyed, the historical behaviour).
+   */
+  keyCustodyRuleset?: SignedRuleset[];
   /** The governing Sovereign: pins the Ruleset signer and is the subject behind each pairwise DID. */
   sovereignDid: string;
   pairwiseStore: PairwiseStore;
@@ -147,27 +155,40 @@ export class CgprService {
     );
     if (!authz.allowed) return deny(`gateway not authorized: ${authz.reason}`);
     const active = await activeRuleset(this.warden, this.opts.gatewayRuleset, { expectedSigner: this.opts.sovereignDid });
+    // The Sovereign's key-custody policy is a SEPARATE signed chain (or absent). Resolve its active head,
+    // pinned to the same Sovereign signer, so the pairwise mint below enforces it. Null ⇒ mintPairwiseGrant
+    // falls back to the gateway Ruleset (whose `keyCustody` is empty ⇒ Warden-keyed, back-compat).
+    const keyCustody = this.opts.keyCustodyRuleset
+      ? await activeRuleset(this.warden, this.opts.keyCustodyRuleset, { expectedSigner: this.opts.sovereignDid })
+      : null;
+    // If the Sovereign's policy keys THIS counterparty itself (subject-keyed), the Warden may not mint a
+    // disclosure identity for it — the Sovereign must, in the Signet. Decide it HERE, before any consent
+    // prompt, and fail closed as a graceful denial (the gateway renders a bare decision, so no reason
+    // leaks to the counterparty). The mint's own `enforceKeyCustody` remains the structural backstop below.
+    const custody = enforceKeyCustody({ ruleset: keyCustody, audience: req.audience, mintedBy: 'warden' });
+    if (!custody.ok) return deny(custody.reason);
 
-    // 3. The Warden authors the consent text — never the requesting agent (constraint #4, §7.7).
+    // 3. The Warden authors the consent text — never the requesting agent (constraint #4, §7.7). Sanitize the
+    // requester-supplied `purpose` before it reaches the human's screen: strip control/format chars and
+    // newlines and cap the length, so it cannot inject into or overflow the Warden-authored line.
+    const safePurpose = req.purpose.replace(/[\p{Cc}\p{Cf}]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
     const reason =
-      `Disclose ${req.scopes.join(', ')} to ${req.audience.slice(0, 24)}… for: ${req.purpose} — ` +
+      `Disclose ${req.scopes.join(', ')} to ${req.audience.slice(0, 24)}… for: ${safePurpose} — ` +
       `backed by ${assembled.group.count} witnessed ${kind} observation(s)`;
 
     const claim = `Holds preferences: ${req.scopes.join(', ')}`;
     const ttlMin = req.validForMinutes > 0 ? req.validForMinutes : 10;
     const validUntil = new Date(Date.now() + ttlMin * 60_000).toISOString();
 
-    // 4. Release ladder (unchanged). LOW clears at STANDING; MEDIUM+ needs the Signet.
-    const standingClears = decideRelease({
-      sensitivity,
-      tier: AuthzTier.STANDING,
-      delegationValid: true,
-      mode: 'ATTESTATION',
-      disclosureSatisfiable: true,
-    }).allow;
+    // 4. Autonomy threshold (Phase 2): CGPR is invocation at the edge — a disclosure ≤ `cgprAutonomousAtOrBelow`
+    //    clears autonomously; above it steps up to the Sovereign's Signet. This is the CGPR-specific autonomy
+    //    knob, the same move we made on the invocation path with `requiresHumanAt`: a single configurable
+    //    threshold replaces the fixed STANDING release ladder. Default LOW — stricter than the internal gate,
+    //    because an external AI requester warrants more caution than the Sovereign's own Emissary.
+    const autonomous = sensitivity <= this.config.cgprAutonomousAtOrBelow;
 
     let approval: Parameters<typeof mintPairwiseGrant>[2]['approval'];
-    if (!standingClears) {
+    if (!autonomous) {
       if (!this.opts.approver) return deny('sensitive scope needs a Sovereign approval channel (Signet)');
       const txn = randomUUID();
       const ares = await this.opts.approver.requestApproval({
@@ -190,6 +211,7 @@ export class CgprService {
       audience: grantAudience,
       sovereignDid: owner,
       activeRuleset: active,
+      keyCustodyRuleset: keyCustody,
       createdAt: new Date().toISOString(),
       registry: this.config.registry,
       claim,

@@ -16,3 +16,22 @@ data/
 # OS / editor
 .DS_Store
 *.log
+
+# ── Coordination chatter & local operator files (kept local, never published) ──
+# Agent-to-agent notes, asks, replies, syncs, and machine-specific config live locally only.
+/_archive/
+/_to_delete/
+/.mcp.json
+/IDENTITY.md
+/AEGIS-*.md
+/HEARTHOLD-ASK-*.md
+/HEARTHOLD-REPLY-*.md
+/HEARTHOLD-NOTE-*.md
+/HEARTHOLD-HANDOFF-*.md
+/NOTE-*.md
+/SEVENFOLD-*.md
+
+# Audit reports, generated PDFs, and archive tarballs — never commit.
+/*-audit*.md
+/*.pdf
+/*.tar.gz

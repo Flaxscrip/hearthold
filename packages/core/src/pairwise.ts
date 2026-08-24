@@ -33,6 +33,15 @@ export interface PairwiseRecord {
   name: string;
   /** The Sovereign (or stable issuer) it stands in for — NEVER disclosed. */
   subjectDid: string;
+  /**
+   * Which wallet holds this R-DID's private key. `'warden'` (default) — the custodian minted it and
+   * presents on the Sovereign's behalf (disclosure pairwise: showing evidence to a verifier). `'subject'`
+   * — minted in the Sovereign's OWN (Signet) wallet, so the Sovereign proves control DIRECTLY with their
+   * own key. Identity-bearing relationships (a bank that KYCs the DID and issues credentials to it) MUST
+   * be `'subject'`: a custodian signing on your behalf is the wrong trust shape for an identity anchor.
+   * Absent on legacy records ⇒ treated as `'warden'`.
+   */
+  keyHolder?: 'warden' | 'subject';
   createdAt: string;
 }
 
@@ -64,7 +73,18 @@ export function pairwiseName(audience: string): string {
 export async function resolvePairwiseDid(
   handle: KeymasterHandle,
   store: PairwiseStore,
-  args: { audience: string; subjectDid: string; createdAt: string; registry?: string },
+  args: {
+    audience: string;
+    subjectDid: string;
+    createdAt: string;
+    registry?: string;
+    /**
+     * Who holds the minted key. Defaults to `'warden'` (the historical disclosure-pairwise behaviour).
+     * Pass `'subject'` AND the Sovereign's own handle to mint an identity-bearing R-DID the Sovereign
+     * controls directly (banking / KYC relationships) — see `PairwiseRecord.keyHolder`.
+     */
+    keyHolder?: 'warden' | 'subject';
+  },
 ): Promise<PairwiseRecord> {
   const existing = await store.find(args.audience);
   if (existing) return existing;
@@ -87,10 +107,37 @@ export async function resolvePairwiseDid(
     pairwiseDid,
     name,
     subjectDid: args.subjectDid,
+    keyHolder: args.keyHolder ?? 'warden',
     createdAt: args.createdAt,
   };
   await store.record(rec);
   return rec;
+}
+
+/**
+ * Prove control of a wallet-held DID by answering a counterparty's challenge WITH THAT DID's key
+ * (challenge/response). For a subject-keyed R-DID this is how the Sovereign proves control to a bank
+ * DIRECTLY — the Signet signs the bank's challenge with the R-DID it holds; no custodian is in the
+ * signing path. Only succeeds if `name` is an identity in `handle`'s wallet (a Warden that never minted
+ * the key cannot answer), which is exactly the property a KYC'ing institution needs.
+ *
+ * Registry hygiene: the response DID is ephemeral — pass `config.registry` so it anchors on a reachable
+ * registry rather than defaulting to hyperswarm.
+ */
+export async function proveControl(
+  handle: KeymasterHandle,
+  name: string,
+  challengeDid: string,
+  opts: { registry?: string } = {},
+): Promise<string> {
+  const km = handle.keymaster;
+  const prev = await km.getCurrentId().catch(() => undefined);
+  await km.setCurrentId(name);
+  try {
+    return await km.createResponse(challengeDid, opts.registry ? { registry: opts.registry } : undefined);
+  } finally {
+    if (prev) await km.setCurrentId(prev);
+  }
 }
 
 /** Is `did` a pairwise DID we minted for some audience? */
@@ -127,6 +174,45 @@ export function enforcePairwiseSubject(args: {
       `refused: a non-pairwise subject requires a signed Ruleset exception for audience '${args.audience}' ` +
       `(DTG v0.3 R-DID-per-relationship MUST / CGPR deliberate-choice)`,
   };
+}
+
+/**
+ * Resolve WHO holds the key for a pairwise R-DID to an audience, from the Sovereign's signed key-custody
+ * policy (`RulesetCapabilities.keyCustody`). The Sovereign's own choice, named per audience — not a
+ * built-in category. No policy ⇒ `'warden'` (the historical disclosure-pairwise behaviour). Precedence:
+ * an explicit `subject`/`warden` listing wins over the `default`, which wins over the fallback `'warden'`.
+ */
+export function resolveKeyHolder(ruleset: SignedRuleset | null, audience: string): 'warden' | 'subject' {
+  const p = ruleset?.capabilities.keyCustody;
+  if (!p) return 'warden';
+  if (p.subject?.includes(audience)) return 'subject';
+  if (p.warden?.includes(audience)) return 'warden';
+  return p.default ?? 'warden';
+}
+
+/**
+ * The key-custody chokepoint (fail closed, like `enforcePairwiseSubject`). The protection is
+ * ONE-DIRECTIONAL: the **Warden may not key a relationship the Sovereign chose to control** (`subject`).
+ * The reverse — the Sovereign minting a subject-keyed R-DID where the policy would allow Warden-keyed — is
+ * always permitted: the Sovereign over-controlling *its own* key is never a threat. Call this where an
+ * R-DID is minted, never in the callers, so no path can silently hand the custodian a key the Sovereign
+ * wanted to hold.
+ */
+export function enforceKeyCustody(args: {
+  ruleset: SignedRuleset | null;
+  audience: string;
+  mintedBy: 'warden' | 'subject';
+}): PairwiseGate {
+  const want = resolveKeyHolder(args.ruleset, args.audience);
+  if (want === 'subject' && args.mintedBy === 'warden') {
+    return {
+      ok: false,
+      reason:
+        `refused: the Sovereign's key-custody policy keys audience '${args.audience}' itself (subject-keyed) — ` +
+        `the Warden may not mint it (the Sovereign must, in the Signet)`,
+    };
+  }
+  return { ok: true, reason: `key custody '${want}' permits a mint by '${args.mintedBy}'` };
 }
 
 /** In-memory PairwiseStore — for tests and ephemeral flows (mirrors `MemorySpentTxnStore`). */

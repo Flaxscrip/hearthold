@@ -2,18 +2,25 @@ import {
   PROTOCOL_VERSION,
   presentProof,
   signEvidenceApproval,
-  type RequestHandler,
   signRuleset,
+  signMemberAck,
+  unwrapKey,
+  sealToKey,
+  type RequestHandler,
   type ProofRequestMessage,
   type ApprovalRequestMessage,
   type KbApprovalRequestMessage,
   type RulesetSignRequestMessage,
+  type MemberAckRequestMessage,
+  type PartitionRewrapRequestMessage,
+  type DischargeRequestMessage,
   type EvidenceApprovalStatement,
   type Ruleset,
+  type SignedRuleset,
   type KeymasterHandle,
 } from '@hearthold/core';
 
-import type { ApprovalGate } from './signet.js';
+import { signDischarge, type ApprovalGate } from './signet.js';
 
 /**
  * The Sovereign's inbound handler. Two disclosures, both gated by the Signet's `ApprovalGate` (a
@@ -24,9 +31,45 @@ import type { ApprovalGate } from './signet.js';
  *    sensitive evidence disclosure. The Warden authored the description; the Signet shows the
  *    Sovereign the Warden's words (never the requesting agent's), and on approval the Sovereign
  *    issues a HearthholdApproval back to the Warden.
+ *
+ * `reopen` (optional): the keymaster caches the wallet in memory at open, so a long-lived daemon does not
+ * see wallet.json changes made by a SEPARATE process (`sovereign accept` writing a freshly-accepted
+ * credential). When supplied, the handler reopens a FRESH handle per request and uses it for EVERY branch,
+ * so the daemon never operates through a stale cache: the present path sees a mid-session accept, and any
+ * signing/mutation starts from the current on-disk wallet rather than writing a stale cache back over an
+ * external change (the reload-before-write guard — bounding clobber exposure to one request instead of the
+ * daemon's whole lifetime). `openKeymasterFresh` forces the read and retries a torn read, failing closed.
+ * Callers that omit it (in-process tests) keep using the static handle unchanged.
  */
-export function makeSovereignHandler(sovereign: KeymasterHandle, gate: ApprovalGate): RequestHandler {
+const HANDLED_TYPES = new Set<string>([
+  'hearthold/proof-request',
+  'hearthold/approval-request',
+  'hearthold/ruleset-sign-request',
+  'hearthold/member-ack-request',
+  'hearthold/partition-rewrap-request',
+  'hearthold/kb-approval-request',
+  'hearthold/discharge-request',
+]);
+
+export function makeSovereignHandler(
+  sovereign: KeymasterHandle,
+  gate: ApprovalGate,
+  reopen?: () => Promise<KeymasterHandle>,
+  /**
+   * The owner's own Warden DID — the ONLY party a `hearthold/discharge-request` is honored from. Consent must be
+   * Warden-mediated (the Warden authors the request); a holder must not prompt the Signet directly with text of
+   * its choosing (audit-4 §1). **Fail-closed:** unset ⇒ no discharge is ever honored, so any Signet that accepts
+   * consent step-ups must pass it (the daemons pass `config.wardenDid`). A test that never sends a discharge may
+   * omit it; a discharge test must set it (e.g. `e2e-invocation-discharge-didcomm`).
+   */
+  trustedRequester?: string,
+): RequestHandler {
   return async (message, fromDid) => {
+    if (!HANDLED_TYPES.has(message.type)) return null;
+    // One fresh, current-on-disk handle for the whole request when the daemon supplies `reopen`; the
+    // static handle in tests. Everything below reads/signs through `active`, never the captured handle.
+    const active = reopen ? await reopen() : sovereign;
+
     if (message.type === 'hearthold/proof-request') {
       const req = message as ProofRequestMessage;
       const challengeDid = req.challengeDid;
@@ -34,7 +77,7 @@ export function makeSovereignHandler(sovereign: KeymasterHandle, gate: ApprovalG
       if (!humanProof) {
         return { type: 'hearthold/error', version: PROTOCOL_VERSION, reason: 'disclosure declined by the Sovereign' };
       }
-      const responseDid = await presentProof(sovereign, challengeDid);
+      const responseDid = await presentProof(active, challengeDid);
       return { type: 'hearthold/proof-presentation', version: PROTOCOL_VERSION, responseDid, humanProof };
     }
 
@@ -67,7 +110,7 @@ export function makeSovereignHandler(sovereign: KeymasterHandle, gate: ApprovalG
         evidenceRoot: m.evidenceRoot,
         humanProof: { method: humanProof.method, level: humanProof.level, timestamp: humanProof.timestamp },
       };
-      const approval = await signEvidenceApproval(sovereign, statement);
+      const approval = await signEvidenceApproval(active, statement);
       return { type: 'hearthold/approval-response', version: PROTOCOL_VERSION, approved: true, approval };
     }
 
@@ -83,8 +126,51 @@ export function makeSovereignHandler(sovereign: KeymasterHandle, gate: ApprovalG
       if (!humanProof) {
         return { type: 'hearthold/ruleset-sign-response', version: PROTOCOL_VERSION, approved: false, reason: 'declined by the Sovereign' };
       }
-      const signed = await signRuleset(sovereign, m.ruleset as Ruleset);
+      const signed = await signRuleset(active, m.ruleset as Ruleset);
       return { type: 'hearthold/ruleset-sign-response', version: PROTOCOL_VERSION, approved: true, signed };
+    }
+
+    // Guardianship acknowledgment (Phase 5 / threat-model §3): the SUBJECT member co-signs a guardianship
+    // edge granting a governor read over their OWN private data. This is the amendment rule's member half —
+    // gated by the member's OWN fresh proof-of-human (never the governor's), it makes the edge authorize
+    // anything. The ack is a proof over the base Ruleset, distinct from the governor's signature.
+    if (message.type === 'hearthold/member-ack-request') {
+      const m = message as MemberAckRequestMessage;
+      const humanProof = await gate.approve({
+        requester: fromDid,
+        guardianship: { summary: m.summary },
+      });
+      if (!humanProof) {
+        return { type: 'hearthold/member-ack-response', version: PROTOCOL_VERSION, approved: false, reason: 'declined by the member' };
+      }
+      const memberAck = await signMemberAck(active, m.ruleset as SignedRuleset);
+      return { type: 'hearthold/member-ack-response', version: PROTOCOL_VERSION, approved: true, memberAck };
+    }
+
+    // Partition-key rewrap (Phase 2 / threat-model §4a): the Warden asks THIS member to unlock their own
+    // private notes for a session. The member's proof-of-human authorizes it (never the governor, §4.1);
+    // then, entirely at the Signet, each partition key is unwrapped with the member's OWN key and rewrapped
+    // to the Warden's ephemeral session key. The member's long-term key never leaves this device. A wrapped
+    // key that isn't this member's simply fails to unwrap and is skipped (scoped).
+    if (message.type === 'hearthold/partition-rewrap-request') {
+      const m = message as PartitionRewrapRequestMessage;
+      const humanProof = await gate.approve({
+        requester: fromDid,
+        rewrap: { sessionId: m.sessionId, partitionCount: m.partitions.length },
+      });
+      if (!humanProof) {
+        return { type: 'hearthold/partition-rewrap-response', version: PROTOCOL_VERSION, sessionId: m.sessionId, approved: false, reason: 'declined by the member' };
+      }
+      const rewrapped: { partitionId: string; rewrapped: string }[] = [];
+      for (const p of m.partitions) {
+        try {
+          const priv = await unwrapKey(active, p.wrapped); // the member's own current-id key
+          rewrapped.push({ partitionId: p.partitionId, rewrapped: sealToKey(active.cipher, m.wardenSessionPub, JSON.stringify(priv)) });
+        } catch {
+          /* not this member's partition key — skip (scoped, §4.1) */
+        }
+      }
+      return { type: 'hearthold/partition-rewrap-response', version: PROTOCOL_VERSION, sessionId: m.sessionId, approved: true, rewrapped };
     }
 
     // KB assurance step-up: the Warden asks the member (this Sovereign) to authorize a factor2 action,
@@ -94,6 +180,8 @@ export function makeSovereignHandler(sovereign: KeymasterHandle, gate: ApprovalG
       const humanProof = await gate.approve({
         requester: fromDid,
         action: { action: m.action, resource: m.resource, summary: m.summary },
+        // A spend escalation renders as a spend decision (amount/agent/band), not a generic yes/no.
+        ...(m.spend ? { spend: m.spend } : {}),
       });
       return {
         type: 'hearthold/kb-approval-response',
@@ -101,6 +189,25 @@ export function makeSovereignHandler(sovereign: KeymasterHandle, gate: ApprovalG
         approved: !!humanProof,
         reason: humanProof ? undefined : 'declined by the Sovereign',
       };
+    }
+
+    // Consent discharge (invocation step-up): the Warden asks THIS owner to co-sign a sensitive disclosure,
+    // bound to the act's txn. `signDischarge` runs the owner's OWN fresh proof-of-human gate (never the
+    // governor's, never the requesting agent's) and signs the discharge; a decline returns approved:false.
+    if (message.type === 'hearthold/discharge-request') {
+      const m = message as DischargeRequestMessage;
+      // Consent must be Warden-mediated: refuse a discharge-request unless it comes from the CONFIGURED owner's
+      // Warden, so a holder cannot prompt the Signet directly with benign text (audit-4 §1, audit-5). Fail-CLOSED:
+      // with no trusted Warden configured, NO discharge is honored — an unconfigured Signet does not prompt for
+      // strangers. fromDid is authcrypt-verified.
+      if (!trustedRequester || fromDid !== trustedRequester) {
+        return { type: 'hearthold/discharge-response', version: PROTOCOL_VERSION, approved: false, reason: 'discharge requests are accepted only from the configured owner’s Warden' };
+      }
+      const idName = await active.keymaster.getCurrentId();
+      if (!idName) return { type: 'hearthold/discharge-response', version: PROTOCOL_VERSION, approved: false, reason: 'no current identity at the Signet' };
+      const discharge = await signDischarge(active, idName, gate, m.request);
+      if (!discharge) return { type: 'hearthold/discharge-response', version: PROTOCOL_VERSION, approved: false, reason: 'declined by the Signet' };
+      return { type: 'hearthold/discharge-response', version: PROTOCOL_VERSION, approved: true, discharge };
     }
 
     return null;

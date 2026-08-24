@@ -51,9 +51,22 @@ export function startKbPortalServer(opts: KbPortalOptions): ControlServer {
     for (const [id, a] of logins) if (a.createdAt < cutoff) logins.delete(id);
   };
 
+  // The KB portal is a DELIBERATELY-public Mage (fronted by nginx at `publicUrl`), so it must allow its own
+  // public origin/host — but still not `*`. Requests from its own UI (Origin/Host = publicUrl) and non-browser
+  // callers (no Origin) are allowed; other browser origins are refused. Add more via a deployment override if
+  // a third-party browser client ever needs it.
+  const portalOrigins = (() => {
+    try {
+      return [new URL(publicUrl).origin];
+    } catch {
+      return [];
+    }
+  })();
+
   return startControlServer({
     port: opts.port,
     host: opts.host,
+    allowOrigins: portalOrigins,
     routes: {
       // ── Login (challenge/response) ──
       // Browser begins login → Warden issues a challenge bound to a callback carrying our loginId.
@@ -108,20 +121,22 @@ export function startKbPortalServer(opts: KbPortalOptions): ControlServer {
 
       // ── Session-authenticated KB ops ──
       'POST /api/kb/session-request': async ({ body }) => {
-        const { token, kbId, action, query, k, kind, text, scope } = (body ?? {}) as {
+        const { token, kbId, action, query, k, kind, text, scope, docKey, owner } = (body ?? {}) as {
           token?: string;
           kbId?: string;
-          action?: 'query' | 'update';
+          action?: 'query' | 'update' | 'put-doc' | 'get-doc';
           query?: string;
           k?: number;
           kind?: string;
           text?: string;
           scope?: 'shared' | 'private';
+          docKey?: string;
+          owner?: string;
         };
         if (!token || !kbId || !action) throw new Error('token, kbId and action are required');
         const reply = await transport.request(
           wardenDid,
-          { type: 'hearthold/kb-session-request', version: PROTOCOL_VERSION, token, kbId, action, query, k, kind, text, scope },
+          { type: 'hearthold/kb-session-request', version: PROTOCOL_VERSION, token, kbId, action, query, k, kind, text, scope, docKey, owner },
           // Long enough to outlast a factor-2 step-up (the Warden may be awaiting the member's Signet).
           { timeoutMs: 200_000 },
         );

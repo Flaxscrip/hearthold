@@ -1,0 +1,266 @@
+<svg viewBox="0 0 1480 1120" xmlns="http://www.w3.org/2000/svg" font-family="'Helvetica Neue',Arial,sans-serif">
+<style>
+  .bg{fill:#10141c}
+  .band{fill:#161c27;stroke:#2c3648;stroke-width:1}
+  .bandlbl{fill:#6f7c92;font-size:12px;letter-spacing:3px;font-weight:700}
+  .bandsub{fill:#5a6576;font-size:10.5px;letter-spacing:.5px}
+  .node{stroke-width:2;rx:10}
+  .det{fill:#14231d;stroke:#2f9e77}
+  .prob{fill:#241d12;stroke:#d8973c;stroke-dasharray:6 4}
+  .human{fill:#231f10;stroke:#c9a227}
+  .data{fill:#151a2e;stroke:#4a5aa8}
+  .sub{fill:#171d28;stroke:#5a6b8a}
+  .warden{fill:#12241d;stroke:#2f9e77;stroke-width:3}
+  .nt{fill:#e8edf5;font-size:14px;font-weight:700}
+  .ns{fill:#95a1b4;font-size:10.5px}
+  .tag{font-size:9px;font-weight:700;letter-spacing:.1em}
+  .lbl{fill:#c3ccdb;font-size:10px}
+  .lblbg{fill:#10141c;opacity:.88;rx:4}
+  .neg{fill:#1a1013;stroke:#b8452f;stroke-width:1.5;rx:10}
+  .negt{fill:#e6a99a;font-size:11px;font-weight:700;letter-spacing:.08em}
+  .negi{fill:#cbb6b0;font-size:10.5px}
+  .gate{fill:#b8452f}
+  .gatet{fill:#fff;font-size:10px;font-weight:700;letter-spacing:.06em}
+  .gatesub{fill:#f2d3c9;font-size:9px}
+  .flowcap{stroke:#4a5aa8}
+  .flowdet{stroke:#2f9e77}
+  .flowprob{stroke:#d8973c;stroke-dasharray:7 5}
+  .floweg{stroke:#c9a227}
+  .flowsub{stroke:#5a6b8a}
+  .flow{stroke-width:2;fill:none}
+  .title{fill:#dbe2ee;font-size:20px;font-weight:700}
+  .subtitle{fill:#8b96a8;font-size:12px}
+  .fn{fill:#5fd0a8;font-size:9.5px;font-family:'SFMono-Regular',Consolas,'Liberation Mono',monospace}
+  .mod{fill:#7a8aa8;font-size:9px;font-family:'SFMono-Regular',Consolas,'Liberation Mono',monospace}
+</style>
+
+<rect class="bg" x="0" y="0" width="1480" height="1120"/>
+
+<text class="title" x="40" y="44">Hearthold — Secured Data Flows <tspan fill="#5fd0a8" font-size="14">· engineering / code-anchored</tspan></text>
+<text class="subtitle" x="40" y="64">Every arrow shows WHAT crosses, HOW it is protected, and the FUNCTION that enforces it (teal, monospace). Node subtitles name the module. Boundary crossings pass a gate.</text>
+
+<!-- ================= BANDS ================= -->
+<rect class="band" x="24" y="86"  width="1432" height="150"/>
+<text class="bandlbl" x="40" y="108">CONTROL PLANE — THE HUMAN</text>
+<text class="bandsub" x="40" y="124">root authority · occasional · holds the key</text>
+
+<rect class="band" x="24" y="256" width="1432" height="560"/>
+<text class="bandlbl" x="40" y="278">HOME PLANE — TRUSTED HARDWARE (the Warden host)</text>
+<text class="bandsub" x="40" y="294">always-on · custodies data · enforces policy · never acts in the world</text>
+
+<rect class="band" x="24" y="836" width="1432" height="150"/>
+<text class="bandlbl" x="40" y="858">WORLD PLANE</text>
+<text class="bandsub" x="40" y="874">phones · browsers · other parties' agents · verifiers</text>
+
+<rect class="band" x="24" y="1006" width="1432" height="86"/>
+<text class="bandlbl" x="40" y="1028">ARCHON SUBSTRATE (did:cid)</text>
+
+<!-- boundary gate chips -->
+<g>
+  <rect class="gate" x="470" y="240" width="540" height="30" rx="6"/>
+  <text class="gatet" x="484" y="255">POLICY GATE — Signet proof-of-human · governor-pinned</text>
+  <text class="gatesub" x="484" y="266">no policy change without a human signature; a rogue enforcer's self-signed change fails closed</text>
+</g>
+<g>
+  <rect class="gate" x="470" y="806" width="620" height="30" rx="6"/>
+  <text class="gatet" x="484" y="821">EGRESS GATE — decideRelease( sensitivity × authz-tier × disclosure-mode )</text>
+  <text class="gatesub" x="484" y="832">deny-by-default · nothing leaves Home except a derived, scoped, expiring credential</text>
+</g>
+
+<!-- ================= NODES ================= -->
+<!-- Control -->
+<rect class="node human" x="80"  y="140" width="330" height="82"/>
+<text class="nt" x="98" y="172">Sovereign · Signet</text>
+<text class="ns" x="98" y="192">the human principal · holds the root key</text>
+<text class="ns" x="98" y="208">proof-of-human · signs policy &amp; disclosures</text>
+<rect class="tag" x="352" y="150" width="0" height="0"/>
+<text class="tag" x="360" y="160" fill="#c9a227">HUMAN</text>
+
+<rect class="node det" x="560" y="140" width="330" height="82"/>
+<text class="nt" x="578" y="172">Ruleset chain (π)</text>
+<text class="ns" x="578" y="192">signed, versioned, append-only policy</text>
+<text class="mod" x="578" y="210">core/ruleset.ts · signRuleset / verifyRulesetChain / activeRuleset</text>
+<text class="tag" x="840" y="160" fill="#2f9e77">DET</text>
+
+<!-- Home: Warden (center) -->
+<rect class="node warden" x="470" y="430" width="440" height="150"/>
+<text class="nt" x="492" y="466" font-size="16">Warden — deterministic policy engine</text>
+<text class="ns" x="492" y="490">decideRelease() · per-actor Ruleset checks (kinds/verbs/</text>
+<text class="ns" x="492" y="506">ceiling/assurance) · assembles &amp; mints evidence</text>
+<text class="ns" x="492" y="530" fill="#2f9e77">pure functions · no model in the release path</text>
+<text class="mod" x="492" y="550">core/security.ts::decideRelease · ruleset.ts::authorizeActor · warden/*</text>
+<text class="tag" x="854" y="452" fill="#2f9e77">DET · δ_D</text>
+
+<!-- Home: data stores (left) -->
+<rect class="node data" x="80" y="320" width="330" height="80"/>
+<text class="nt" x="98" y="348">Sealed Vault</text>
+<text class="ns" x="98" y="367">artefacts encrypted at rest · private partitions</text>
+<text class="mod" x="98" y="385">warden/store.ts · payload.ts::sealToKey / wrapKeyForDid</text>
+
+<rect class="node data" x="80" y="418" width="330" height="70"/>
+<text class="nt" x="98" y="444">Vector Index</text>
+<text class="ns" x="98" y="462">embeddings + metadata only — no plaintext</text>
+<text class="mod" x="98" y="478">core/recall.ts::IndexEntry · rankByQuery</text>
+
+<!-- Home: propose-only models (lower-left) -->
+<rect class="node prob" x="80" y="560" width="330" height="72"/>
+<text class="nt" x="98" y="586">Classifier · Ollama</text>
+<text class="ns" x="98" y="604">assigns sensitivity + tags · propose-only</text>
+<text class="mod" x="98" y="620">warden/classifier.ts::classify → SEALED fail-safe</text>
+<text class="tag" x="352" y="578" fill="#d8973c">PROB</text>
+
+<rect class="node prob" x="80" y="650" width="330" height="72"/>
+<text class="nt" x="98" y="676">Recall / RAG · Ollama</text>
+<text class="ns" x="98" y="694">answers the Sovereign's own questions · local</text>
+<text class="mod" x="98" y="710">core/recall.ts · warden/kb.ts (RecallService)</text>
+<text class="tag" x="352" y="668" fill="#d8973c">PROB</text>
+
+<!-- Home: evidence minter (right) -->
+<rect class="node det" x="1040" y="360" width="340" height="120"/>
+<text class="nt" x="1058" y="390">Evidence Assembler + Minter</text>
+<text class="ns" x="1058" y="409">selects artefacts · hash-committed graph · derived VC</text>
+<text class="mod" x="1058" y="426">core/evidence.ts::assembleEvidence · revealLeaves</text>
+<text class="mod" x="1058" y="440">mintEvidenceGraph · sign/verifyEvidenceApproval</text>
+<text class="ns" x="1058" y="460" fill="#2f9e77">provenance = commitments, never payloads</text>
+
+<!-- World -->
+<rect class="node data" x="80" y="884" width="330" height="82"/>
+<text class="nt" x="98" y="912">Emissary</text>
+<text class="ns" x="98" y="930">world-facing envoy · per device · no secret</text>
+<text class="mod" x="98" y="948">warden/delegations.ts · core/protocol.ts (WitnessSubmission)</text>
+
+<rect class="node prob" x="560" y="884" width="330" height="82"/>
+<text class="nt" x="578" y="914">3rd-party AI · Broker</text>
+<text class="ns" x="578" y="934">requests data via a consent-gated ticket</text>
+<text class="ns" x="578" y="950">(CGPR) · may be prompt-injected · untrusted</text>
+
+<rect class="node sub" x="1050" y="884" width="330" height="82"/>
+<text class="nt" x="1068" y="914">Verifier / relying party</text>
+<text class="ns" x="1068" y="934">checks the proof against the issuer's DID</text>
+<text class="ns" x="1068" y="950">offline · trusts the signature, not the Warden</text>
+
+<!-- Substrate -->
+<rect class="node sub" x="80" y="1028" width="640" height="48"/>
+<text class="nt" x="98" y="1057" font-size="13">Archon Gatekeeper — DID resolution (:4224) · Drawbridge (:4222)</text>
+<rect class="node sub" x="740" y="1028" width="640" height="48"/>
+<text class="nt" x="758" y="1057" font-size="13">Trust Registry — TRQP (who may issue · what each actor may do)</text>
+
+<!-- ================= FLOWS ================= -->
+<defs>
+  <marker id="ah-cap" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 Z" fill="#4a5aa8"/></marker>
+  <marker id="ah-det" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 Z" fill="#2f9e77"/></marker>
+  <marker id="ah-prob" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 Z" fill="#d8973c"/></marker>
+  <marker id="ah-eg" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 Z" fill="#c9a227"/></marker>
+  <marker id="ah-sub" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 Z" fill="#5a6b8a"/></marker>
+</defs>
+
+<!-- A: Emissary -> Warden (capture, crosses World->Home) -->
+<path class="flow flowcap" marker-end="url(#ah-cap)" d="M245,884 C300,730 430,650 505,582"/>
+<rect class="lblbg" x="250" y="698" width="300" height="46"/>
+<text class="lbl" x="258" y="712">① witness submission →</text>
+<text class="lbl" x="258" y="726" fill="#7f8ca0">sealed (authcrypt DIDComm) · no registry footprint</text>
+<text class="fn" x="258" y="740">payload.ts::sealForWarden → warden/service.ts</text>
+
+<!-- B: Warden <-> Classifier (propose-only) -->
+<path class="flow flowprob" marker-end="url(#ah-prob)" d="M470,540 C430,560 420,575 412,588"/>
+<path class="flow flowprob" marker-end="url(#ah-prob)" d="M412,600 C440,590 470,585 495,568"/>
+<rect class="lblbg" x="300" y="500" width="240" height="32"/>
+<text class="lbl" x="308" y="514">② plaintext (on-device) ⇄ label+tags</text>
+<text class="fn" x="308" y="528">classifier.ts::classify · unsealAsWarden</text>
+
+<!-- C: Warden <-> Vault -->
+<path class="flow flowdet" marker-end="url(#ah-det)" d="M470,470 L412,392"/>
+<path class="flow flowdet" marker-end="url(#ah-det)" d="M412,378 L470,458"/>
+<rect class="lblbg" x="454" y="404" width="240" height="32"/>
+<text class="lbl" x="462" y="418">③ store / transient unseal</text>
+<text class="fn" x="462" y="432">store.ts · sealToKey / openWithKey / unwrapKey</text>
+
+<!-- D: Warden <-> Index -->
+<path class="flow flowdet" marker-end="url(#ah-det)" d="M470,486 L412,455"/>
+<rect class="lblbg" x="242" y="430" width="164" height="18"/>
+<text class="lbl" x="250" y="443" fill="#2f9e77">④ embeddings + metadata only</text>
+
+<!-- F: Warden <-> Recall (propose-only, stays home) -->
+<path class="flow flowprob" marker-end="url(#ah-prob)" d="M470,560 C430,620 420,650 412,672"/>
+<path class="flow flowprob" marker-end="url(#ah-prob)" d="M412,690 C450,650 480,600 500,572"/>
+<rect class="lblbg" x="250" y="768" width="290" height="32"/>
+<text class="lbl" x="258" y="782">⑤ own query ⇄ cited answer · never logged</text>
+<text class="fn" x="258" y="796">recall.ts::rankByQuery (maxSensitivity ceiling)</text>
+
+<!-- E1: Sovereign -> Ruleset -->
+<path class="flow floweg" marker-end="url(#ah-eg)" d="M410,181 L556,181"/>
+<rect class="lblbg" x="418" y="160" width="140" height="30"/>
+<text class="lbl" x="424" y="174">⑥ signs policy (PoH)</text>
+<text class="fn" x="424" y="187">signRuleset</text>
+
+<!-- E2: Ruleset -> Warden -->
+<path class="flow flowdet" marker-end="url(#ah-det)" d="M700,222 C695,320 690,380 688,428"/>
+<rect class="lblbg" x="704" y="326" width="230" height="32"/>
+<text class="lbl" x="710" y="340">⑦ active π · governor-pinned</text>
+<text class="fn" x="710" y="354">verifyRulesetChain · activeRuleset · authorizeActor</text>
+
+<!-- H: Warden <-> Signet (step-up, crosses Home->Control) -->
+<path class="flow floweg" marker-end="url(#ah-eg)" d="M540,430 C440,340 320,270 258,224"/>
+<path class="flow floweg" marker-end="url(#ah-eg)" d="M238,224 C360,300 470,380 520,432"/>
+<rect class="lblbg" x="86" y="248" width="330" height="46"/>
+<text class="lbl" x="94" y="262">⑧ Warden-authored approval request ⇄</text>
+<text class="lbl" x="94" y="276" fill="#c9a227">signed approval / GovernanceDeclined · PoH</text>
+<text class="fn" x="94" y="290">makeDidcommRulesetSigner · signEvidenceApproval</text>
+
+<!-- G: 3rd-party AI -> Warden (CGPR, crosses World->Home) -->
+<path class="flow flowcap" marker-end="url(#ah-cap)" d="M700,884 C695,760 692,660 690,582"/>
+<rect class="lblbg" x="560" y="698" width="290" height="46"/>
+<text class="lbl" x="568" y="712">⑨ CGPR ticket →</text>
+<text class="lbl" x="568" y="726" fill="#7f8ca0">subject-less · expiring · requester's words ≠ consent</text>
+<text class="fn" x="568" y="740">a2a-gateway · cgpr-types (feat/a2a-cgpr)</text>
+
+<!-- I: Warden -> Minter -->
+<path class="flow flowdet" marker-end="url(#ah-det)" d="M910,470 C970,455 1000,440 1038,425"/>
+<rect class="lblbg" x="912" y="474" width="210" height="30"/>
+<text class="lbl" x="918" y="488">⑩ artefact hashes → mint</text>
+<text class="fn" x="918" y="501">assembleEvidence → mintEvidenceGraph</text>
+
+<!-- J: Minter -> Verifier (egress, crosses Home->World) -->
+<path class="flow floweg" marker-end="url(#ah-eg)" d="M1210,480 C1214,640 1216,760 1216,882"/>
+<rect class="lblbg" x="1044" y="500" width="340" height="62"/>
+<text class="lbl" x="1052" y="516">⑪ derived attestation VC ↓</text>
+<text class="lbl" x="1052" y="530" fill="#c9a227">pairwise subject · single-use · validUntil</text>
+<text class="lbl" x="1052" y="544" fill="#c9a227">evidence = hash commitments, never payloads</text>
+<text class="fn" x="1052" y="558">issueCredential · termsOfUse: HearthholdSingleUse</text>
+
+<!-- K: Verifier -> Gatekeeper -->
+<path class="flow flowsub" marker-end="url(#ah-sub)" d="M1180,966 C900,1000 700,1015 560,1026"/>
+<rect class="lblbg" x="796" y="984" width="280" height="30"/>
+<text class="lbl" x="804" y="998">⑫ resolve issuer DID · verify offline</text>
+<text class="fn" x="804" y="1011">Gatekeeper resolveDID · verifyResponse</text>
+
+<!-- L: Warden -> Trust Registry -->
+<path class="flow flowsub" marker-end="url(#ah-sub)" d="M780,580 C900,760 1010,930 1030,1026"/>
+<rect class="lblbg" x="828" y="796" width="250" height="30"/>
+<text class="lbl" x="836" y="810">⑬ issuer authority / membership (TRQP)</text>
+<text class="fn" x="836" y="824">trust-registry.ts · GroupTrustRegistry</text>
+
+<!-- ================= NEGATIVE-SPACE PANEL ================= -->
+<rect class="neg" x="950" y="560" width="470" height="230"/>
+<text class="negt" x="972" y="588">WHAT NEVER CROSSES A BOUNDARY</text>
+<text class="negi" x="972" y="614">•  Raw vault plaintext never leaves the Home plane.</text>
+<text class="negi" x="972" y="636">•  The recall query &amp; its answer stay Home — never logged.</text>
+<text class="negi" x="972" y="658">•  No LLM output ever authorizes a release (propose-only).</text>
+<text class="negi" x="972" y="680">•  Policy never changes without a human's signature.</text>
+<text class="negi" x="972" y="702">•  No subject identifier reaches a requester before approval.</text>
+<text class="negi" x="972" y="724">•  A stable/root DID never crosses — counterparties get a</text>
+<text class="negi" x="990" y="740">   fresh pairwise DID (no cross-context correlation).</text>
+<text class="negi" x="972" y="762">•  What leaves is a claim, not the data behind it.</text>
+<text class="negi" x="972" y="782" fill="#e6a99a">Each line above = one attack the "simple app" fails silently.</text>
+
+<!-- ================= LEGEND ================= -->
+<g transform="translate(40,1092)">
+  <rect x="0" y="-12" width="26" height="12" rx="3" fill="none" stroke="#4a5aa8" stroke-width="2"/><text x="32" y="-2" fill="#8b96a8" font-size="11">capture (sealed)</text>
+  <rect x="170" y="-12" width="26" height="12" rx="3" fill="none" stroke="#2f9e77" stroke-width="2"/><text x="202" y="-2" fill="#8b96a8" font-size="11">deterministic</text>
+  <rect x="320" y="-12" width="26" height="12" rx="3" fill="none" stroke="#d8973c" stroke-width="2" stroke-dasharray="5 3"/><text x="352" y="-2" fill="#8b96a8" font-size="11">propose-only (LLM)</text>
+  <rect x="520" y="-12" width="26" height="12" rx="3" fill="none" stroke="#c9a227" stroke-width="2"/><text x="552" y="-2" fill="#8b96a8" font-size="11">gated egress / human</text>
+  <rect x="720" y="-12" width="26" height="12" rx="3" fill="none" stroke="#5a6b8a" stroke-width="2"/><text x="752" y="-2" fill="#8b96a8" font-size="11">substrate resolution</text>
+  <text x="900" y="-2" fill="#5fd0a8" font-size="11" font-family="monospace">teal = the function that enforces the edge.</text>
+  <text x="900" y="14" fill="#6f7c92" font-size="10.5">The boring auditable kernel is core/security.ts::decideRelease + core/ruleset.ts. Symbols verified against feat/family-session-aware.</text>
+</g>
+</svg>

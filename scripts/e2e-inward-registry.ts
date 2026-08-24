@@ -10,7 +10,7 @@
  *   - HIGH request → Emissary is NOT cleared → it relays to the Sovereign; the Signet approves with
  *                    proof-of-human and presents. The presentation CARRIES a proof-of-human.
  *
- * Roles: guild = warden (issues the HIGH credential to the Sovereign); Sovereign = holder of the HIGH
+ * Roles: sphere = warden (issues the HIGH credential to the Sovereign); Sovereign = holder of the HIGH
  * credential + registry owner + issuer of the Emissary's LOW credential; Emissary = projector + holder of
  * the LOW credential; verifier = relying party.
  *
@@ -65,18 +65,18 @@ async function main(): Promise<void> {
   const config = { ...loadConfig(), dataRoot: DATA_ROOT };
   process.stdout.write(`Hearthold inward-registry × projector e2e\n  node: ${config.nodeUrl}\n  data: ${DATA_ROOT}\n`);
 
-  step('Provision guild, Sovereign (holder + registry owner), Emissary (projector), verifier');
-  const guild: KeymasterHandle = await openKeymaster('warden', config, PASSPHRASE);
+  step('Provision sphere, Sovereign (holder + registry owner), Emissary (projector), verifier');
+  const sphere: KeymasterHandle = await openKeymaster('warden', config, PASSPHRASE);
   const sovereign: KeymasterHandle = await openKeymaster('sovereign', config, PASSPHRASE);
   const witness: KeymasterHandle = await openKeymaster('emissary', config, PASSPHRASE);
   const verifier: KeymasterHandle = await openKeymaster('verifier', config, PASSPHRASE);
-  const guildId = await ensureIdentity(guild, config);
+  const sphereId = await ensureIdentity(sphere, config);
   const sovereignId = await ensureIdentity(sovereign, config);
   const witnessId = await ensureIdentity(witness, config);
   await ensureIdentity(verifier, config);
   check('identities ready', sovereignId.did.startsWith('did:') && witnessId.did.startsWith('did:'));
 
-  step('Set up credentials: Emissary holds a LOW cred (from Sovereign); Sovereign holds a HIGH cred (from guild)');
+  step('Set up credentials: Emissary holds a LOW cred (from Sovereign); Sovereign holds a HIGH cred (from sphere)');
   const lowSchema = await sovereign.keymaster.createSchema(SCHEMA);
   const lowBound = await sovereign.keymaster.bindCredential(witnessId.did, {
     schema: lowSchema,
@@ -85,12 +85,12 @@ async function main(): Promise<void> {
   const lowCred = await sovereign.keymaster.issueCredential(lowBound, { schema: lowSchema });
   await acceptCredential(witness, lowCred);
 
-  const highSchema = await guild.keymaster.createSchema(SCHEMA);
-  const highBound = await guild.keymaster.bindCredential(sovereignId.did, {
+  const highSchema = await sphere.keymaster.createSchema(SCHEMA);
+  const highBound = await sphere.keymaster.bindCredential(sovereignId.did, {
     schema: highSchema,
     claims: { type: 'ResidencyProof', value: 'FR-2026-H1' },
   });
-  const highCred = await guild.keymaster.issueCredential(highBound, { schema: highSchema });
+  const highCred = await sphere.keymaster.issueCredential(highBound, { schema: highSchema });
   await acceptCredential(sovereign, highCred);
   check('Emissary holds LOW cred, Sovereign holds HIGH cred', lowCred.startsWith('did:') && highCred.startsWith('did:'));
 
@@ -148,11 +148,11 @@ async function main(): Promise<void> {
 
     step('HIGH request → Emissary not cleared → relays to Signet → presented with proof-of-human');
     {
-      const reply = await ask(highSchema, guildId.did);
+      const reply = await ask(highSchema, sphereId.did);
       const pres = reply.type === 'hearthold/proof-presentation' ? (reply as ProofPresentationMessage) : null;
       check('got a proof-presentation', pres != null);
       check('CARRIES proof-of-human (Signet approved the relay)', pres?.humanProof?.method === 'pin');
-      const result = await verifyProof(verifier, pres?.responseDid ?? '', { trustedIssuers: [guildId.did] });
+      const result = await verifyProof(verifier, pres?.responseDid ?? '', { trustedIssuers: [sphereId.did] });
       check('verifier verifies the HIGH disclosure', result.ok === true);
     }
   } finally {

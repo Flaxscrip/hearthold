@@ -13,7 +13,7 @@
 import { randomUUID } from 'node:crypto';
 
 import type { HumanPresenceAssertion } from '@hearthold/core';
-import type { PendingApproval, ApprovalHistoryEntry } from '@hearthold/control-types';
+import { SENSITIVITY_NAMES, type PendingApproval, type ApprovalHistoryEntry } from '@hearthold/control-types';
 
 import type { ApprovalGate, ApprovalContext } from './signet.js';
 
@@ -41,7 +41,24 @@ export class HttpGate implements ApprovalGate {
   approve(ctx: ApprovalContext): Promise<HumanPresenceAssertion | null> {
     const id = randomUUID();
     let approval: PendingApproval;
-    if (ctx.disclosure) {
+    if (ctx.spend) {
+      // A spend escalation renders as its own decision — agent · amount · purpose · band · sensitivity.
+      approval = {
+        id,
+        requester: ctx.requester,
+        kind: 'spend',
+        agent: ctx.spend.agentDid,
+        amount: ctx.spend.amount,
+        unit: ctx.spend.unit,
+        band: ctx.spend.band,
+        multifactor: ctx.spend.tier >= 4,
+        ...(ctx.spend.sensitivity !== undefined ? { sensitivityName: SENSITIVITY_NAMES[ctx.spend.sensitivity] } : {}),
+        action: ctx.action?.action,
+        resource: ctx.action?.resource,
+        summary: ctx.action?.summary,
+        receivedAt: new Date().toISOString(),
+      };
+    } else if (ctx.disclosure) {
       approval = {
         id,
         requester: ctx.requester,

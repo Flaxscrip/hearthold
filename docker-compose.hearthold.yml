@@ -1,0 +1,108 @@
+# Hearthold agents on the egress-isolated Archon sandbox network.
+#
+# Joins the EXISTING archon_default network as `external: true` — the same
+# network-join pattern as ~/isolation/archon/docker-compose.lightning-zap.yml.
+# That network was created by the Archon sandbox with `internal: true`: no
+# container on it can reach the internet, and that isolation is the whole point
+# of the profile (SANDBOX-PROFILE.md §3). Nothing below adds an egress path.
+#
+# Agents reach the node by CONTAINER HOSTNAME (http://drawbridge:4222), never
+# flaxlap.local or a published host port: under `internal: true` on Docker
+# Desktop, published host ports don't work at all (SANDBOX-PROFILE.md §3), so
+# Hearthold's agents cannot run on the host and reach Drawbridge — they must be
+# containers on archon_default too, which is what this file does.
+#
+#   Bring up:   docker compose -f docker-compose.hearthold.yml up -d --build
+#   Drive spine: ./deploy/sandbox/run-spine.sh
+#   Prove offline: ./deploy/sandbox/run-spine.sh --egress-only   (or see README)
+#   Tear down:  docker compose -f docker-compose.hearthold.yml down
+#
+# First run needs `--build`; the image is built once and shared by all three agents.
+
+name: hearthold-sandbox
+
+# Every agent is the same image, on the same isolated network, idling so we can
+# `docker compose exec` any command into it. Per-agent state persists to a role
+# subdir of the bind-mounted ./data (agentDataFolder nests /data/<role>), matching
+# Archon's own ./data convention.
+x-hearthold-common: &hearthold-common
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: hearthold:sandbox
+  networks: [node_net]
+  init: true            # reap the idle/serve process cleanly on stop
+  restart: "no"
+  environment:
+    # The node, by container hostname on archon_default (NOT a host port / flaxlap.local).
+    HEARTHOLD_NODE_URL: http://drawbridge:4222
+    # This offline node anchors DIDs on the DB-only `local` registry (never queued
+    # to any mediator). Hearthold's EPHEMERAL challenge/response DIDs follow
+    # config.registry here too (core/keymaster.ts sets ephemeralRegistry = registry),
+    # so nothing attempts hyperswarm — the one thing that would break on an offline
+    # node. See deploy/sandbox/README.md "Registry".
+    HEARTHOLD_REGISTRY: local
+    # Real on-device classification: a containerized Ollama on archon_default
+    # (~/isolation/archon/docker-compose.ollama.yml), reusing the host's
+    # already-pulled qwen3:8b (classifier) and nomic-embed-text (recall index
+    # embeddings) via a read-only bind mount — no model pull, no egress.
+    # config.ts: classifierMode is 'quarantine' only if HEARTHOLD_CLASSIFIER
+    # is exactly that string; anything else (including unset) means 'ollama',
+    # so simply not setting it here is enough — no separate on/off flag.
+    HEARTHOLD_OLLAMA_URL: http://ollama:11434
+    # Non-thinking instruct model for classification (and, by default, RAG answers — HEARTHOLD_ANSWER_MODEL
+    # can split them). This IS the code default now (config.ts DEFAULT_CLASSIFIER_MODEL), pinned here for
+    # clarity. qwen3:8b — and any qwen3/qwen3.5 — is a *reasoning* model that emits <think> tokens, so it
+    # runs >60s/call even at 2B on this CPU-only container (Docker-on-Mac has no Metal/GPU passthrough);
+    # qwen2.5:3b is the non-thinking sibling: ~10s for the same classify. Served by the containerized
+    # Ollama via the read-only model mount.
+    HEARTHOLD_CLASSIFIER_MODEL: qwen2.5:3b
+    # The DIDComm endpoint each agent PUBLISHES into its DID doc (where others deliver).
+    # This node's /api/v1/didcomm-endpoint advertises an EXTERNAL/dummy host
+    # (https://sandbox.archon.local/didcomm) that is unreachable from inside the isolated
+    # network — and Hearthold's DIDComm delivery resolves the recipient's published endpoint,
+    # so agents must publish the address reachable IN-NETWORK. Point it at Drawbridge's own
+    # /didcomm mount by container hostname. (Root fix is node-side — see README "DIDComm
+    # endpoint"; this override keeps the node untouched.)
+    HEARTHOLD_DIDCOMM_ENDPOINT: http://drawbridge:4222/didcomm
+    # Sandbox dev passphrase — supplied from the gitignored .env (copy .env.example
+    # → .env), never hardcoded in this committed file. Unlocks each agent's wallet.
+    HEARTHOLD_PASSPHRASE: ${HEARTHOLD_PASSPHRASE:?set HEARTHOLD_PASSPHRASE in .env (copy .env.example -> .env)}
+    # Wallet + vault + index root; each agent nests under /data/<role>.
+    HEARTHOLD_DATA_ROOT: /data
+  volumes:
+    - ./data:/data
+  # Idle; agent commands are exec'd in. `warden serve` runs as a detached exec.
+  command: ["sleep", "infinity"]
+
+services:
+  warden:
+    <<: *hearthold-common
+    container_name: hearthold-warden
+
+  emissary:
+    <<: *hearthold-common
+    container_name: hearthold-emissary
+
+  # The Sovereign holds the Signet: it fields proof-requests and co-signs disclosures, gated by a PIN.
+  # Run its serve loop interactively:  ./deploy/sandbox/run-prove.sh signet <pin>
+  sovereign:
+    <<: *hearthold-common
+    container_name: hearthold-sovereign
+
+  # A relying party (verifier) for the prove flow — challenges the Sovereign to prove it holds a
+  # credential, which triggers the Signet PIN prompt.  ./deploy/sandbox/run-prove.sh {setup,verify}
+  verifier:
+    <<: *hearthold-common
+    container_name: hearthold-verifier
+
+networks:
+  # The Archon node's docker network the agents attach to (external — created by the node's own compose).
+  # SECURE BY DEFAULT: no silent default. `archon_default` is the GENERIC name a regular Archon compose
+  # creates — a normal EGRESS bridge shared with whatever else is on it. Joining that by accident connects
+  # Hearthold's agents to the public internet and to regular nodes. So name the network DELIBERATELY, and it
+  # must be your ISOLATED node's network (`internal: true`). Aegis's isolated profiles use names like
+  # `aegisb_default`; the local sandbox override makes its `archon_default` internal — set that here on purpose.
+  node_net:
+    external: true
+    name: ${HEARTHOLD_DOCKER_NETWORK:?set HEARTHOLD_DOCKER_NETWORK to your ISOLATED node's docker network (internal:true) — e.g. aegisb_default; never leave it to the generic egress-enabled archon_default}

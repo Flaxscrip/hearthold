@@ -47,6 +47,15 @@ export function clearsSensitivity(tier: AuthzTier, sensitivity: Sensitivity): bo
   return CLEARANCE[tier] >= sensitivity;
 }
 
+/**
+ * The maximum sensitivity an authorization tier may draw on — the ceiling for any multi-artefact disclosure
+ * (RAG/recall/KB answers) so it can't summarize content above what the caller has actually cleared. Mirrors
+ * the per-artefact `clearsSensitivity` gate for the aggregate case: STANDING→LOW … MULTIFACTOR→SEALED.
+ */
+export function clearanceCeiling(tier: AuthzTier): Sensitivity {
+  return CLEARANCE[tier];
+}
+
 /** The minimum authorization tier required to release a given sensitivity. */
 export function requiredTier(sensitivity: Sensitivity): AuthzTier {
   const tiers: AuthzTier[] = [

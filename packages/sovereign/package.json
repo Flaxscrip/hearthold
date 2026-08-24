@@ -9,8 +9,11 @@
   },
   "exports": {
     ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./control": { "types": "./dist/control.d.ts", "import": "./dist/control.js" },
     "./handler": { "types": "./dist/handler.d.ts", "import": "./dist/handler.js" },
-    "./signet": { "types": "./dist/signet.d.ts", "import": "./dist/signet.js" }
+    "./signet": { "types": "./dist/signet.d.ts", "import": "./dist/signet.js" },
+    "./http-gate": { "types": "./dist/http-gate.d.ts", "import": "./dist/http-gate.js" },
+    "./capability-grants": { "types": "./dist/capability-grants.d.ts", "import": "./dist/capability-grants.js" }
   },
   "scripts": {
     "build": "tsc --build",

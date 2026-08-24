@@ -10,17 +10,20 @@
 
 import { relaxNeedsConfirmation, type Sensitivity, type KeymasterHandle } from '@hearthold/core';
 
-import { VaultStore } from './store.js';
+import { VaultStore, type Artefact } from './store.js';
 import type { TriageItem } from '@hearthold/control-types';
 
 const SENSITIVITY_NAMES = ['PUBLIC', 'LOW', 'MEDIUM', 'HIGH', 'SEALED'] as const;
 const sName = (s: number): (typeof SENSITIVITY_NAMES)[number] => SENSITIVITY_NAMES[s] ?? 'SEALED';
 
 /** Artefacts awaiting the Sovereign's confirmation (metadata carries the flag + the Scribe's proposal). */
-export async function triageQueue(warden: KeymasterHandle): Promise<TriageItem[]> {
+export async function triageQueue(
+  warden: KeymasterHandle,
+  visible: (a: Artefact) => boolean = () => true,
+): Promise<TriageItem[]> {
   const items = await new VaultStore(warden.dataFolder).list();
   return items
-    .filter((a) => a.metadata?.needsHumanConfirmation === true)
+    .filter((a) => a.metadata?.needsHumanConfirmation === true && visible(a))
     .map((a) => ({
       artefactId: a.id,
       kind: a.kind,

@@ -34,7 +34,7 @@ async function main(): Promise<void> {
 
   const warden = await openKeymaster('warden', config, pass);
   const alice = await openKeymaster('sovereign', config, pass); // member of KB "vault"
-  const bob = await openKeymaster('verifier', config, pass); // member of KB "guild"
+  const bob = await openKeymaster('verifier', config, pass); // member of KB "sphere"
   const wardenId = await ensureIdentity(warden, config);
   const aliceId = await ensureIdentity(alice, config);
   const bobId = await ensureIdentity(bob, config);
@@ -43,7 +43,7 @@ async function main(): Promise<void> {
   const signer = selfSigner(warden, wardenId.did);
 
   // Provision TWO KBs on the SAME Warden.
-  for (const [kbId, member] of [['passwords', aliceId.did], ['guild', bobId.did]] as const) {
+  for (const [kbId, member] of [['passwords', aliceId.did], ['sphere', bobId.did]] as const) {
     const readGroup = await createRegistryGroup(warden, `kb-read-${kbId}`, config.registry);
     const writeGroup = await createRegistryGroup(warden, `kb-write-${kbId}`, config.registry);
     await grantAuthorization(warden, readGroup, member);
@@ -51,7 +51,7 @@ async function main(): Promise<void> {
     const policyAsset = await initKbAssurance(warden, config, kbId, signer);
     await store.put({ kbId, readGroup, writeGroup, policyAsset, governorDid: undefined });
   }
-  process.stdout.write('two KBs on one Warden: "passwords" (Alice), "guild" (Bob)\n');
+  process.stdout.write('two KBs on one Warden: "passwords" (Alice), "sphere" (Bob)\n');
 
   const kbs = await buildKbServices(warden, config, wardenId.did);
   assert(kbs.size === 2, 'buildKbServices returns both KBs from one Warden');
@@ -68,12 +68,12 @@ async function main(): Promise<void> {
   process.stdout.write('\n▸ Each member writes to their own KB (routing by kbId)\n');
   const a = await viaHandler(await signed(alice, aliceId.did, 'passwords', { action: 'update', kind: 'document', text: 'login for example.com' }));
   assert((a as { type: string })?.type === 'hearthold/kb-result', 'Alice writes to "passwords"');
-  const b = await viaHandler(await signed(bob, bobId.did, 'guild', { action: 'update', kind: 'event', text: 'raid Saturday 8pm' }));
-  assert((b as { type: string })?.type === 'hearthold/kb-result', 'Bob writes to "guild"');
+  const b = await viaHandler(await signed(bob, bobId.did, 'sphere', { action: 'update', kind: 'event', text: 'raid Saturday 8pm' }));
+  assert((b as { type: string })?.type === 'hearthold/kb-result', 'Bob writes to "sphere"');
 
   process.stdout.write('\n▸ Membership is isolated across KBs\n');
-  const cross = await viaHandler(await signed(alice, aliceId.did, 'guild', { action: 'update', kind: 'event', text: 'sneaky' }));
-  assert((cross as { type: string })?.type === 'hearthold/kb-error', 'Alice (a "passwords" member) is refused by "guild"');
+  const cross = await viaHandler(await signed(alice, aliceId.did, 'sphere', { action: 'update', kind: 'event', text: 'sneaky' }));
+  assert((cross as { type: string })?.type === 'hearthold/kb-error', 'Alice (a "passwords" member) is refused by "sphere"');
 
   process.stdout.write('\n▸ An unknown KB is refused\n');
   // The handler rejects an unknown kbId before any nonce check — sign with a throwaway nonce.

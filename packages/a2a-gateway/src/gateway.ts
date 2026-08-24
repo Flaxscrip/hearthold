@@ -21,6 +21,7 @@ import {
 
 import { A2A_VERSION, AGENT_CARD_PATH, A2A_RPC_PATH, buildAgentCard } from './agent-card.js';
 import type { CgprBackend } from './backend.js';
+import type { TicketVerifier } from './ticket-auth.js';
 
 export interface A2aGatewayOptions {
   port: number;
@@ -28,6 +29,12 @@ export interface A2aGatewayOptions {
   /** The gateway's public base URL — baked into the Agent Card. */
   publicUrl: string;
   backend: CgprBackend;
+  /**
+   * Verify the broker's signature on the ticket AND that the broker is trusted — the ticket is B's vouch for
+   * C, the design's root of authority. Injected because the gateway holds no keys. When set, an unsigned or
+   * untrusted-broker ticket is refused (the audit's "unsigned ticket" gap). Absent ⇒ tickets are unverified.
+   */
+  verifyTicket?: TicketVerifier;
   onListening?: (port: number) => void;
 }
 
@@ -110,6 +117,11 @@ export function startA2aGateway(opts: A2aGatewayOptions): A2aGateway {
     const check = validateTicket(ticket);
     if (!check.ok) return fail(`ticket rejected: ${check.reason}`, check.expired ? 'failed' : 'rejected');
     if (spentTickets.has(ticket.ticketId)) return fail('ticket already spent (single-use)');
+    // The ticket is B's vouch for C: verify B's signature + broker-trust before honoring it (audit fix).
+    if (opts.verifyTicket) {
+      const v = await opts.verifyTicket(ticket);
+      if (!v.ok) return fail(`ticket not verified: ${v.reason}`);
+    }
 
     const requester = artifact.requester as { did?: string; agentCardUrl?: string };
     if (typeof requester.did !== 'string') return fail('requester must present its DID for audience-binding');

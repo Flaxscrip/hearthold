@@ -2,8 +2,12 @@
 import {
   loadConfig,
   openKeymaster,
+  passphraseFor,
+  runKeyMaintenance,
   ensureIdentity,
+  type WitnessKind,
   ensureDelegationSchema,
+  ensureAuthorizationSchema,
   issueDelegation,
   createRegistryGroup,
   grantAuthorization,
@@ -18,15 +22,23 @@ import {
 } from '@hearthold/core';
 
 import { createClassifier } from './classifier.js';
+import { createVisionCaptioner } from './vision.js';
+import { AutofileStore } from './autofile-store.js';
 import { VaultStore } from './store.js';
 import { WardenService } from './service.js';
 import { DelegationStore } from './delegations.js';
-import { EvidenceService } from './evidence.js';
+import { EvidenceService, makeDidcommDischargeRequester } from './evidence.js';
+import { ChallengeStore } from './challenge-store.js';
 import { RecallService, OllamaEmbedder } from './recall.js';
 import { makeDidcommActionApprover, makeDidcommRulesetSigner } from './kb.js';
 import { KbConfigStore, buildKbServices, initKbAssurance, setKbAssurance, readKbAssurance, provisionMemberPartition, enableMemberPartitions } from './kb-config.js';
+import type { RewrapChannel } from './rewrap.js';
 import { reindexKb } from './reindex.js';
+import { backfillOwner } from './migrate-owner.js';
+import { HouseholdConfigStore } from './household-config.js';
+import { HouseholdVault } from './household-vault.js';
 import { seedKb, resetKb, DEMO_SETS, DEFAULT_DEMO_SET } from './kb-seed.js';
+import { registerComposerSchemas } from './composer-schemas.js';
 import { makeWardenHandler } from './handler.js';
 
 /** The recall-index embedder from config, or undefined when indexing is off. */
@@ -73,8 +85,10 @@ const HELP = `Hearthold Warden — home Keeper
 Usage:
   warden init              Provision the Warden identity + publish its DIDComm endpoint
   warden status            Show identity, vault size, and config
-  warden publish           (Re)publish the Warden's DIDComm endpoint
+  warden publish           (Re)publish the Warden's DIDComm endpoint (publish-if-absent / reconcile)
+  warden republish [--endpoint <uri>]  Force-(re)publish the DIDComm endpoint (re-home onto a new address)
   warden delegate <did>    Issue a delegation credential to an Emissary DID
+  warden register-schemas  Register composer schemas (Endorsement/Membership/Ticket) on the registry
   warden serve             Serve over DIDComm (poll mailbox, store submissions, reply)
   warden control [port]    Serve DIDComm + a localhost control API for the Warden Console (default 4310)
   warden classify <kind> <text>   Classify text with the local model (test the classifier)
@@ -90,10 +104,18 @@ Usage:
   warden kb-seed [--kb <kbId>] [--set <name>]   Load curated demo data into a KB
   warden kb-reset [--kb <kbId>]                 Remove a KB's data (identity/groups/policy kept)
   warden kb-reindex [--kb <kbId>]              Backfill the recall index (embed stored-but-unindexed content)
+  warden migrate-owner                         Attribute pre-family vault artefacts to the Sovereign (family model)
+  warden household-init <id> [--governor <did>]  Provision a household: shared Vault + rosters + genesis Ruleset
+  warden autofile-grant <emissaryDid>   Trust an Emissary to auto-file (bypass ingestion quarantine)
+  warden autofile-revoke <emissaryDid>  Revoke autofile trust (its submissions quarantine again)
+  warden autofile-list                  List autofile-trusted Emissaries
+  warden rotate            Rotate the Warden's signing keys (incident response; DIDs keep resolving)
+  warden passphrase <new>  Re-encrypt the wallet under a new passphrase (then update the env)
+  warden check             Health-check the wallet
   warden help              Show this message
 
 Env:
-  HEARTHOLD_PASSPHRASE       wallet passphrase (required)
+  HEARTHOLD_PASSPHRASE       wallet passphrase — shared, or per-role HEARTHOLD_PASSPHRASE_WARDEN (required)
   HEARTHOLD_NODE_URL         Archon node (Drawbridge) URL; default http://flaxlap.local:4222
   HEARTHOLD_DATA_ROOT        default ~/.hearthold
   HEARTHOLD_OLLAMA_URL       local model endpoint; default http://localhost:11434
@@ -128,10 +150,7 @@ async function main(): Promise<void> {
   }
 
   const config = loadConfig();
-  const passphrase = process.env.HEARTHOLD_PASSPHRASE;
-  if (!passphrase) {
-    throw new Error('HEARTHOLD_PASSPHRASE is required');
-  }
+  const passphrase = passphraseFor('warden');
 
   const handle = await openKeymaster('warden', config, passphrase);
 
@@ -155,6 +174,16 @@ async function main(): Promise<void> {
       process.stdout.write('Warden DIDComm endpoint published.\n');
       break;
     }
+    case 'republish': {
+      // Force-(re)publish the DIDComm endpoint after first boot — re-home onto a new reachable address
+      // (Tor onion / tailnet / migrated host). `--endpoint <uri>` overrides HEARTHOLD_DIDCOMM_ENDPOINT/node.
+      await ensureIdentity(handle, config);
+      const ei = process.argv.indexOf('--endpoint');
+      const endpoint = ei > 0 ? process.argv[ei + 1] : undefined;
+      const { endpoint: pub, previous } = await new DidCommTransport(handle, IDENTITY_NAME.warden, config.nodeUrl).republish(endpoint);
+      process.stdout.write(`Warden DIDComm endpoint republished\n${previous ? `  was: ${previous}\n` : ''}  now: ${pub}\n`);
+      break;
+    }
     case 'status': {
       const id = await ensureIdentity(handle, config);
       const items = await new VaultStore(handle.dataFolder).list();
@@ -173,6 +202,17 @@ async function main(): Promise<void> {
       );
       break;
     }
+    case 'register-schemas': {
+      // Register the composer-friendly credential schemas (Endorsement/Membership/Ticket, titled + fielded)
+      // on this Warden's registry so the Table's Compose-a-card has meaningful types to mint. Idempotent.
+      await ensureIdentity(handle, config);
+      const results = await registerComposerSchemas(handle);
+      process.stdout.write('Composer schemas on this Warden registry:\n');
+      for (const r of results) {
+        process.stdout.write(`  ${r.created ? 'registered' : 'exists    '}  ${r.title.padEnd(12)} ${r.did}\n`);
+      }
+      break;
+    }
     case 'classify': {
       const kind = process.argv[3];
       const text = process.argv.slice(4).join(' ');
@@ -189,17 +229,19 @@ async function main(): Promise<void> {
     }
     case 'delegate': {
       const emissaryDid = process.argv[3];
-      if (!emissaryDid) throw new Error('usage: warden delegate <emissaryDid>');
+      if (!emissaryDid) throw new Error('usage: warden delegate <emissaryDid> [--kinds image,document,…]');
       await ensureIdentity(handle, config);
       const schemaDid = await ensureDelegationSchema(handle);
       const validUntil = new Date(Date.now() + 1000 * 60 * 60 * 24 * 365).toISOString();
-      const credentialDid = await issueDelegation(handle, emissaryDid, schemaDid, {
-        kinds: ['event', 'location', 'activity', 'browsing', 'document'],
-        validUntil,
-      });
-      await new DelegationStore(handle).record(emissaryDid, credentialDid);
+      // Scope a per-path Emissary with --kinds (e.g. `--kinds image` for a dedicated image Emissary); default
+      // is the text set (no `image` — that path gets its own separately-revocable delegation).
+      const ki = process.argv.indexOf('--kinds');
+      const kinds = (ki > 0 && process.argv[ki + 1] ? process.argv[ki + 1]!.split(',').map((s) => s.trim()).filter(Boolean) : ['event', 'location', 'activity', 'browsing', 'document', 'book', 'link']) as WitnessKind[];
+      const credentialDid = await issueDelegation(handle, emissaryDid, schemaDid, { kinds, validUntil });
+      await new DelegationStore(handle).record(emissaryDid, credentialDid, undefined, kinds);
       process.stdout.write(
         `Delegation issued to ${emissaryDid.slice(0, 28)}…\n` +
+          `  kinds:      ${kinds.join(', ')}\n` +
           `  credential: ${credentialDid}\n` +
           `  → optionally run on the Emissary:  emissary accept ${credentialDid}\n`,
       );
@@ -209,17 +251,28 @@ async function main(): Promise<void> {
       const id = await ensureIdentity(handle, config);
       const transport = new DidCommTransport(handle, IDENTITY_NAME.warden, config.nodeUrl);
       await transport.ready();
-      const kbs = await buildKbServices(handle, config, id.did, makeDidcommActionApprover(transport));
+      const kbs = await buildKbServices(handle, config, id.did, makeDidcommActionApprover(transport), transport as unknown as RewrapChannel);
       const handler = makeWardenHandler(
-        new WardenService(handle, createClassifier(config), makeEmbedder(config)),
+        new WardenService(handle, createClassifier(config), makeEmbedder(config), createVisionCaptioner(config)),
         new DelegationStore(handle),
-        new EvidenceService(handle, config),
+        // Consent channel to the owner's Signet (§3) + Warden-minted challenge store (§1).
+        new EvidenceService(handle, config, makeDidcommDischargeRequester(transport)),
         kbs,
+        config.sovereignDid,
+        undefined,
+        undefined,
+        new ChallengeStore(handle, config.registry, config.sovereignDid, config.authorizationSchemaDid),
       );
       const stop = await transport.serve(handler);
+      // Surface the canonical authorization schema DID so an operator can wire it into the Sovereign's
+      // HEARTHOLD_AUTHORIZATION_SCHEMA_DID (schema DIDs aren't content-addressed across wallets — the issuer
+      // must reference the Warden's, not register its own). Also on `warden control`'s /api/status.
+      const authSchema = config.authorizationSchemaDid ?? (await ensureAuthorizationSchema(handle));
       process.stdout.write(
         `Warden serving over DIDComm\n  did:  ${id.did}\n  node: ${config.nodeUrl}\n` +
           `  kb:   ${kbs.size ? `serving ${kbs.size} Knowledge Base(s): ${[...kbs.keys()].join(', ')}` : 'none provisioned'}\n` +
+          `  auth-schema: ${authSchema}\n` +
+          `    ↳ set HEARTHOLD_AUTHORIZATION_SCHEMA_DID to this on the Sovereign so its grants match.\n` +
           `  (Ctrl-C to stop)\n`,
       );
       const shutdown = (): void => {
@@ -232,7 +285,7 @@ async function main(): Promise<void> {
     }
     case 'control': {
       const port = Number(process.argv[3] ?? process.env.HEARTHOLD_CONTROL_PORT ?? 4310);
-      await runWardenControl(handle, config, port);
+      await runWardenControl(handle, config, port, passphrase);
       break;
     }
     case 'vault': {
@@ -413,8 +466,47 @@ async function main(): Promise<void> {
     case 'kb-reset': {
       await ensureIdentity(handle, config);
       const kb = await resolveKb(new KbConfigStore(handle.dataFolder));
-      const { removed } = await resetKb(handle, kb.kbId);
-      process.stdout.write(`Reset "${kb.kbId}": removed ${removed} artefact(s) + index entries. Identity, access groups, and policy are untouched.\n`);
+      const { removed, shared, private: priv } = await resetKb(handle, kb.kbId);
+      process.stdout.write(
+        `Reset "${kb.kbId}": removed ${removed} artefact(s) + index entries ` +
+          `(${shared} shared · ${priv} in member private partitions). ` +
+          `Identity, access groups, and member partitions are untouched.\n`,
+      );
+      break;
+    }
+    case 'household-init': {
+      // Provision a household: a Warden-owned shared Archon Vault + read/write rosters + a governor-signed
+      // genesis Ruleset. Members are admitted via the daemon's /api/household/admit (governor-authorized).
+      const householdId = process.argv[3];
+      if (!householdId || householdId.startsWith('--')) throw new Error('usage: warden household-init <householdId> [--governor <sovereignDid>]');
+      const gi = process.argv.indexOf('--governor');
+      const governorDid = gi > 0 ? process.argv[gi + 1] : config.sovereignDid;
+      const id = await ensureIdentity(handle, config);
+      const hstore = new HouseholdConfigStore(handle.dataFolder);
+      if (await hstore.get(householdId)) throw new Error(`household "${householdId}" already exists`);
+      const vault = await HouseholdVault.create(handle, config);
+      const readGroup = await createRegistryGroup(handle, `hh-read-${householdId}`, config.registry);
+      const writeGroup = await createRegistryGroup(handle, `hh-write-${householdId}`, config.registry);
+      const { signer } = await cliRulesetSigner(handle, config, id.did, governorDid);
+      const policyAsset = await initKbAssurance(handle, config, householdId, signer);
+      await hstore.put({ householdId, sharedVaultDid: vault.did, governorDid: governorDid ?? id.did, policyAsset, readGroup, writeGroup, memberPartitions: true, governorObservesActivity: false });
+      process.stdout.write(
+        `Household "${householdId}" provisioned\n  shared vault: ${vault.did}\n` +
+          `  governor:     ${governorDid ? `${governorDid.slice(0, 24)}… (signs at the Signet)` : 'self-governed (Warden)'}\n` +
+          `  → admit a member:  POST /api/household/admit { memberDid }  (governor-authorized, warden control)\n`,
+      );
+      break;
+    }
+    case 'migrate-owner': {
+      // Attribute pre-family vault artefacts to the configured Sovereign (owner + scope:'private'), so
+      // session-scoped recall/snapshot show the Sovereign their own content. Idempotent. Run kb-reindex
+      // afterwards to propagate ownership to the recall index.
+      await ensureIdentity(handle, config);
+      const n = await backfillOwner(handle, config);
+      process.stdout.write(
+        `Attributed ${n} pre-family artefact(s) to the Sovereign ${config.sovereignDid?.slice(0, 24)}… (scope: private).\n` +
+          (n > 0 ? `  → run \`warden kb-reindex\` to propagate ownership into the recall index.\n` : '  (nothing to attribute — all artefacts already have an owner)\n'),
+      );
       break;
     }
     case 'kb-reindex': {
@@ -431,6 +523,59 @@ async function main(): Promise<void> {
           (r.failed > 0 ? `  ⚠ ${r.failed} still failed to embed — the embedder may be down; re-run when it has headroom.\n` : '') +
           (r.backfilled > 0 ? `  ✓ ${r.backfilled} artefact(s) are now searchable.\n` : ''),
       );
+      break;
+    }
+    case 'autofile-grant':
+    case 'autofile-revoke':
+    case 'autofile-list': {
+      // Manage the autofile trust group: Emissaries in it BYPASS ingestion quarantine (auto-file);
+      // everyone else quarantines born-obsidian until the Sovereign confirms. Same group-membership model
+      // as KB read/write. The group is created on first grant and its DID persisted in autofile.json.
+      await ensureIdentity(handle, config);
+      const autofile = new AutofileStore(handle.dataFolder);
+      if (cmd === 'autofile-list') {
+        const group = autofile.group();
+        if (!group) {
+          process.stdout.write('No autofile group yet — everything quarantines (safe default).\n');
+          break;
+        }
+        const g = (await handle.keymaster.getGroup(group).catch(() => null)) as { members?: string[] } | null;
+        const members = g?.members ?? [];
+        process.stdout.write(
+          `Autofile-trusted Emissaries (${members.length}) [group ${group.slice(0, 28)}…]:\n` +
+            (members.length ? members.map((m) => `  · ${m}\n`).join('') : '  (none)\n'),
+        );
+        break;
+      }
+      const did = process.argv[3];
+      if (!did) throw new Error(`usage: warden ${cmd} <emissaryDid>`);
+      let group = autofile.group();
+      if (!group) {
+        if (cmd === 'autofile-revoke') {
+          process.stdout.write('No autofile group — nothing to revoke.\n');
+          break;
+        }
+        group = await createRegistryGroup(handle, 'hearthold-autofile', config.registry);
+        autofile.setGroup(group);
+      }
+      const ok =
+        cmd === 'autofile-grant'
+          ? await grantAuthorization(handle, group, did)
+          : await revokeAuthorization(handle, group, did);
+      process.stdout.write(
+        `${cmd === 'autofile-grant' ? 'Granted' : 'Revoked'} autofile trust ${ok ? '✓' : '(no change)'}\n  emissary: ${did.slice(0, 32)}…\n` +
+          (cmd === 'autofile-grant' ? '  → this Emissary’s submissions now auto-file (bypass quarantine).\n' : '  → this Emissary’s submissions now quarantine until you confirm.\n'),
+      );
+      break;
+    }
+    case 'rotate':
+    case 'passphrase':
+    case 'check': {
+      // Incident response (L1): rotate the signing keys, re-encrypt the wallet under a new passphrase, or
+      // health-check the wallet. `rotate` needs the current identity loaded first.
+      if (cmd === 'rotate') await ensureIdentity(handle, config);
+      const result = await runKeyMaintenance(handle, cmd, process.argv[3]);
+      process.stdout.write(`${result}\n`);
       break;
     }
     default:

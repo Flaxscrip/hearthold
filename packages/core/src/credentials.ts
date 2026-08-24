@@ -15,6 +15,11 @@ export interface DelegationScope {
   kinds: WitnessKind[];
   /** ISO timestamp after which the delegation is no longer valid. */
   validUntil: string;
+  /**
+   * The household member (Sovereign) this Emissary submits on behalf of — carried IN the credential so the
+   * owner is read from the presented delegation, not a local map. Absent ⇒ single-Sovereign (owner defaults).
+   */
+  member?: string;
 }
 
 /**
@@ -34,6 +39,7 @@ export async function issueDelegation(
     claims: {
       type: CredentialType.DELEGATION,
       kinds: scope.kinds,
+      ...(scope.member ? { member: scope.member } : {}),
     },
   });
   return warden.keymaster.issueCredential(bound, { schema: schemaDid, validUntil: scope.validUntil });
@@ -42,7 +48,7 @@ export async function issueDelegation(
 /**
  * Issue a credential of arbitrary claims to a subject, bound to `schemaDid`. The issuer must be the
  * current identity on `issuer`. Returns the credential DID. (This is how a Sovereign acts as an
- * issuer — e.g. a guild manager issuing membership or raid tickets to gamers.)
+ * issuer — e.g. a sphere manager issuing membership or raid tickets to gamers.)
  */
 export async function issueClaim(
   issuer: KeymasterHandle,
