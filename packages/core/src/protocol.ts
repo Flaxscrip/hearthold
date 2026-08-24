@@ -335,7 +335,9 @@ export interface KbSessionRequestMessage {
   k?: number;
   kind?: string;
   text?: string;
-  /** KB Spaces: target the shared partition or the member's private one (update only; default per space). */
+  /** KB Spaces: for `update`/`put-doc`, target the shared partition or the member's private one (default
+   *  per space). For a `query`, `scope: 'shared'` pins recall to the shared partition ONLY — never the
+   *  caller's own private partition — so the anonymous oracle's answer can't draw on private content. */
   scope?: 'shared' | 'private';
   /** Structured-document key (`put-doc`/`get-doc`) — overwrite-semantics doc name, e.g. `'profile'`. */
   docKey?: string;

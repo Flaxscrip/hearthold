@@ -479,7 +479,11 @@ export class KbService {
       const sharedRead = readAuthz.authorized;
       const visible: string[] = [];
       if (sharedRead) visible.push(this.opts.kbId);
-      if (own) visible.push(own.id);
+      // A caller may pin recall to the SHARED partition only (`scope: 'shared'`), never their own private —
+      // the anonymous oracle does this so the ANSWER TEXT, not just the citations, can't draw on any private
+      // partition. Removes the "the reader's private partition is empty by construction" safety dependency:
+      // even a future bug that put private content there could not surface it through the oracle.
+      if (own && req.scope !== 'shared') visible.push(own.id);
       if (visible.length === 0) return kbErr('not authorized to read this KB');
       if (!req.query) return kbErr('query is required');
       const stepUp = await this.clearAssurance(did, 'read', `read on ${this.opts.kbId}`);

@@ -141,8 +141,14 @@ export function startKbPortalServer(opts: KbPortalOptions): ControlServer {
     for (const [ip, rec] of ipHits) if (rec.windowStart < cutoff) ipHits.delete(ip);
   };
   const clientIp = (req: IncomingMessage): string => {
+    // Take the RIGHTMOST X-Forwarded-For hop — the one our own reverse proxy appended (`$proxy_add_x_forwarded_for`),
+    // NOT the leftmost, which a client can freely spoof. Assumes a single trusted proxy in front (the deploy
+    // shape). The per-IP window is best-effort regardless; the GLOBAL concurrent cap is the unspoofable guard.
     const xff = req.headers['x-forwarded-for'];
-    if (typeof xff === 'string' && xff.length > 0) return (xff.split(',')[0] ?? xff).trim();
+    if (typeof xff === 'string' && xff.length > 0) {
+      const hops = xff.split(',');
+      return (hops[hops.length - 1] ?? xff).trim();
+    }
     return req.socket?.remoteAddress ?? 'unknown';
   };
 
@@ -261,7 +267,9 @@ export function startKbPortalServer(opts: KbPortalOptions): ControlServer {
           const ask = () =>
             transport.request(
               wardenDid,
-              { type: 'hearthold/kb-session-request', version: PROTOCOL_VERSION, token, kbId: oracle.kbId, action: 'query', query, k: k ?? 5 },
+              // scope:'shared' pins recall to the SHARED partition only — defence in depth so the ANSWER
+              // text (not just the citations we filter) can never draw on any private partition.
+              { type: 'hearthold/kb-session-request', version: PROTOCOL_VERSION, token, kbId: oracle.kbId, action: 'query', query, k: k ?? 5, scope: 'shared' },
               { timeoutMs: 200_000 },
             );
           let reply = await ask();
