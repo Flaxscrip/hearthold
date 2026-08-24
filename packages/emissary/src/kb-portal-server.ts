@@ -49,6 +49,10 @@ export interface KbPortalOptions {
   host?: string;
   /** The Emissary's PUBLIC base URL — baked into the challenge callback the wallet POSTs to. */
   publicUrl: string;
+  /** Extra browser origins allowed to call the portal, beyond its own public origin — e.g. the Signet
+   *  wallet, which lives on a SEPARATE origin and POSTs the login callback here (its request is otherwise
+   *  refused by CORS, breaking wallet login). An allowlist, never `*`. */
+  allowOrigins?: string[];
   /** Supply a read-only oracle reader to enable the anonymous (no-wallet) `POST /api/kb/ask` route. */
   oracle?: OracleReader;
 }
@@ -147,11 +151,15 @@ export function startKbPortalServer(opts: KbPortalOptions): ControlServer {
   // callers (no Origin) are allowed; other browser origins are refused. Add more via a deployment override if
   // a third-party browser client ever needs it.
   const portalOrigins = (() => {
-    try {
-      return [new URL(publicUrl).origin];
-    } catch {
-      return [];
-    }
+    const own = (() => {
+      try {
+        return [new URL(publicUrl).origin];
+      } catch {
+        return [];
+      }
+    })();
+    // Plus any origins a deployment opts into (e.g. a Signet wallet on its own origin). Still an allowlist.
+    return [...new Set([...own, ...(opts.allowOrigins ?? [])])];
   })();
 
   return startControlServer({

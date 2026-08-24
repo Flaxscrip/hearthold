@@ -52,6 +52,11 @@ import type { PartitionStore } from './partition-store.js';
 import type { SessionKeyStore } from './session-keys.js';
 import { unlockSessionPartitions, type RewrapChannel } from './rewrap.js';
 
+/** Login-time partition rewrap is best-effort and MUST NOT block login; bound it well under any caller's
+ *  reply timeout so a slow or absent Signet (e.g. the read-only oracle reader, which has none) can't stall
+ *  the handshake — the caller would otherwise abandon the login before the Warden ever replies. */
+const LOGIN_REWRAP_TIMEOUT_MS = 10_000;
+
 interface KbServiceOptions {
   kbId: string;
   /** The KB Warden's own DID (KB contributions are sealed to it, like vault artefacts). */
@@ -255,11 +260,22 @@ export class KbService {
     // Signet / a member with no member-key partitions unlocks 0 and login still succeeds — the read side
     // simply falls back to whatever the artefact is sealed to (Warden-sealed content is unaffected).
     if (this.opts.memberPartitions && this.opts.sessionKeys && this.opts.rewrapChannel) {
-      try {
-        await unlockSessionPartitions(this.warden, this.config, this.opts.rewrapChannel, res.responder, token, this.opts.sessionKeys);
-      } catch {
-        /* rewrap declined / Signet unreachable → 0 unlocked; login is not blocked on it */
-      }
+      // NON-BLOCKING: run the best-effort unlock in the BACKGROUND so login returns immediately. Awaiting it
+      // would stall the handshake for up to the full factor-1 step-up timeout whenever the Signet is slow or
+      // absent — and the read-only oracle reader has no Signet at all, so its unlock could ONLY ever time
+      // out, hanging every anonymous query. Keys land in `sessionKeys` if/when the rewrap succeeds; until
+      // then the read side falls back to whatever the artefact is sealed to. Bounded so it can't linger.
+      void unlockSessionPartitions(
+        this.warden,
+        this.config,
+        this.opts.rewrapChannel,
+        res.responder,
+        token,
+        this.opts.sessionKeys,
+        { timeoutMs: LOGIN_REWRAP_TIMEOUT_MS },
+      ).catch(() => {
+        /* declined / unreachable / bound elapsed → 0 unlocked; login already returned */
+      });
     }
     return {
       type: 'hearthold/kb-session',

@@ -171,7 +171,14 @@ export function makeWardenHandler(
         const m = message as KbLoginCompleteMessage;
         const kb = kbFor(m.kbId);
         if (!kb) return deny('unknown KB');
-        return kb.completeLogin(m.response);
+        process.stdout.write(`[kb] login-complete received (kb=${m.kbId}) from ${fromDid.slice(0, 20)}…\n`);
+        const out = await kb.completeLogin(m.response);
+        process.stdout.write(
+          out.type === 'hearthold/kb-session'
+            ? `[kb] → session minted for ${out.did.slice(0, 20)}…\n`
+            : `[kb] login-complete FAILED: ${out.type === 'hearthold/kb-error' ? out.reason : out.type}\n`,
+        );
+        return out;
       }
       case 'hearthold/kb-session-request': {
         const m = message as KbSessionRequestMessage;

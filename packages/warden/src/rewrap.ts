@@ -33,6 +33,7 @@ export async function unlockSessionPartitions(
   memberDid: string,
   sessionToken: string,
   sessionKeys: SessionKeyStore,
+  opts?: { timeoutMs?: number },
 ): Promise<number> {
   const owned = (await new PartitionStore(handle.dataFolder).listByOwner(memberDid)).filter(
     (p) => p.location.kind === 'local' && p.wrappedKey && p.partitionPub,
@@ -49,7 +50,9 @@ export async function unlockSessionPartitions(
     nonce: randomBytes(16).toString('hex'),
   };
 
-  const timeoutMs = config.stepUpTimeoutMs.factor1;
+  // Callers may bound this below the full factor-1 step-up (e.g. the non-blocking login-time unlock, so a
+  // slow or absent Signet can't stall login). Default preserves the deliberate-step-up timeout.
+  const timeoutMs = opts?.timeoutMs ?? config.stepUpTimeoutMs.factor1;
   const reply = await channel.request(memberDid, req, { timeoutMs });
   if (reply.type !== 'hearthold/partition-rewrap-response' || reply.approved !== true) return 0;
 

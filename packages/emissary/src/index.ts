@@ -345,7 +345,13 @@ async function main(): Promise<void> {
             maxConcurrent: numEnv(process.env.HEARTHOLD_ORACLE_MAX_CONCURRENT),
           }
         : undefined;
-      const server = startKbPortalServer({ transport, wardenDid, port, host, publicUrl, oracle });
+      // Extra CORS origins (e.g. the Signet wallet on its own origin, whose login-callback POST would
+      // otherwise be refused). Comma-separated absolute origins; empty ⇒ the portal's own origin only.
+      const allowOrigins = (process.env.HEARTHOLD_PORTAL_ALLOW_ORIGIN ?? '')
+        .split(',')
+        .map((o) => o.trim())
+        .filter(Boolean);
+      const server = startKbPortalServer({ transport, wardenDid, port, host, publicUrl, allowOrigins, oracle });
       const shutdown = (): void => {
         server.close();
         process.exit(0);
