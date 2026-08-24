@@ -330,7 +330,22 @@ async function main(): Promise<void> {
       const publicUrl = process.env.HEARTHOLD_PORTAL_PUBLIC_URL ?? `http://127.0.0.1:${port}`;
       const transport = new DidCommTransport(handle, IDENTITY_NAME.emissary, config.nodeUrl);
       await transport.ready();
-      const server = startKbPortalServer({ transport, wardenDid, port, host, publicUrl });
+      // Anonymous (no-wallet) public query: set HEARTHOLD_ORACLE_KB to the KB to answer. The Emissary's own
+      // read-only identity serves as the oracle reader — it open-enrolls as a read member on first ask and
+      // holds NO write authority over the shared chronicle (that stays with the curators' writeGroup).
+      const oracleKb = process.env.HEARTHOLD_ORACLE_KB?.trim();
+      const numEnv = (v: string | undefined): number | undefined => (v && Number.isFinite(Number(v)) ? Number(v) : undefined);
+      const oracle = oracleKb
+        ? {
+            createResponse: (challenge: string, opts?: { registry?: string }): Promise<string> =>
+              handle.keymaster.createResponse(challenge, opts),
+            kbId: oracleKb,
+            registry: config.registry,
+            perIpPerMin: numEnv(process.env.HEARTHOLD_ORACLE_PER_IP_PER_MIN),
+            maxConcurrent: numEnv(process.env.HEARTHOLD_ORACLE_MAX_CONCURRENT),
+          }
+        : undefined;
+      const server = startKbPortalServer({ transport, wardenDid, port, host, publicUrl, oracle });
       const shutdown = (): void => {
         server.close();
         process.exit(0);
