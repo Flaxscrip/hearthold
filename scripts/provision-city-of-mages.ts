@@ -14,10 +14,14 @@
  *   CITY_OF_MAGES_CURATORS='did:cid:…,did:cid:…' [CITY_OF_MAGES_KB_ID=city-of-mages CITY_OF_MAGES_MAX_MEMBERS=128] \
  *   npm run provision:city-of-mages
  *
+ * Governance: unset ⇒ Warden-self-governed. For FLAXSCRIP-GOVERNED (stronger — a compromised Warden can't
+ * rewrite its own policy), first run `sign:city-of-mages-policy` on the governor's host, then pass its output:
+ *   CITY_OF_MAGES_POLICY_ASSET=<asset> CITY_OF_MAGES_GOVERNOR=<gov did>  (provision verifies it, fail-closed).
+ *
  * Then serve it:  HEARTHOLD_PASSPHRASE=… npm run warden -- control 4310
  * Guests: challenge/response login → session → get-doc/recall the public chronicle; a curator promotes to shared.
  */
-import { loadConfig, openKeymaster, ensureIdentity, createRegistryGroup, grantAuthorization, selfSigner } from '@hearthold/core';
+import { loadConfig, openKeymaster, ensureIdentity, createRegistryGroup, grantAuthorization, selfSigner, activeRuleset, type SignedRuleset } from '@hearthold/core';
 import { KbConfigStore, initKbAssurance } from '@hearthold/warden/kb-config';
 
 async function main(): Promise<void> {
@@ -53,14 +57,36 @@ async function main(): Promise<void> {
     await grantAuthorization(warden, readGroup, did);
     await grantAuthorization(warden, writeGroup, did);
   }
-  // Self-governed assurance policy (Warden-signed): read/write clear at factor1 by default; raise a verb to
-  // factor2 later with kb-govern/setKbAssurance so it steps up to a member's Signet.
-  const policyAsset = await initKbAssurance(warden, config, KB, selfSigner(warden, wid.did));
+  // Governance — two postures:
+  //   - FLAXSCRIP-GOVERNED (stronger): CITY_OF_MAGES_POLICY_ASSET + CITY_OF_MAGES_GOVERNOR are set — a genesis
+  //     policy the governor PRE-SIGNED off-host (via `sign:city-of-mages-policy`). We record governorDid so a
+  //     compromised mages Warden cannot rewrite its own read/write step-up policy — only the governor can.
+  //   - SELF-GOVERNED (v1): unset — the Warden signs its own policy.
+  const governorDid = process.env.CITY_OF_MAGES_GOVERNOR?.trim() || undefined;
+  const providedPolicy = process.env.CITY_OF_MAGES_POLICY_ASSET?.trim() || undefined;
+  let policyAsset: string;
+  if (providedPolicy || governorDid) {
+    if (!providedPolicy || !governorDid) {
+      throw new Error('flaxscrip-governed provisioning needs BOTH CITY_OF_MAGES_POLICY_ASSET and CITY_OF_MAGES_GOVERNOR — run `sign:city-of-mages-policy` to produce them together');
+    }
+    // Fail-closed guard: the pre-signed policy MUST verify as an ACTIVE chain signed by the named governor,
+    // else every read/write fails the assurance check and the KB is dead-on-arrival. Mirror the read-time
+    // check exactly — activeRuleset + expectedSigner — NOT readKbAssurance, which swallows a signer mismatch
+    // (returns null → default factor1) instead of rejecting it. Catch it here, not at a member's first login.
+    const chain = await warden.keymaster.resolveAsset(providedPolicy).catch(() => null);
+    const head = Array.isArray(chain) && chain.length ? await activeRuleset(warden, chain as SignedRuleset[], { expectedSigner: governorDid }) : null;
+    if (!head) throw new Error('CITY_OF_MAGES_POLICY_ASSET does not verify as an active policy signed by CITY_OF_MAGES_GOVERNOR — wrong asset or governor DID?');
+    policyAsset = providedPolicy;
+  } else {
+    // Self-governed: the Warden signs the genesis policy (read→factor1, write→factor1).
+    policyAsset = await initKbAssurance(warden, config, KB, selfSigner(warden, wid.did));
+  }
   await store.put({
     kbId: KB,
     readGroup,
     writeGroup,
     policyAsset,
+    ...(governorDid ? { governorDid } : {}),
     memberPartitions: true, // each Mage gets a private draft partition
     defaultScope: 'private', // a scope-less write is a private draft; publishing is an explicit shared promote
     openEnrollment: true, // first authenticated action auto-joins → read + draft
@@ -75,6 +101,7 @@ async function main(): Promise<void> {
       `  writeGroup:       ${writeGroup.slice(0, 28)}…  (the curator set)\n` +
       `  curators granted: ${curators.length}${curators.length ? '' : '  ⚠ NONE — publishing is refused for everyone until you grant a curator'}\n` +
       `  memberPartitions: on (a private draft partition per Mage)\n` +
+      `  governance:       ${governorDid ? `flaxscrip-governed (governor ${governorDid.slice(0, 24)}…; policy pre-signed + verified)` : 'Warden-self-governed'}\n` +
       `  enrollment:       OPEN + CURATED (cap ${maxMembers}) — a Mage self-joins on first action (read + draft); promote-to-shared needs curator rights\n` +
       (curators.length ? '' : `\n  Add curators later (idempotent — re-grants):  CITY_OF_MAGES_CURATORS='did:cid:…' npm run provision:city-of-mages\n`) +
       `\nServe it:  HEARTHOLD_PASSPHRASE=… npm run warden -- control 4310\n` +
