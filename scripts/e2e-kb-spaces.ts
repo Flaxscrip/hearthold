@@ -89,6 +89,15 @@ async function main(): Promise<void> {
   assert(kbTag(idOf(aShared)) === SPACE, "Alice's scope:'shared' note landed in the shared partition");
   assert(kbTag(idOf(bPriv)) === bobPriv.id, "Bob's scope-less note landed in HIS private partition");
 
+  // The Warden's AUTHORITATIVE echo of where each write landed — the field the client renders its success
+  // message from (never the button it clicked). A scope silently dropped on the wire (the stale-relay bug)
+  // would surface here as a mismatch instead of a false "saved privately".
+  const scopeOf = (r: unknown): string | undefined => (r as { scope?: string }).scope;
+  assert(scopeOf(aPriv) === 'private', "Alice's scope-less update RESULT echoes scope:'private' (space default)");
+  assert(scopeOf(aShared) === 'shared', "Alice's scope:'shared' update RESULT echoes scope:'shared'");
+  assert(scopeOf(bPriv) === 'private', "Bob's scope-less update RESULT echoes scope:'private'");
+  assert(scopeOf(carolShared) === 'shared', "Carol's shared update RESULT echoes scope:'shared'");
+
   process.stdout.write('\n▸ Visible-set isolation (union-recall filter)\n');
   // Build index entries from the vault artefacts (kb tag = partition); dummy embeddings — we test the
   // FILTER, not the ranking, so isolation is deterministic without Ollama.

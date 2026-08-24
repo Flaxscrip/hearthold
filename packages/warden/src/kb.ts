@@ -52,6 +52,11 @@ import type { PartitionStore } from './partition-store.js';
 import type { SessionKeyStore } from './session-keys.js';
 import { unlockSessionPartitions, type RewrapChannel } from './rewrap.js';
 
+/** Login-time partition rewrap is best-effort and MUST NOT block login; bound it well under any caller's
+ *  reply timeout so a slow or absent Signet (e.g. the read-only oracle reader, which has none) can't stall
+ *  the handshake — the caller would otherwise abandon the login before the Warden ever replies. */
+const LOGIN_REWRAP_TIMEOUT_MS = 10_000;
+
 interface KbServiceOptions {
   kbId: string;
   /** The KB Warden's own DID (KB contributions are sealed to it, like vault artefacts). */
@@ -255,11 +260,22 @@ export class KbService {
     // Signet / a member with no member-key partitions unlocks 0 and login still succeeds — the read side
     // simply falls back to whatever the artefact is sealed to (Warden-sealed content is unaffected).
     if (this.opts.memberPartitions && this.opts.sessionKeys && this.opts.rewrapChannel) {
-      try {
-        await unlockSessionPartitions(this.warden, this.config, this.opts.rewrapChannel, res.responder, token, this.opts.sessionKeys);
-      } catch {
-        /* rewrap declined / Signet unreachable → 0 unlocked; login is not blocked on it */
-      }
+      // NON-BLOCKING: run the best-effort unlock in the BACKGROUND so login returns immediately. Awaiting it
+      // would stall the handshake for up to the full factor-1 step-up timeout whenever the Signet is slow or
+      // absent — and the read-only oracle reader has no Signet at all, so its unlock could ONLY ever time
+      // out, hanging every anonymous query. Keys land in `sessionKeys` if/when the rewrap succeeds; until
+      // then the read side falls back to whatever the artefact is sealed to. Bounded so it can't linger.
+      void unlockSessionPartitions(
+        this.warden,
+        this.config,
+        this.opts.rewrapChannel,
+        res.responder,
+        token,
+        this.opts.sessionKeys,
+        { timeoutMs: LOGIN_REWRAP_TIMEOUT_MS },
+      ).catch(() => {
+        /* declined / unreachable / bound elapsed → 0 unlocked; login already returned */
+      });
     }
     return {
       type: 'hearthold/kb-session',
@@ -352,9 +368,11 @@ export class KbService {
   }
 
   /** Append-log contribution (the `update` action): every write is a new content-addressed artefact. */
-  private async storeContribution(did: string, kind: string, text: string, kb: string, sealTo?: CipherPublicJwk): Promise<KbResultMessage> {
+  private async storeContribution(did: string, kind: string, text: string, kb: string, scope: 'shared' | 'private', sealTo?: CipherPublicJwk): Promise<KbResultMessage> {
     const { id, indexed } = await this.sealStoreIndex(did, kind, text, kb, { sealTo });
-    return { type: 'hearthold/kb-result', version: PROTOCOL_VERSION, action: 'update', artefactId: id, indexed };
+    // Echo the AUTHORITATIVE partition back so the client renders success from the Warden's word, not the
+    // scope it asked for — a scope dropped on the wire can't then masquerade as a private write.
+    return { type: 'hearthold/kb-result', version: PROTOCOL_VERSION, action: 'update', artefactId: id, scope, indexed };
   }
 
   /** OVERWRITE semantics for a named document: drop this contributor's prior versions of `docKey` in
@@ -461,7 +479,11 @@ export class KbService {
       const sharedRead = readAuthz.authorized;
       const visible: string[] = [];
       if (sharedRead) visible.push(this.opts.kbId);
-      if (own) visible.push(own.id);
+      // A caller may pin recall to the SHARED partition only (`scope: 'shared'`), never their own private —
+      // the anonymous oracle does this so the ANSWER TEXT, not just the citations, can't draw on any private
+      // partition. Removes the "the reader's private partition is empty by construction" safety dependency:
+      // even a future bug that put private content there could not surface it through the oracle.
+      if (own && req.scope !== 'shared') visible.push(own.id);
       if (visible.length === 0) return kbErr('not authorized to read this KB');
       if (!req.query) return kbErr('query is required');
       const stepUp = await this.clearAssurance(did, 'read', `read on ${this.opts.kbId}`);
@@ -534,14 +556,14 @@ export class KbService {
       if (stepUp) return kbErr(stepUp);
       // Write-host: seal to the partition's PUBLIC key when the partition carries one (member-key) — the
       // Warden writes it but cannot read at rest. Legacy partitions (no pub) stay Warden-sealed.
-      return this.storeContribution(did, req.kind, req.text, own.id, own.partitionPub);
+      return this.storeContribution(did, req.kind, req.text, own.id, 'private', own.partitionPub);
     }
     // shared partition — INVARIANT I: shared knowledge, contributor-attributed; not a personal vault.
     const sharedWrite = (await this.opts.registry.authorize({ entity_id: did, action: 'write', resource: this.opts.kbId })).authorized;
     if (!sharedWrite) return kbErr('not authorized to write this KB');
     const stepUp = await this.clearAssurance(did, 'write', `contribute to ${this.opts.kbId}: “${req.text.slice(0, 80)}”`);
     if (stepUp) return kbErr(stepUp);
-    return this.storeContribution(did, req.kind, req.text, this.opts.kbId);
+    return this.storeContribution(did, req.kind, req.text, this.opts.kbId, 'shared');
   }
 }
 
