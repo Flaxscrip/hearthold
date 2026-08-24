@@ -13,7 +13,8 @@
     "./invoke": { "types": "./dist/invoke.d.ts", "import": "./dist/invoke.js" },
     "./chain": { "types": "./dist/chain.d.ts", "import": "./dist/chain.js" },
     "./handler": { "types": "./dist/handler.d.ts", "import": "./dist/handler.js" },
-    "./kb-relay": { "types": "./dist/kb-relay.d.ts", "import": "./dist/kb-relay.js" }
+    "./kb-relay": { "types": "./dist/kb-relay.d.ts", "import": "./dist/kb-relay.js" },
+    "./kb-portal-server": { "types": "./dist/kb-portal-server.d.ts", "import": "./dist/kb-portal-server.js" }
   },
   "scripts": {
     "build": "tsc --build",
