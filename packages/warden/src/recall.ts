@@ -33,11 +33,19 @@ export class OllamaEmbedder implements Embedder {
   ) {}
 
   async embed(text: string): Promise<number[]> {
-    const res = await fetch(`${this.url}/api/embeddings`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ model: this.model, prompt: text.slice(0, 8000) }),
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${this.url}/api/embeddings`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ model: this.model, prompt: text.slice(0, 8000) }),
+        // Fail FAST on a transient stall (Tailscale blip, model reload, `ollama` restart) rather than hang
+        // until the proxy read-timeout (~3.5 min → 504). Mirrors classifier.ts's degrade-gracefully posture.
+        signal: AbortSignal.timeout(10_000),
+      });
+    } catch (err) {
+      throw new Error(`ollama embeddings unavailable: ${err instanceof Error ? err.message : String(err)}`);
+    }
     if (!res.ok) throw new Error(`ollama embeddings ${res.status}`);
     const data = (await res.json()) as { embedding?: number[] };
     if (!data.embedding?.length) throw new Error('ollama returned no embedding');
@@ -63,24 +71,35 @@ const SYSTEM_PROMPT = `You are a private recall assistant answering ONLY from th
 notes below. Answer the question concisely from the notes. If the notes don't contain the answer, say
 you don't have it. Do not invent facts. /no_think`;
 
+/** Shown to the user when the local model can't be reached — a clean, honest status instead of a hang. */
+const RECALL_UNAVAILABLE = 'Recall is temporarily unavailable — the local model did not respond. Try again shortly.';
+
 /** Build the live answerer: a local Ollama chat model over the retrieved passages. */
 export function ollamaAnswerer(url: string, model: string): Answerer {
   return async (query, passages) => {
     const context = passages.map((p, i) => `[${i + 1}] (${p.observedAt}) ${p.text}`).join('\n');
-    const res = await fetch(`${url}/api/chat`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        model,
-        stream: false,
-        options: { temperature: 0 },
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: `Notes:\n${context}\n\nQuestion: ${query}` },
-        ],
-      }),
-    });
-    if (!res.ok) throw new Error(`ollama chat ${res.status}`);
+    let res: Response;
+    try {
+      res = await fetch(`${url}/api/chat`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          stream: false,
+          options: { temperature: 0 },
+          messages: [
+            { role: 'system', content: SYSTEM_PROMPT },
+            { role: 'user', content: `Notes:\n${context}\n\nQuestion: ${query}` },
+          ],
+        }),
+        // Chat is far slower than embeddings (real RAG can take seconds) — allow 120s — but still bounded so a
+        // stalled/reloading model returns a clean status instead of hanging to the proxy timeout.
+        signal: AbortSignal.timeout(120_000),
+      });
+    } catch {
+      return RECALL_UNAVAILABLE;
+    }
+    if (!res.ok) return RECALL_UNAVAILABLE;
     const data = (await res.json()) as { message?: { content?: string } };
     return (data.message?.content ?? '').trim();
   };
@@ -157,7 +176,13 @@ export class RecallService {
     if (entries.length === 0) {
       return { query, answer: 'Nothing has been indexed yet.', citations: [], descriptionSource: 'machine-derived' };
     }
-    const queryEmbedding = await this.embedder.embed(query);
+    let queryEmbedding: number[];
+    try {
+      queryEmbedding = await this.embedder.embed(query);
+    } catch {
+      // The embedder failed fast (timeout/stall) — return a clean status, never a hang or a 504.
+      return { query, answer: RECALL_UNAVAILABLE, citations: [], descriptionSource: 'machine-derived' };
+    }
     const ranked = rankByQuery(queryEmbedding, entries, { k: opts.k ?? 5, maxSensitivity: opts.maxSensitivity, kb: opts.kb, owner: opts.owner });
 
     const passages: { observedAt: string; text: string }[] = [];
