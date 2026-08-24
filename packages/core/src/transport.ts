@@ -261,27 +261,43 @@ export class DidCommTransport implements Transport {
     const pollMs = opts.pollMs ?? 1500;
     const thid = randomUUID();
 
+    // Register the reply's correlation handler BEFORE the send: the poll loop may already be running
+    // (keepAlive, or a prior in-flight request), so a reply must never arrive before its waiter exists.
+    // But ARM the timeout only AFTER the send resolves (see `armTimeout` below), so `timeoutMs` measures
+    // REPLY-WAIT, not send+reply — a slow send can no longer eat the reply budget (the failure a bounded
+    // 10s login-rewrap send exposed live on 2026-08-24: the send outran the budget and timed out mid-send).
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let armTimeout!: () => void;
     const reply = new Promise<HearthholdMessage>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        if (this.pending.delete(thid)) reject(new Error(`transport: timed out awaiting reply to ${message.type}`));
-      }, timeoutMs);
-      timer.unref?.();
       this.pending.set(thid, (m) => {
-        clearTimeout(timer);
+        if (timer) clearTimeout(timer);
         resolve(m);
       });
+      armTimeout = () => {
+        // A reply cannot precede the peer receiving the request, so arming the reply-wait timer only after
+        // the send resolves is sound — and is the correct semantics.
+        timer = setTimeout(() => {
+          if (this.pending.delete(thid)) reject(new Error(`transport: timed out awaiting reply to ${message.type}`));
+        }, timeoutMs);
+        timer.unref?.();
+      };
     });
-    // The timeout timer starts NOW, but NO caller can attach a handler until this function returns `reply`
-    // — which is only AFTER the `await sendDidComm` below. If that send outlasts `timeoutMs`, `reply`
-    // rejects with nothing attached → an unhandled rejection that EXITS the process on Node ≥15. Attach a
-    // no-op catch immediately so the rejection is always "handled". This does NOT swallow the error for the
-    // real consumer: the returned `reply` is still awaited downstream, and a second handler observes the
-    // rejection independently. (Unreachable at large timeouts; reachable once a bounded rewrap uses ~10s.)
+    // Belt-and-suspenders: keep the rejection always handled. With the timer armed post-send the caller
+    // already holds `reply` before it can reject, but a no-op catch costs nothing and covers edge paths —
+    // it does NOT swallow, the returned `reply` is still awaited downstream and rejects there too.
     reply.catch(() => {});
 
-    await this.handle.keymaster.sendDidComm({ type: message.type, thid, body: message }, toDid, {
-      name: this.idName,
-    });
+    try {
+      await this.handle.keymaster.sendDidComm({ type: message.type, thid, body: message }, toDid, {
+        name: this.idName,
+      });
+    } catch (err) {
+      // The request never went out — drop the dangling correlation entry (nothing will ever resolve it) and
+      // propagate the send failure to the caller.
+      this.pending.delete(thid);
+      throw err;
+    }
+    armTimeout(); // start the reply-wait clock now that the request is on the wire
     this.ensureLoop(pollMs);
     return reply;
   }

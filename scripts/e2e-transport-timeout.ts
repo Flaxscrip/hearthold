@@ -1,15 +1,21 @@
 /**
- * e2e / regression: transport.request() must NEVER crash the process when a request times out BEFORE the
- * caller attaches a handler.
+ * e2e / regression: transport.request() timeout semantics + the timeout-before-attach crash guard.
  *
- * The reply promise's timeout timer starts at construction, but the caller can only await the promise
- * after request() RETURNS it — which is after `await sendDidComm`. If the send outlasts `timeoutMs`, the
- * reply rejects with nothing attached → an unhandled rejection that EXITS the process on Node ≥15.
- * Observed live (2026-08-24): a bounded 10s login-rewrap send to a slow Signet killed the mages Warden.
- * The fix attaches a no-op catch at creation. This proves the crash is gone AND that the real consumer
- * still observes the rejection (the error is not swallowed).
+ * Two properties, both deterministic (no Archon node, no Ollama):
  *
- * Pure — no Archon node, no Ollama, deterministic.  Run:  npm run e2e:transport-timeout
+ *   1. CRASH GUARD — a request whose reply never arrives must reject the CALLER cleanly and produce ZERO
+ *      unhandled rejections. The original bug: the reply promise's timeout timer started at CONSTRUCTION,
+ *      but the caller can only await the promise after request() RETURNS it (after `await sendDidComm`); a
+ *      send outlasting `timeoutMs` rejected `reply` with nothing attached → an unhandled rejection that
+ *      EXITS the process on Node ≥15 (observed live 2026-08-24: a bounded 10s login-rewrap send to a slow
+ *      Signet killed the mages Warden).
+ *
+ *   2. FALSE-TIMEOUT GUARD (the semantic fix) — a SLOW send FOLLOWED by a TIMELY reply must NOT time out.
+ *      The timer is now armed only AFTER the send resolves, so `timeoutMs` measures REPLY-WAIT, not
+ *      send+reply. This case FAILS against the old construct-time timer (the timer fires mid-send) and
+ *      PASSES once the timer is armed post-send.
+ *
+ * Run:  npm run e2e:transport-timeout
  */
 import { DidCommTransport } from '@hearthold/core';
 import type { KeymasterHandle, HearthholdMessage } from '@hearthold/core';
@@ -28,37 +34,75 @@ async function main(): Promise<void> {
     unhandled += 1;
   });
 
-  // A keymaster whose sendDidComm is SLOWER than the request timeout — the exact race trigger. receiveDidComm
-  // returns nothing, so the poll loop idles and exits once the pending request is cleared by the timeout.
-  const stub = {
-    keymaster: {
-      sendDidComm: async (): Promise<void> => {
-        await sleep(120);
+  // ── 1. Crash guard: a slow send, and no reply ever arrives ──────────────────────────────────────────
+  {
+    const stub = {
+      keymaster: {
+        sendDidComm: async (): Promise<void> => {
+          await sleep(120);
+        },
+        receiveDidComm: async (): Promise<unknown[]> => [], // no reply — the reply-wait times out cleanly
       },
-      receiveDidComm: async (): Promise<unknown[]> => [],
-    },
-    registry: 'local',
-  } as unknown as KeymasterHandle;
+      registry: 'local',
+    } as unknown as KeymasterHandle;
 
-  const transport = new DidCommTransport(stub, 'test-transport', 'http://unused.invalid');
+    const transport = new DidCommTransport(stub, 'test-transport-crash', 'http://unused.invalid');
 
-  process.stdout.write('\n▸ request() times out DURING a slow send (timeout 20ms < send 120ms)\n');
-  let rejected = false;
-  let reason = '';
-  try {
-    await transport.request('did:cid:target', { type: 'test/ping' } as unknown as HearthholdMessage, { timeoutMs: 20, pollMs: 10 });
-  } catch (e) {
-    rejected = true;
-    reason = e instanceof Error ? e.message : String(e);
+    process.stdout.write('\n▸ a request whose reply never arrives rejects cleanly — no unhandled rejection\n');
+    let rejected = false;
+    let reason = '';
+    try {
+      await transport.request('did:cid:target', { type: 'test/ping' } as unknown as HearthholdMessage, { timeoutMs: 20, pollMs: 10 });
+    } catch (e) {
+      rejected = true;
+      reason = e instanceof Error ? e.message : String(e);
+    }
+    await sleep(200); // give any stray unhandled rejection a couple of ticks to surface
+
+    assert(rejected, 'the caller receives the timeout rejection (error not swallowed)');
+    assert(/timed out awaiting reply/.test(reason), 'the rejection is the transport reply-wait timeout');
+    assert(unhandled === 0, 'ZERO unhandled rejections — a slow send no longer exits the process');
   }
-  // Give any stray unhandled rejection a couple of event-loop ticks to surface.
-  await sleep(250);
 
-  assert(rejected, 'the caller still receives the timeout rejection (error not swallowed)');
-  assert(/timed out awaiting reply/.test(reason), 'the rejection is the transport timeout');
-  assert(unhandled === 0, 'ZERO unhandled rejections — request() no longer exits the process on a slow send');
+  // ── 2. False-timeout guard: a slow send FOLLOWED by a timely reply must resolve (the semantic fix) ────
+  {
+    // sendDidComm takes 60ms and captures the thid; receiveDidComm then delivers the correlated reply on the
+    // next poll. timeoutMs = 40ms < the 60ms send: under the OLD construct-time timer this fires MID-SEND and
+    // false-times-out; with the timer armed post-send, the 40ms reply-wait starts only after the send, and the
+    // reply (delivered within ~1 poll) resolves it.
+    let capturedThid = '';
+    let delivered = false;
+    const stub = {
+      keymaster: {
+        sendDidComm: async (msg: { thid: string }): Promise<void> => {
+          capturedThid = msg.thid;
+          await sleep(60);
+        },
+        receiveDidComm: async (): Promise<unknown[]> => {
+          if (capturedThid && !delivered) {
+            delivered = true;
+            return [{ message: { thid: capturedThid, body: { type: 'test/pong' } } }];
+          }
+          return [];
+        },
+      },
+      registry: 'local',
+    } as unknown as KeymasterHandle;
 
-  process.stdout.write('\n✓ transport timeout race: fails safe, no unhandled rejection\n');
+    const transport = new DidCommTransport(stub, 'test-transport-timely', 'http://unused.invalid');
+
+    process.stdout.write('\n▸ a slow send FOLLOWED by a timely reply resolves — no false timeout\n');
+    const reply = (await transport.request('did:cid:target', { type: 'test/ping' } as unknown as HearthholdMessage, {
+      timeoutMs: 40, // < the 60ms send: only passes because the reply-wait clock starts AFTER the send
+      pollMs: 10,
+    })) as { type?: string };
+    await sleep(50);
+
+    assert(reply?.type === 'test/pong', 'the reply resolves (reply-wait measured from after the send, not from construction)');
+    assert(unhandled === 0, 'still ZERO unhandled rejections across both cases');
+  }
+
+  process.stdout.write('\n✓ transport timeout: fails safe (no unhandled rejection) AND reply-wait is measured post-send\n');
   process.exit(0);
 }
 
