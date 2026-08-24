@@ -328,8 +328,17 @@ function Contribute({ session }: { session: Session }) {
       });
       if (result.type === 'hearthold/kb-error') setErr(result.reason);
       else if (result.action === 'update') {
-        setMsg(spaces && scope === 'private' ? '✓ saved to your private drafts' : '✓ published to the shared chronicle');
-        setText('');
+        // Trust the Warden's AUTHORITATIVE scope, not the button clicked — a scope dropped anywhere on the
+        // wire (e.g. a stale relay) must not be able to look like a private write that actually landed shared.
+        const requested = spaces ? scope : 'shared';
+        if (result.scope !== requested) {
+          setErr(
+            `Warning: asked to save this as ${requested}, but the Warden stored it as ${result.scope}. It was NOT saved where you intended — verify before relying on it.`,
+          );
+        } else {
+          setMsg(result.scope === 'private' ? '✓ saved to your private draft (only you can see it)' : '✓ published to the shared chronicle');
+          setText('');
+        }
       }
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));

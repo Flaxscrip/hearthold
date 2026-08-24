@@ -368,9 +368,11 @@ export class KbService {
   }
 
   /** Append-log contribution (the `update` action): every write is a new content-addressed artefact. */
-  private async storeContribution(did: string, kind: string, text: string, kb: string, sealTo?: CipherPublicJwk): Promise<KbResultMessage> {
+  private async storeContribution(did: string, kind: string, text: string, kb: string, scope: 'shared' | 'private', sealTo?: CipherPublicJwk): Promise<KbResultMessage> {
     const { id, indexed } = await this.sealStoreIndex(did, kind, text, kb, { sealTo });
-    return { type: 'hearthold/kb-result', version: PROTOCOL_VERSION, action: 'update', artefactId: id, indexed };
+    // Echo the AUTHORITATIVE partition back so the client renders success from the Warden's word, not the
+    // scope it asked for — a scope dropped on the wire can't then masquerade as a private write.
+    return { type: 'hearthold/kb-result', version: PROTOCOL_VERSION, action: 'update', artefactId: id, scope, indexed };
   }
 
   /** OVERWRITE semantics for a named document: drop this contributor's prior versions of `docKey` in
@@ -550,14 +552,14 @@ export class KbService {
       if (stepUp) return kbErr(stepUp);
       // Write-host: seal to the partition's PUBLIC key when the partition carries one (member-key) — the
       // Warden writes it but cannot read at rest. Legacy partitions (no pub) stay Warden-sealed.
-      return this.storeContribution(did, req.kind, req.text, own.id, own.partitionPub);
+      return this.storeContribution(did, req.kind, req.text, own.id, 'private', own.partitionPub);
     }
     // shared partition — INVARIANT I: shared knowledge, contributor-attributed; not a personal vault.
     const sharedWrite = (await this.opts.registry.authorize({ entity_id: did, action: 'write', resource: this.opts.kbId })).authorized;
     if (!sharedWrite) return kbErr('not authorized to write this KB');
     const stepUp = await this.clearAssurance(did, 'write', `contribute to ${this.opts.kbId}: “${req.text.slice(0, 80)}”`);
     if (stepUp) return kbErr(stepUp);
-    return this.storeContribution(did, req.kind, req.text, this.opts.kbId);
+    return this.storeContribution(did, req.kind, req.text, this.opts.kbId, 'shared');
   }
 }
 
