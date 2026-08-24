@@ -66,6 +66,10 @@ export interface SessionRequestBody {
 
 export const portalApi = {
   url: PORTAL_URL,
+  /** Anonymous (no-wallet) public query — answered by the portal's read-only oracle reader over the
+   *  shared chronicle. Available only when the Emissary has an oracle configured. */
+  ask: (kbId: string, query: string, k?: number) =>
+    call<{ answer: string; citations: KbCitation[] }>('/api/kb/ask', 'POST', { kbId, query, k }),
   loginStart: (kbId: string) => call<{ loginId: string; challenge: string }>('/api/kb/login/start', 'POST', { kbId }),
   loginPoll: (loginId: string) =>
     call<{ status: 'pending' | 'ready' | 'unknown'; session?: Session }>(
