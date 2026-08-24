@@ -2,7 +2,7 @@
   "name": "hearthold",
   "version": "0.1.0",
   "private": true,
-  "description": "Hearthold — a Sovereign First Person's 7th Capital, made safely liquid. Two separated Archon agents: Warden (home Keeper) and Emissary (Companion).",
+  "description": "Hearthold \u2014 a Sovereign First Person's 7th Capital, made safely liquid. Two separated Archon agents: Warden (home Keeper) and Emissary (Companion).",
   "type": "module",
   "license": "MIT",
   "workspaces": [
@@ -28,7 +28,7 @@
     "sovereign": "node packages/sovereign/dist/index.js",
     "verifier": "node packages/verifier/dist/index.js",
     "registry": "node packages/registry/dist/index.js",
-    "e2e": "npm run e2e:delegation && npm run e2e:submission && npm run e2e:invocation && npm run e2e:multihop && npm run e2e:chain-family && npm run e2e:watch-lineage && npm run e2e:write-cosign && npm run e2e:oracle",
+    "e2e": "npm run e2e:delegation && npm run e2e:submission && npm run e2e:invocation && npm run e2e:multihop && npm run e2e:chain-family && npm run e2e:watch-lineage && npm run e2e:write-cosign && npm run e2e:oracle && npm run e2e:transport-timeout",
     "e2e:delegation": "npm run build && node --experimental-strip-types scripts/e2e-delegation.ts",
     "e2e:delegation-presentation": "npm run build && node --experimental-strip-types scripts/e2e-delegation-presentation.ts",
     "e2e:submission": "npm run build && node --experimental-strip-types scripts/e2e-submission.ts",
@@ -155,7 +155,8 @@
     "e2e:agent-gate": "npm run build && node --experimental-strip-types scripts/e2e-agent-gate.ts",
     "e2e:watch-lineage": "npm run build && node --experimental-strip-types scripts/e2e-watch-lineage.ts",
     "e2e:watch-flow": "npm run build && node --experimental-strip-types scripts/e2e-watch-flow.ts",
-    "e2e:write-cosign": "npm run build && node --experimental-strip-types scripts/e2e-write-cosign.ts"
+    "e2e:write-cosign": "npm run build && node --experimental-strip-types scripts/e2e-write-cosign.ts",
+    "e2e:transport-timeout": "npm run build && node --experimental-strip-types scripts/e2e-transport-timeout.ts"
   },
   "engines": {
     "node": ">=22"

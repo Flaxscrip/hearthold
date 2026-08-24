@@ -271,6 +271,13 @@ export class DidCommTransport implements Transport {
         resolve(m);
       });
     });
+    // The timeout timer starts NOW, but NO caller can attach a handler until this function returns `reply`
+    // — which is only AFTER the `await sendDidComm` below. If that send outlasts `timeoutMs`, `reply`
+    // rejects with nothing attached → an unhandled rejection that EXITS the process on Node ≥15. Attach a
+    // no-op catch immediately so the rejection is always "handled". This does NOT swallow the error for the
+    // real consumer: the returned `reply` is still awaited downstream, and a second handler observes the
+    // rejection independently. (Unreachable at large timeouts; reachable once a bounded rewrap uses ~10s.)
+    reply.catch(() => {});
 
     await this.handle.keymaster.sendDidComm({ type: message.type, thid, body: message }, toDid, {
       name: this.idName,
