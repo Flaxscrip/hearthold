@@ -32,6 +32,11 @@ export interface HeartholdControlConfig {
   /** Registry the self-login `createResponse` must use, passed EXPLICITLY. The ephemeral default is
    *  `hyperswarm`, which hangs on an egress-isolated node; a bound agent uses its own (`local`) registry. */
   registry?: string;
+  /** Allow `hearthold_session` to EXPORT a session bearer to the caller (default false). The self-minted
+   *  bearer is otherwise process-internal — a security property, not an accident. Set
+   *  `HEARTHOLD_MCP_ALLOW_SESSION_EXPORT=true` ONLY on an instance whose consumer must act as this member
+   *  through a browser/agent with no HTTP Signet (e.g. the Table rendering a member view). */
+  allowSessionExport?: boolean;
 }
 
 /**
@@ -85,6 +90,7 @@ export function loadAgentMcpConfig(env: NodeJS.ProcessEnv = process.env, argv: s
       emissaryUrl: pick(env, 'HEARTHOLD_EMISSARY_CONTROL_URL'),
       token: pick(env, 'HEARTHOLD_CONTROL_TOKEN'),
       registry: defaultRegistry,
+      allowSessionExport: ['true', '1', 'yes'].includes((pick(env, 'HEARTHOLD_MCP_ALLOW_SESSION_EXPORT') ?? '').toLowerCase()),
     },
     role: readRole(env, argv),
   };
