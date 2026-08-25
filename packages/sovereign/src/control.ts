@@ -12,10 +12,13 @@ import {
   DidCommTransport,
   IDENTITY_NAME,
   startControlServer,
+  signRuleset,
   Sensitivity,
   type HearthholdConfig,
   type KeymasterHandle,
   type WitnessKind,
+  type Ruleset,
+  type SpendAllowance,
 } from '@hearthold/core';
 import type {
   SignetStatus,
@@ -131,6 +134,46 @@ export async function runSovereignControl(
         const grant = await grantCapability(handle, id.name, id.did, config, { holder: req.emissaryDid, target, ...(kinds ? { kinds } : {}), ceiling, days }, grants);
         server.emit('capability-granted', { credentialDid: grant.credentialDid, holder: grant.holder });
         return { granted: true, credentialDid: grant.credentialDid, schemaDid: grant.schemaDid };
+      },
+
+      // Signet-gated FAMILY authorization (docs/agent-family.md). The batch provisioner signs an agent's
+      // allowance NON-interactively with the parent passphrase; this instead routes the DELEGATION through the
+      // human — it PENDS at the Signet and the parent's key signs the allowance ONLY after a PIN approval. The
+      // provisioner persists the returned signed ruleset. This is the proof-of-human gate on admitting a new
+      // agent-Sovereign under the parent.
+      'POST /api/authorize-family-member': async ({ body }): Promise<{ authorized: boolean; declined?: boolean; agentDid?: string; ruleset?: unknown }> => {
+        const req = (body ?? {}) as {
+          agentDid?: string; agentName?: string; selfLimit?: number; unit?: string;
+          notifyAbove?: number; parentMultifactorAbove?: number; ceiling?: string; kinds?: string[]; verbs?: string[];
+        };
+        if (!req.agentDid) throw new Error('agentDid is required');
+        const CEIL: Record<string, Sensitivity> = { PUBLIC: Sensitivity.PUBLIC, LOW: Sensitivity.LOW, MEDIUM: Sensitivity.MEDIUM, HIGH: Sensitivity.HIGH, SEALED: Sensitivity.SEALED };
+        const ceilingLabel = (req.ceiling ?? 'MEDIUM').toUpperCase();
+        const ceiling = CEIL[ceilingLabel];
+        if (ceiling === undefined) throw new Error(`unknown ceiling '${req.ceiling}' — use PUBLIC|LOW|MEDIUM|HIGH|SEALED`);
+        const selfLimit = req.selfLimit ?? 2000;
+        const unit = req.unit ?? 'sat';
+        const parentMultifactorAbove = req.parentMultifactorAbove ?? 10000;
+
+        const assertion = await gate.approve({
+          requester: 'family-provisioner',
+          action: {
+            action: 'authorize-family-member',
+            resource: req.agentDid,
+            summary: `Admit ${req.agentName ?? req.agentDid} as a family member under you — self-authorize ≤ ${selfLimit} ${unit}, ceiling ${ceilingLabel}; a cost above ${parentMultifactorAbove} ${unit} escalates back to your Signet.`,
+          },
+        });
+        if (!assertion) return { authorized: false, declined: true, agentDid: req.agentDid };
+
+        const allowance: SpendAllowance = { unit, notifyAbove: req.notifyAbove ?? 100, selfLimit, parentMultifactorAbove };
+        const ruleset: Ruleset = {
+          actor: req.agentDid, actorKind: 'agent', version: 1, previous: null,
+          capabilities: { kinds: req.kinds ?? ['activity', 'document'], verbs: req.verbs ?? ['read', 'propose', 'send'], spend: allowance },
+          ceiling, status: 'active',
+        };
+        const signed = await signRuleset(handle, ruleset);
+        server.emit('family-member-authorized', { agentDid: req.agentDid });
+        return { authorized: true, agentDid: req.agentDid, ruleset: signed };
       },
 
       // The permissions center: list the capabilities the Sovereign has granted (the Table mirrors this
