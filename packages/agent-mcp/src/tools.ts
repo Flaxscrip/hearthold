@@ -211,6 +211,36 @@ export const HEARTHOLD_TOOLS: HeartholdTool[] = [
     },
   },
   {
+    name: 'hearthold_session',
+    description:
+      'Mint + RETURN a Warden control-plane session bearer for THIS bound member, so a browser/agent that has no HTTP Signet can act AS me (e.g. a Table rendering my member view). The agent self-logs-in — createResponse IS the AgentGate standing self-approval, no Signet daemon, no PIN. Returns { bearer, did, expiresAt, auth }. The DID (never the name) identifies WHICH member the bearer authenticates as — key on it, not on "name" (every family warden is named hearthold-warden). auth is "agent-self-approved": this is AGENT-authenticated, NOT proof-of-human — it must never be treated as the human PIN path. EXTRACTABLE CREDENTIAL: off by default (the bearer is otherwise process-internal); enable with HEARTHOLD_MCP_ALLOW_SESSION_EXPORT=true. Warden role.',
+    inputSchema: NO_ARGS,
+    async handler(ctx) {
+      // Decision 1 (exposure gate): exporting a bearer is off by default — a deliberate deployment choice,
+      // not a default, because a returned bearer is a permanently-extractable credential.
+      if (!ctx.control.allowSessionExport) {
+        throw new Error(
+          'hearthold_session is disabled on this instance. The session bearer is process-internal by default (a security property). Set HEARTHOLD_MCP_ALLOW_SESSION_EXPORT=true ONLY where a browser/agent must act as this member without an HTTP Signet.',
+        );
+      }
+      if (!ctx.control.wardenUrl || !ctx.runtime.keymaster) {
+        throw new Error('hearthold_session needs the Warden control URL (HEARTHOLD_WARDEN_CONTROL_URL) + a bound keymaster — the warden-role binding');
+      }
+      // Fresh self-login so the returned bearer carries a full TTL, not a partially-elapsed cached one.
+      await establishSession(ctx);
+      if (!ctx.control.token) throw new Error('session mint failed (no bearer returned by login/complete)');
+      // Decision 3 (PIN boundary): label the result AGENT-authenticated so no consumer mistakes it for
+      // proof-of-human. Decision 2 (TTL): expiresAt is the Warden's node TTL as-minted — a shorter
+      // server-enforced TTL on this path needs a Warden-side change (flagged, not faked here).
+      return {
+        bearer: ctx.control.token,
+        did: ctx.identity.did,
+        expiresAt: ctx.control.tokenExpiresAt ? new Date(ctx.control.tokenExpiresAt).toISOString() : undefined,
+        auth: 'agent-self-approved',
+      };
+    },
+  },
+  {
     name: 'hearthold_read_card',
     description:
       'Read a card addressed to me — resolve + decrypt AS ME, auto-picking the format (a held credential, or a sealed message/JSON). No caller guesswork: the exact read that used to need a hand-rolled keymaster script. Composes the Archon keymaster; does not reimplement it.',
@@ -688,7 +718,7 @@ export const HEARTHOLD_TOOLS: HeartholdTool[] = [
  * `whoami`/`read_card` are the shared identity verbs. `full` is the original agent-as-principal set.
  */
 const PROFILES: Record<Exclude<HeartholdRole, 'full'>, string[]> = {
-  warden: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_recall', 'hearthold_list_inbound', 'hearthold_triage', 'hearthold_confirm_triage', 'hearthold_delegate', 'hearthold_pass_card', 'hearthold_accept_card', 'hearthold_decline_card', 'hearthold_family', 'hearthold_send', 'hearthold_reply', 'hearthold_messages', 'hearthold_wait_for_mail', 'hearthold_handoff', 'hearthold_issue', 'hearthold_schemas', 'hearthold_schema'],
+  warden: ['hearthold_whoami', 'hearthold_session', 'hearthold_read_card', 'hearthold_recall', 'hearthold_list_inbound', 'hearthold_triage', 'hearthold_confirm_triage', 'hearthold_delegate', 'hearthold_pass_card', 'hearthold_accept_card', 'hearthold_decline_card', 'hearthold_family', 'hearthold_send', 'hearthold_reply', 'hearthold_messages', 'hearthold_wait_for_mail', 'hearthold_handoff', 'hearthold_issue', 'hearthold_schemas', 'hearthold_schema'],
   sovereign: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_grant_capability', 'hearthold_mint_root', 'hearthold_list_capabilities', 'hearthold_lineage', 'hearthold_flow', 'hearthold_revoke_capability', 'hearthold_pending_approvals', 'hearthold_decline'],
   emissary: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_contribute', 'hearthold_invoke', 'hearthold_accept_capability', 'hearthold_delegate_capability', 'hearthold_chain_invoke', 'hearthold_revoke_hop', 'hearthold_held'],
   verifier: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_verify_card'],
