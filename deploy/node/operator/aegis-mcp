@@ -44,10 +44,22 @@ do_build() {
 
 # ---- agent → wallet path resolution (mirrors aegis-wallet) ----
 resolve_agent() {
+  # ROLE -> WALLET. An agent holds a wallet PER ROLE, and the MCP's role must match the identity it binds:
+  # household/KB membership is held by the agent's WARDEN DID, not its Sovereign. Binding Sovereign while
+  # acting as a member does not fail cleanly — the Warden's `ownerOf(a) = a.owner ?? config.sovereignDid`
+  # makes a Sovereign session match EVERY unowned artefact, so it silently sees more than a member and a
+  # render looks healthy while over-disclosing. Default stays `sovereign` (agent-as-Sovereign, the original
+  # contract); set AEGIS_MCP_ROLE=warden for member-auth, e.g. minting a bearer via hearthold_session.
+  # The per-agent passphrase (AEGIS_PASS_<AGENT>) unlocks every role's wallet, so this needs no new secret.
+  _role="${AEGIS_MCP_ROLE:-sovereign}"
+  case "$_role" in
+    sovereign|warden|emissary) : ;;
+    *) _err "invalid AEGIS_MCP_ROLE '$_role' (sovereign|warden|emissary)"; exit 1 ;;
+  esac
   case "$1" in
-    aegis)     rel='identities/agents/aegis/sovereign/wallet.json' ;;
-    sevenfold) rel='identities/agents/sevenfold/sovereign/wallet.json' ;;
-    hearthold) rel='identities/agents/hearthold/sovereign/wallet.json' ;;
+    aegis)     rel="identities/agents/aegis/$_role/wallet.json" ;;
+    sevenfold) rel="identities/agents/sevenfold/$_role/wallet.json" ;;
+    hearthold) rel="identities/agents/hearthold/$_role/wallet.json" ;;
     parent|flaxscrip|sovereign|warden)
       _err "'$1' is a node-managed identity, not an agent — see ~/aegis-env/node/ENVIRONMENT.md"; exit 1 ;;
     */*)       rel="$1" ;;
@@ -107,6 +119,11 @@ write_envfile() { # <rel-wallet-path> <tmpenv>
     [ -n "${AEGIS_MCP_WARDEN_URL:-}" ]   && echo "HEARTHOLD_WARDEN_CONTROL_URL=$AEGIS_MCP_WARDEN_URL"
     [ -n "${AEGIS_MCP_SIGNET_URL:-}" ]   && echo "HEARTHOLD_SIGNET_CONTROL_URL=$AEGIS_MCP_SIGNET_URL"
     [ -n "${AEGIS_MCP_EMISSARY_URL:-}" ] && echo "HEARTHOLD_EMISSARY_CONTROL_URL=$AEGIS_MCP_EMISSARY_URL"
+    # hearthold_session exports a Warden session bearer, which is a permanently-extractable credential — so
+    # the verb is OFF unless this is set. Deliberately PER-AGENT (set it in that agent's .mcp.json env block,
+    # not node-wide): only the agent that actually needs to hand a bearer to a browser Table should be able
+    # to export one. Unset for aegis/hearthold => hearthold_session refuses with a clear error, not silently.
+    [ -n "${AEGIS_MCP_ALLOW_SESSION_EXPORT:-}" ] && echo "HEARTHOLD_MCP_ALLOW_SESSION_EXPORT=$AEGIS_MCP_ALLOW_SESSION_EXPORT"
     :
   } > "$2"
   return 0   # never let the trailing optional-echo short-circuit trip `set -e` in the caller
