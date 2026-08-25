@@ -69,6 +69,12 @@ household Warden's visibility is `ownerOf(a) = a.owner ?? sovereignDid`, so that
 to the household instead is out-of-bounds — it *is* the over-disclosure, never the fix. Bind the Warden
 identity for member-auth.
 
+**And the `did` from `hearthold_session` is a cross-check, not proof.** It is `ctx.identity.did` — the MCP's
+own binding, an *assertion* of who it is. A consumer must confirm the **server** resolves the bearer to the
+expected member (ride it against a scoped route) before trusting it: a DID answering "who is calling" must
+come from a **proven session**, never a self-report. The returned field is a useful early mismatch signal
+(it caught the Sovereign-binding pre-render); the server's resolution is the evidence.
+
 ---
 
 ## Shared verbs (every role)
