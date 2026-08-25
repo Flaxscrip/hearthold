@@ -30,6 +30,7 @@ DEPLOY_DIR="${DEPLOY_DIR:-$HEARTHOLD_DIR/deploy/node}"
 AEGIS_SWAP_GB="${AEGIS_SWAP_GB:-6}"
 AEGIS_MIN_DISK_GB="${AEGIS_MIN_DISK_GB:-20}"
 AEGIS_PROFILE_DEFAULT="pi-lean"                      # identity + cards + one model; no lightning/tor at rest (see deploy/PI-LEAN.md)
+AEGIS_IMAGE="${AEGIS_IMAGE:-hearthold:invocation}"   # custodian image tag: the invocation-capable build (was hearthold:sandbox)
 NONINTERACTIVE="${AEGIS_NONINTERACTIVE:-0}"          # 1 = accept all defaults (for testing)
 
 # ─────────────────────────────── UX ───────────────────────────────
@@ -160,6 +161,10 @@ _get_repo() { # <url> <ref> <dir> <label>
 }
 fetch_code() {
   step "Fetch the code — archon node + hearthold custodian"
+  # AEGIS_BASE may be a root-created mount subdir (e.g. a relocated docker data-root lives beside the code).
+  # Make sure THIS user can create the repo work-trees here, or the clone dies "Permission denied".
+  mkdir -p "$AEGIS_BASE" 2>/dev/null || sudo mkdir -p "$AEGIS_BASE"
+  [ -w "$AEGIS_BASE" ] || { info "making $AEGIS_BASE writable for $(id -un)…"; sudo chown "$(id -un):$(id -gn)" "$AEGIS_BASE"; }
   _get_repo "$ARCHON_REPO"    "$ARCHON_REF"    "$ARCHON_DIR"    "archon node"
   _get_repo "$HEARTHOLD_REPO" "$HEARTHOLD_REF" "$HEARTHOLD_DIR" "hearthold custodian"
   [ -f "$ARCHON_DIR/docker-compose.yml" ] || warn "no docker-compose.yml in $ARCHON_DIR — check ARCHON_REF ($ARCHON_REF)."
@@ -173,7 +178,7 @@ build_node() {
   # Cap the Node heap so tsc/vite don't stampede the Pi's RAM.
   export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=2048}"
   info "hearthold: npm ci + build …"; ( cd "$HEARTHOLD_DIR" && npm ci --no-audit --no-fund && npm run build )
-  info "hearthold: image (hearthold:sandbox) …"; ( cd "$HEARTHOLD_DIR" && docker build -t hearthold:sandbox . ) || warn "hearthold image build hit an issue — inspect above."
+  info "hearthold: image ($AEGIS_IMAGE) …"; ( cd "$HEARTHOLD_DIR" && docker build -t "$AEGIS_IMAGE" . ) || warn "hearthold image build hit an issue — inspect above."
   # Archon node images build/pull at first `up` — compose builds its source services and pulls the prebuilt
   # arm64 bases (mongo/redis/ipfs). Keeping it there avoids a second long build pass here.
   ok "custodian built · archon images build on first launch"

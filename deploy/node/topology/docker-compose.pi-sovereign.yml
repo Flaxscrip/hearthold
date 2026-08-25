@@ -1,0 +1,80 @@
+# docker-compose.pi-sovereign.yml — the pi-lean Sovereign's custodian control plane.
+#
+# The MODERNIZED (invocation-daemon) custodian for a personal Sovereign home node — the successor to the old
+# docker-compose.hearthold.yml "idle agents" model. Runs the Sovereign's Warden (:4310, custodian/command plane)
+# + Signet (:4311, proof-of-human consent) as real control daemons on hearthold:invocation, COMPAT posture,
+# published to host loopback only. Node stays internal:true (no egress).
+#
+# Trimmed from topology/docker-compose.control.yml to a LEAN Sovereign (Warden + Signet only — no Emissary
+# daemons) so the 8 GB footprint stays minimal. pi-lean has NO drawbridge, so the node write/resolve path is
+# the gatekeeper DIRECTLY (http://gatekeeper:4224) and DIDComm is the standalone relay (http://didcomm:4236).
+#
+#   HEARTHOLD_SOVEREIGN_DID=did:cid:… WARDEN_DATA_ROOT=/media/flaxscrip/data/Aegis/sovereign \
+#   HEARTHOLD_PASSPHRASE=… HEARTHOLD_SIGNET_PIN=1379 \
+#     docker compose -p aegis-sovereign -f deploy/node/topology/docker-compose.pi-sovereign.yml up -d
+name: aegis-sovereign
+
+networks:
+  default:
+    name: ${HEARTHOLD_DOCKER_NETWORK:-aegis_internal}   # the node's ISOLATED (internal:true) net; reaches gatekeeper, didcomm, ollama
+    external: true
+  console-lan:
+    driver: bridge                 # NON-internal; only the bridges join it, only to publish the loopback ports
+
+x-daemon-env: &daemon-env
+  HEARTHOLD_DATA_ROOT: /data
+  HEARTHOLD_PASSPHRASE: ${HEARTHOLD_PASSPHRASE:?set HEARTHOLD_PASSPHRASE}
+  # pi-lean: no drawbridge -> hit the gatekeeper directly for resolve/anchor, and the standalone didcomm relay.
+  HEARTHOLD_NODE_URL: ${HEARTHOLD_NODE_URL:-http://gatekeeper:4224}
+  HEARTHOLD_DIDCOMM_ENDPOINT: ${HEARTHOLD_DIDCOMM_ENDPOINT:-http://didcomm:4236}
+  HEARTHOLD_CONTROL_HOST: "0.0.0.0"                          # bind the container interface so a bridge reaches it
+  HEARTHOLD_REGISTRY: ${HEARTHOLD_REGISTRY:-local}           # isolated node: challenge+response anchor on local
+  # Invocation upgrade — COMPATIBILITY POSTURE (the new MEDIUM+ consent step-up is NOT switched on; only SEALED).
+  HEARTHOLD_REQUIRE_REVOCABLE: ${HEARTHOLD_REQUIRE_REVOCABLE:-false}
+  HEARTHOLD_REQUIRES_HUMAN_AT: ${HEARTHOLD_REQUIRES_HUMAN_AT:-SEALED}
+  HEARTHOLD_OLLAMA_URL: ${HEARTHOLD_OLLAMA_URL:-http://ollama:11434}
+  HEARTHOLD_CLASSIFIER_MODEL: ${HEARTHOLD_CLASSIFIER_MODEL:-qwen2.5:3b}
+  # The node's Sovereign — the DID the Warden serves and the Signet logs in as.
+  HEARTHOLD_SOVEREIGN_DID: ${HEARTHOLD_SOVEREIGN_DID:?set to the node Sovereign DID}
+  HEARTHOLD_REQUIRE_SESSION: ${HEARTHOLD_REQUIRE_SESSION:-false}
+  # Cross-wallet auth-schema pin (empty on first boot -> Warden auto-registers + exposes at GET /api/status).
+  HEARTHOLD_AUTHORIZATION_SCHEMA_DID: ${HEARTHOLD_AUTHORIZATION_SCHEMA_DID:-}
+
+services:
+  warden:                                    # the Sovereign's custodian + command plane. No non-internal leg -> no egress.
+    image: ${AEGIS_IMAGE:-hearthold:invocation}
+    networks: [default]
+    volumes: ["${WARDEN_DATA_ROOT:?set WARDEN_DATA_ROOT to the Sovereign wallet dir}:/data"]
+    environment: *daemon-env
+    command: ["node", "packages/warden/dist/index.js", "control", "4310"]
+    restart: unless-stopped
+
+  signet:                                    # the Sovereign's Signet — proof-of-human consent (terminal PIN).
+    image: ${AEGIS_IMAGE:-hearthold:invocation}
+    networks: [default]
+    volumes: ["${WARDEN_DATA_ROOT}:/data"]
+    environment:
+      <<: *daemon-env
+      HEARTHOLD_SIGNET_PIN: ${HEARTHOLD_SIGNET_PIN:?set HEARTHOLD_SIGNET_PIN — gates each Signet approval}
+    command: ["node", "packages/sovereign/dist/index.js", "control", "4311"]
+    restart: unless-stopped
+
+  warden-bridge:                             # host loopback door for the Warden UI/CLI
+    image: node:22-alpine
+    networks: [default, console-lan]
+    volumes: [./tcp-forward.mjs:/g/tcp-forward.mjs:ro]
+    environment: { LISTEN: "0.0.0.0:4310", TARGET: "warden:4310" }
+    command: ["node", "/g/tcp-forward.mjs"]
+    ports: ["127.0.0.1:${WARDEN_HOST_PORT:-4310}:4310"]
+    depends_on: [warden]
+    restart: unless-stopped
+
+  signet-bridge:                             # host loopback door for the Signet approver — signing key never leaves the box
+    image: node:22-alpine
+    networks: [default, console-lan]
+    volumes: [./tcp-forward.mjs:/g/tcp-forward.mjs:ro]
+    environment: { LISTEN: "0.0.0.0:4311", TARGET: "signet:4311" }
+    command: ["node", "/g/tcp-forward.mjs"]
+    ports: ["127.0.0.1:${SIGNET_HOST_PORT:-4311}:4311"]
+    depends_on: [signet]
+    restart: unless-stopped

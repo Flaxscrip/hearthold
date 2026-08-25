@@ -241,6 +241,28 @@ cmd_status() {
     *)       info "require-session: unknown (inbound → $ic)";;
   esac
 
+  # DIDComm inbox — can the node RECEIVE authorized cards? LIVE iff the relay is up AND the keymaster's
+  # <nodeUrl>/didcomm/api/v1/challenge path resolves (the exact path that 404s when NODE_URL lacks a /didcomm mount).
+  printf '\n%s\n' "$(_c '1' 'DIDComm inbox (receive path)')"
+  local _gw; _gw="${AEGIS_DIDCOMM_GATEWAY:-http://table-gateway:4299/didcomm}"
+  local dcc; dcc="$(docker ps --format '{{.Names}}\t{{.Status}}' 2>/dev/null | grep -iE 'didcomm' | grep -viE 'guard|bridge' | head -1)"
+  if [[ -n "$dcc" ]]; then ok "relay: ${dcc%%$'\t'*} (${dcc#*$'\t'})"; else warn "relay: no didcomm container — inbox $(_c '1;31' 'DOWN')"; fi
+  local _proof; _proof="$(_pick_proof_container)"
+  if [[ -n "$dcc" && -n "$_proof" ]]; then
+    local chal; chal="$(docker exec "$_proof" node -e '
+      const http=require("http"); let u; try{u=new URL(process.argv[1])}catch(e){process.stdout.write("000|");process.exit(0)}
+      const req=http.get(u,res=>{let b="";res.on("data",d=>b+=d);res.on("end",()=>process.stdout.write(res.statusCode+"|"+b))});
+      req.setTimeout(5000,()=>{req.destroy();process.stdout.write("000|")}); req.on("error",()=>process.stdout.write("000|"));
+    ' "$_gw/api/v1/challenge" 2>/dev/null)"
+    if printf '%s' "$chal" | grep -q '"challenge"'; then
+      ok "inbox: $(_c '1;32' 'LIVE') — challenge/receive resolves via $_gw (agents can receive authorized cards)"
+    else
+      warn "inbox: $(_c '1;31' 'DOWN') — challenge path → HTTP ${chal%%|*} at $_gw (agents cannot receive; check the /didcomm gateway + relay)"
+    fi
+  elif [[ -n "$dcc" ]]; then
+    info "inbox: relay up, but no in-network container to probe the receive path (set AEGIS_PROOF_CONTAINER)"
+  fi
+
   printf '\n%s\n' "$(_c '1' 'Roles & vault')"
   # Warden — identity + vault stats + assurance ladder (CLI reads the wallet directly; no session needed)
   local wctr; wctr="$(_daemon_container 'warden-console')"

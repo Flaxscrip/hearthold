@@ -1,0 +1,47 @@
+# node-watch — the node Sovereign's Invocation-Dashboard WATCH daemon.
+#
+# Stands up `sovereign control` bound to the node Sovereign (…ij3ufa) so it INGESTS the family's
+# `hearthold/flow-event` reports (the Wardens report agent→agent card-passes here — their parentDid) and
+# serves them on GET /api/flow + GET /api/lineage for the Sevenfold Invocation Dashboard. A loopback bridge
+# exposes the sealed control plane at 127.0.0.1:4361 for the host-run dashboard.
+#
+#   cd ~/hearthold/deploy/node/topology
+#   docker compose -p node-watch --env-file ~/.control-mega.env -f docker-compose.node-watch.yml up -d
+#
+# ~/.control-mega.env supplies HEARTHOLD_PASSPHRASE (the node Sovereign secret) — never on the command line.
+# NOTE: mounts the node Sovereign data rw; the daemon writes only its own watch state (lineage/flow/session),
+# never rewrites the wallet. Point the dashboard's VITE_SIGNET_URL at http://127.0.0.1:4361.
+networks:
+  default:
+    name: ${HEARTHOLD_DOCKER_NETWORK:-aegis_internal}   # the node's ISOLATED (internal:true) network
+    external: true
+  console-lan:
+    driver: bridge                                       # NON-internal; only the bridge joins it
+
+services:
+  node-sovereign-watch:
+    image: ${AEGIS_IMAGE:-hearthold:invocation}
+    networks: [default]
+    volumes:
+      - ${NODE_SOVEREIGN_DATA:-${HOME}/aegis-sovereign-hs/data}:/data
+    environment:
+      HEARTHOLD_DATA_ROOT: /data
+      HEARTHOLD_SOVEREIGN_DID: ${NODE_SOVEREIGN_DID:-did:cid:bagaaierayveej3vjjm4owqq2ialx7zew3lyhuqjph2mnydlbedh4sjij3ufa}
+      HEARTHOLD_PASSPHRASE: ${HEARTHOLD_PASSPHRASE:?set HEARTHOLD_PASSPHRASE (node Sovereign secret) via --env-file ~/.control-mega.env}
+      HEARTHOLD_SIGNET_PIN: ${HEARTHOLD_SIGNET_PIN:-}   # gates approve/co-sign; optional for a view-only watch
+      HEARTHOLD_NODE_URL: ${HEARTHOLD_NODE_URL:-http://table-gateway:4299}
+      HEARTHOLD_DIDCOMM_ENDPOINT: ${HEARTHOLD_DIDCOMM_ENDPOINT:-http://drawbridge:4222/didcomm}
+      HEARTHOLD_REGISTRY: ${HEARTHOLD_REGISTRY:-local}
+      HEARTHOLD_CONTROL_HOST: "0.0.0.0"
+    command: ["node", "packages/sovereign/dist/index.js", "control", "4311"]
+    restart: unless-stopped
+
+  node-sovereign-watch-bridge:
+    image: node:22-alpine
+    networks: [default, console-lan]
+    volumes: [./tcp-forward.mjs:/g/tcp-forward.mjs:ro]
+    environment: { LISTEN: "0.0.0.0:4311", TARGET: "node-sovereign-watch:4311" }
+    command: ["node", "/g/tcp-forward.mjs"]
+    ports: ["127.0.0.1:4361:4311"]                       # host loopback ONLY — for the dashboard
+    depends_on: [node-sovereign-watch]
+    restart: unless-stopped

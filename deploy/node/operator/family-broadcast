@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# family-broadcast — generate today's family report AND DIDComm it to each member (from aegis).
+# Two steps, two nets: family-report (peer net, reaches every gatekeeper) then family-deliver (sealed net,
+# reaches the aegis Warden). Deterministic — the daily cron just calls this; a Claude loop can narrate on top.
+#
+#   deploy/node/operator/family-broadcast
+set -euo pipefail
+HERE=$(cd "$(dirname "$0")" && pwd)
+DATA="${AEGIS_NODE_ENV_DATA:-$HOME/aegis-env/node/data}"
+REPORTS="${AEGIS_REPORTS_DIR:-$HOME/aegis-env/reports}"
+IMAGE="${AEGIS_KM_IMAGE:-hearthold:invocation}"
+PASSENV="${AEGIS_AGENT_PASS_ENV:-$HERE/../family/agent-pass.env}"
+DATE=$(date +%Y-%m-%d)
+
+# The OTHER family members (aegis is the sender). [name, mailbox-warden-did]
+RECIPIENTS='[["sevenfold","did:cid:bagaaieramrcuuks46ojjk23627mtalwnq5cdcjwb6yygczaklosle3bkplpq"],["hearthold","did:cid:bagaaiera4n2sgp7zuah4fv76v6cojwllarwpq3kpjyekpoobg32v5pshfl6q"]]'
+
+echo "── generate ──"
+"$HERE/family-report" >/dev/null
+REPORT="$REPORTS/family-$DATE.md"
+[ -f "$REPORT" ] || { echo "family-broadcast: no report at $REPORT" >&2; exit 1; }
+echo "  report: $REPORT ($(wc -l <"$REPORT" | tr -d ' ') lines)"
+
+echo "── deliver (from aegis) ──"
+apass=$(grep -E '^AEGIS_PASS_AEGIS=' "$PASSENV" 2>/dev/null | head -1 | cut -d= -f2-)
+[ -n "$apass" ] || { echo "family-broadcast: no AEGIS_PASS_AEGIS in $PASSENV" >&2; exit 1; }
+tmpenv=$(mktemp); trap 'shred -u "$tmpenv" 2>/dev/null || rm -f "$tmpenv"' EXIT
+{ echo "HEARTHOLD_DATA_ROOT=/data"
+  echo "HEARTHOLD_NODE_URL=http://table-gateway:4299"
+  echo "HEARTHOLD_REGISTRY=local"
+  printf 'HEARTHOLD_PASSPHRASE=%s\n' "$apass"
+} > "$tmpenv"; chmod 600 "$tmpenv"
+
+docker run --rm --network aegis_internal --env-file "$tmpenv" \
+  -e RECIPIENTS="$RECIPIENTS" \
+  -e WARDEN_URL="http://aegis-agent-warden:4310" \
+  -e REPORT_PATH="/reports/family-$DATE.md" \
+  -v "$DATA/identities/agents/aegis:/data" \
+  -v "$REPORTS:/reports:ro" \
+  -v "$HERE/family-deliver.mjs:/app/family-deliver.mjs:ro" \
+  -w /app "$IMAGE" node family-deliver.mjs

@@ -1,0 +1,97 @@
+# docker-compose.pi-agent.yml — ONE AI-agent trinity under the node's human Sovereign (the parent/governor).
+#
+# MCP-READY trinity: all three control surfaces exposed on host loopback so the agent-MCP (the restricted-AI lane)
+# can front them —
+#   • Warden control   (:4310 -> host AGENT_WARDEN_PORT)   — command plane / cards / recall / delegate
+#   • Signet control   (:4311 -> host AGENT_SIGNET_PORT)   — `sovereign control`: serves BOTH the HTTP Signet API
+#       (pending/decide/grant/revoke) AND the DIDComm mailbox (the invoke step-up). Replaces `agent-signet`.
+#   • Emissary control (:4312 -> host AGENT_EMISSARY_PORT) — contribute / invoke / accept-capability (prove path)
+# Compat posture (REQUIRES_HUMAN_AT=SEALED) + PARENT_DID: the agent self-directs up to HIGH; SEALED escalates to
+# the parent (human) Signet. Node stays internal:true; only the loopback bridges have a non-internal leg.
+#
+#   AGENT_PROJECT=aegis-agent-aegis AGENT_DID=<agent> AGENT_PARENT_DID=<sovereign> AGENT_WARDEN_DID=<agent-warden> \
+#   AGENT_DATA_ROOT=/media/flaxscrip/data/Aegis/agents/identities/agents/aegis \
+#   AGENT_WARDEN_PORT=4330 AGENT_SIGNET_PORT=4331 AGENT_EMISSARY_PORT=4332 \
+#     docker compose -p aegis-agent-aegis --env-file ~/aegis-family.env -f deploy/node/topology/docker-compose.pi-agent.yml up -d
+name: ${AGENT_PROJECT:?set AGENT_PROJECT}
+
+networks:
+  default:
+    name: ${HEARTHOLD_DOCKER_NETWORK:-aegis_internal}
+    external: true
+  console-lan:
+    driver: bridge
+
+x-agent-env: &agent-env
+  HEARTHOLD_DATA_ROOT: /data
+  HEARTHOLD_PASSPHRASE: ${FAMILY_PASSPHRASE:?set FAMILY_PASSPHRASE (the agent-family passphrase)}
+  HEARTHOLD_NODE_URL: ${HEARTHOLD_NODE_URL:-http://gatekeeper:4224}
+  HEARTHOLD_DIDCOMM_ENDPOINT: ${HEARTHOLD_DIDCOMM_ENDPOINT:-http://didcomm:4236}
+  HEARTHOLD_CONTROL_HOST: "0.0.0.0"
+  HEARTHOLD_REGISTRY: local
+  HEARTHOLD_REQUIRE_REVOCABLE: "false"
+  HEARTHOLD_REQUIRES_HUMAN_AT: "SEALED"
+  HEARTHOLD_REQUIRE_SESSION: "false"
+  HEARTHOLD_SOVEREIGN_DID: ${AGENT_DID:?set AGENT_DID (this agent's Sovereign DID)}
+  HEARTHOLD_PARENT_DID: ${AGENT_PARENT_DID:?set AGENT_PARENT_DID (the node Sovereign DID)}
+  HEARTHOLD_OLLAMA_URL: ${HEARTHOLD_OLLAMA_URL:-http://ollama:11434}
+  HEARTHOLD_CLASSIFIER_MODEL: ${HEARTHOLD_CLASSIFIER_MODEL:-qwen2.5:3b}
+
+services:
+  warden:                                    # command plane / cards / recall / delegate
+    image: ${AEGIS_IMAGE:-hearthold:invocation}
+    networks: [default]
+    volumes: ["${AGENT_DATA_ROOT:?set AGENT_DATA_ROOT}:/data"]
+    environment: *agent-env
+    command: ["node", "packages/warden/dist/index.js", "control", "4310"]
+    restart: unless-stopped
+
+  signet:                                    # sovereign control — HTTP Signet API + DIDComm mailbox (invoke step-up)
+    image: ${AEGIS_IMAGE:-hearthold:invocation}
+    networks: [default]
+    volumes: ["${AGENT_DATA_ROOT}:/data"]
+    environment:
+      <<: *agent-env
+      HEARTHOLD_SIGNET_PIN: ${AGENT_SIGNET_PIN:?set AGENT_SIGNET_PIN (agent's own Signet PIN; SEALED escalates to parent)}
+    command: ["node", "packages/sovereign/dist/index.js", "control", "4311"]
+    restart: unless-stopped
+
+  emissary:                                  # contribute / invoke / accept-capability (the prove path)
+    image: ${AEGIS_IMAGE:-hearthold:invocation}
+    networks: [default]
+    volumes: ["${AGENT_DATA_ROOT}:/data"]
+    environment:
+      <<: *agent-env
+      HEARTHOLD_WARDEN_DID: ${AGENT_WARDEN_DID:?set AGENT_WARDEN_DID (the agent's own Warden DID it submits to)}
+    command: ["node", "packages/emissary/dist/index.js", "control", "4312"]
+    restart: unless-stopped
+
+  warden-bridge:
+    image: node:22-alpine
+    networks: [default, console-lan]
+    volumes: [./tcp-forward.mjs:/g/tcp-forward.mjs:ro]
+    environment: { LISTEN: "0.0.0.0:4310", TARGET: "warden:4310" }
+    command: ["node", "/g/tcp-forward.mjs"]
+    ports: ["127.0.0.1:${AGENT_WARDEN_PORT:?set AGENT_WARDEN_PORT}:4310"]
+    depends_on: [warden]
+    restart: unless-stopped
+
+  signet-bridge:
+    image: node:22-alpine
+    networks: [default, console-lan]
+    volumes: [./tcp-forward.mjs:/g/tcp-forward.mjs:ro]
+    environment: { LISTEN: "0.0.0.0:4311", TARGET: "signet:4311" }
+    command: ["node", "/g/tcp-forward.mjs"]
+    ports: ["127.0.0.1:${AGENT_SIGNET_PORT:?set AGENT_SIGNET_PORT}:4311"]
+    depends_on: [signet]
+    restart: unless-stopped
+
+  emissary-bridge:
+    image: node:22-alpine
+    networks: [default, console-lan]
+    volumes: [./tcp-forward.mjs:/g/tcp-forward.mjs:ro]
+    environment: { LISTEN: "0.0.0.0:4312", TARGET: "emissary:4312" }
+    command: ["node", "/g/tcp-forward.mjs"]
+    ports: ["127.0.0.1:${AGENT_EMISSARY_PORT:?set AGENT_EMISSARY_PORT}:4312"]
+    depends_on: [emissary]
+    restart: unless-stopped

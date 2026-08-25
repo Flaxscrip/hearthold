@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# family-report — daily family status report: DID census per gatekeeper.
+# Auto-discovers gatekeeper containers, queries each /api/v1/status over the peer net, and writes a dated
+# markdown report to the reports dir. Deterministic + cheap — safe to run from cron or a Claude loop.
+#
+#   deploy/node/operator/family-report            # generate today's report (prints + writes the file)
+set -euo pipefail
+HERE=$(cd "$(dirname "$0")" && pwd)
+
+NET="${AEGIS_REPORT_NET:-aegis-peer}"                 # net that reaches every family gatekeeper
+IMAGE="${AEGIS_KM_IMAGE:-hearthold:invocation}"       # any image with node 22 (has fetch)
+REPORTS="${AEGIS_REPORTS_DIR:-$HOME/aegis-env/reports}"
+mkdir -p "$REPORTS"
+
+# Discover gatekeeper containers → JSON [["label","host"],...]. Label = the node prefix (aegisb-gatekeeper-b-1 → aegisb).
+pairs=""
+while IFS= read -r name; do
+  [ -z "$name" ] && continue
+  label=$(printf '%s' "$name" | sed -E 's/[-_]?gatekeeper.*//; s/[-_]$//')
+  [ -z "$label" ] && label="$name"
+  pairs="$pairs[\"$label\",\"$name\"],"
+done < <(docker ps --format '{{.Names}}' | grep -iE 'gatekeeper' | sort)
+
+[ -z "$pairs" ] && { echo "family-report: no gatekeeper containers running" >&2; exit 1; }
+GKS="[${pairs%,}]"
+
+exec docker run --rm --network "$NET" \
+  -e GKS="$GKS" \
+  -v "$REPORTS:/reports" \
+  -v "$HERE/family-report.mjs:/app/family-report.mjs:ro" \
+  -w /app "$IMAGE" node family-report.mjs

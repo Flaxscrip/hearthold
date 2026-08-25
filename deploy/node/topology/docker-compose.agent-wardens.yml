@@ -34,6 +34,10 @@ x-agent-warden-env: &agent-warden-env
   # PARENT (governor) DID turns ON the escalation ladder: a provenance pass self-approves at the agent's own
   # Signet (within the parent-signed allowance, no human); an above-scope / readable pass escalates to the parent.
   HEARTHOLD_PARENT_DID: ${AGENT_PARENT_DID:?set to the parent / node Sovereign DID (…ij3ufa)}
+  # Family roster for GET /api/roster (DID→name + identity→mailbox resolution). The Warden daemon reads this
+  # env (unlike hearthold_family, which the aegis-mcp launcher feeds separately). Sourced from the parent-signed
+  # roster.json → agents-deploy.env. Names label the Constellation stars immediately (mailbox resolution is Q2).
+  HEARTHOLD_FAMILY_ROSTER: ${HEARTHOLD_FAMILY_ROSTER:-}
 
 services:
   # ── Hearthold agent's Warden — ORIGINATES the pass (POST /api/card/pass) ──
@@ -71,6 +75,12 @@ services:
       <<: *agent-warden-env
       HEARTHOLD_SOVEREIGN_DID: ${AGENT_SEVEN_SOVEREIGN_DID:?set to the sevenfold agent DID}
       HEARTHOLD_CONTROL_ALLOW_ORIGIN: http://sevenfold-agent-warden:4310
+      # Sphere-view demo (Sevenfold): this warden holds the multi-member `household` KB, so we OVERRIDE the
+      # single-member anchor default and force require-session ON — no anonymous fallback; every scoped read
+      # (GET /api/snapshot) needs a proven X-Hearthold-Session bearer. TTL bumped to 24h so a handed demo
+      # bearer survives a build session. Scoped to THIS service only (the aegis/hh wardens stay single-member).
+      HEARTHOLD_REQUIRE_SESSION: "true"
+      HEARTHOLD_SESSION_TTL_MS: "86400000"
     command: ["node", "packages/warden/dist/index.js", "control", "4310"]
     restart: unless-stopped
 
@@ -82,6 +92,44 @@ services:
     command: ["node", "/g/tcp-forward.mjs"]
     ports: ["127.0.0.1:4321:4310"]                       # host loopback ONLY
     depends_on: [sevenfold-agent-warden]
+    restart: unless-stopped
+
+  # ── Sevenfold agent's Signet — the AgentGate (opens /data/sovereign, self-approves within-scope co-signs). ──
+  sevenfold-agent-signet:
+    image: ${AEGIS_IMAGE:-hearthold:sandbox}
+    networks: [default]
+    volumes:
+      - ${AGENT_SEVEN_DATA_ROOT:?set AGENT_SEVEN_DATA_ROOT to the sevenfold agent dir}:/data
+    environment:
+      HEARTHOLD_DATA_ROOT: /data                          # opens /data/sovereign/wallet.json = the agent Sovereign
+      HEARTHOLD_PASSPHRASE: ${HEARTHOLD_PASSPHRASE:?set HEARTHOLD_PASSPHRASE to the agent (family) passphrase}
+      HEARTHOLD_NODE_URL: ${HEARTHOLD_SIGNET_NODE_URL:-http://table-gateway:4299}
+      HEARTHOLD_DIDCOMM_ENDPOINT: ${HEARTHOLD_DIDCOMM_ENDPOINT:-http://drawbridge:4222/didcomm}
+      HEARTHOLD_REGISTRY: ${HEARTHOLD_REGISTRY:-local}
+    command: ["node", "packages/sovereign/dist/index.js", "agent-signet"]
+    restart: unless-stopped
+
+  # ── Aegis agent's Warden — the Aegis DIDComm mailbox (RECEIVES + serves inbound/accept/decline) ──
+  aegis-agent-warden:
+    image: ${AEGIS_IMAGE:-hearthold:sandbox}
+    networks: [default]
+    volumes:
+      - ${AGENT_AEGIS_DATA_ROOT:?set AGENT_AEGIS_DATA_ROOT to the aegis agent dir}:/data
+    environment:
+      <<: *agent-warden-env
+      HEARTHOLD_SOVEREIGN_DID: ${AGENT_AEGIS_SOVEREIGN_DID:?set to the aegis agent DID}
+      HEARTHOLD_CONTROL_ALLOW_ORIGIN: http://aegis-agent-warden:4310
+    command: ["node", "packages/warden/dist/index.js", "control", "4310"]
+    restart: unless-stopped
+
+  aegis-agent-warden-bridge:
+    image: node:22-alpine
+    networks: [default, console-lan]
+    volumes: [./tcp-forward.mjs:/g/tcp-forward.mjs:ro]
+    environment: { LISTEN: "0.0.0.0:4310", TARGET: "aegis-agent-warden:4310" }
+    command: ["node", "/g/tcp-forward.mjs"]
+    ports: ["127.0.0.1:4322:4310"]                       # host loopback ONLY
+    depends_on: [aegis-agent-warden]
     restart: unless-stopped
 
   # ── Hearthold agent's Signet — the AgentGate (trinity's third member) ──
@@ -100,4 +148,109 @@ services:
       HEARTHOLD_DIDCOMM_ENDPOINT: ${HEARTHOLD_DIDCOMM_ENDPOINT:-http://drawbridge:4222/didcomm}
       HEARTHOLD_REGISTRY: ${HEARTHOLD_REGISTRY:-local}
     command: ["node", "packages/sovereign/dist/index.js", "agent-signet"]
+    restart: unless-stopped
+
+  # ── Aegis agent's Signet — the AgentGate (trinity's third member) ──
+  # Opens /data/sovereign/wallet.json (the aegis agent Sovereign, one passphrase = P1). Self-approves a within-scope
+  # co-sign so Aegis can SEND (provenance pass) without a human. Internal daemon — no loopback bridge.
+  aegis-agent-signet:
+    image: ${AEGIS_IMAGE:-hearthold:sandbox}
+    networks: [default]
+    volumes:
+      - ${AGENT_AEGIS_DATA_ROOT:?set AGENT_AEGIS_DATA_ROOT to the aegis agent dir}:/data
+    environment:
+      HEARTHOLD_DATA_ROOT: /data                          # opens /data/sovereign/wallet.json = the agent Sovereign
+      HEARTHOLD_PASSPHRASE: ${HEARTHOLD_PASSPHRASE:?set HEARTHOLD_PASSPHRASE to the agent (family) passphrase}
+      HEARTHOLD_NODE_URL: ${HEARTHOLD_SIGNET_NODE_URL:-http://gatekeeper:4224}
+      HEARTHOLD_DIDCOMM_ENDPOINT: ${HEARTHOLD_DIDCOMM_ENDPOINT:-http://drawbridge:4222/didcomm}
+      HEARTHOLD_REGISTRY: ${HEARTHOLD_REGISTRY:-local}
+    command: ["node", "packages/sovereign/dist/index.js", "agent-signet"]
+    restart: unless-stopped
+
+  # ── Agent Emissaries — the world-facing companions that hold + delegate capability chains. ──
+  # Each opens /data/emissary (its own identity), submits to its agent's own Warden (HEARTHOLD_WARDEN_DID),
+  # and REPORTS hop-registered / flow-event to the family-watch Sovereign (AGENT_REPORT_SOVEREIGN = …ij3ufa) so
+  # a delegation tree lights up the Invocation Dashboard's /api/lineage + /api/flow on :4361.
+  aegis-agent-emissary:
+    image: ${AEGIS_IMAGE:-hearthold:sandbox}
+    networks: [default]
+    volumes:
+      - ${AGENT_AEGIS_DATA_ROOT:?set AGENT_AEGIS_DATA_ROOT}:/data
+    environment:
+      HEARTHOLD_DATA_ROOT: /data
+      HEARTHOLD_PASSPHRASE: ${HEARTHOLD_PASSPHRASE:?set HEARTHOLD_PASSPHRASE}
+      HEARTHOLD_NODE_URL: ${HEARTHOLD_NODE_URL:-http://table-gateway:4299}
+      HEARTHOLD_DIDCOMM_ENDPOINT: ${HEARTHOLD_DIDCOMM_ENDPOINT:-http://drawbridge:4222/didcomm}
+      HEARTHOLD_REGISTRY: ${HEARTHOLD_REGISTRY:-local}
+      HEARTHOLD_CONTROL_HOST: "0.0.0.0"
+      HEARTHOLD_WARDEN_DID: ${AGENT_AEGIS_WARDEN_DID:?set AGENT_AEGIS_WARDEN_DID}
+      HEARTHOLD_SOVEREIGN_DID: ${AGENT_REPORT_SOVEREIGN:?set AGENT_REPORT_SOVEREIGN (the family-watch Sovereign)}
+    command: ["node", "packages/emissary/dist/index.js", "control", "4312"]
+    restart: unless-stopped
+
+  sevenfold-agent-emissary:
+    image: ${AEGIS_IMAGE:-hearthold:sandbox}
+    networks: [default]
+    volumes:
+      - ${AGENT_SEVEN_DATA_ROOT:?set AGENT_SEVEN_DATA_ROOT}:/data
+    environment:
+      HEARTHOLD_DATA_ROOT: /data
+      HEARTHOLD_PASSPHRASE: ${HEARTHOLD_PASSPHRASE:?set HEARTHOLD_PASSPHRASE}
+      HEARTHOLD_NODE_URL: ${HEARTHOLD_NODE_URL:-http://table-gateway:4299}
+      HEARTHOLD_DIDCOMM_ENDPOINT: ${HEARTHOLD_DIDCOMM_ENDPOINT:-http://drawbridge:4222/didcomm}
+      HEARTHOLD_REGISTRY: ${HEARTHOLD_REGISTRY:-local}
+      HEARTHOLD_CONTROL_HOST: "0.0.0.0"
+      HEARTHOLD_WARDEN_DID: ${AGENT_SEVEN_WARDEN_DID:?set AGENT_SEVEN_WARDEN_DID}
+      HEARTHOLD_SOVEREIGN_DID: ${AGENT_REPORT_SOVEREIGN:?set AGENT_REPORT_SOVEREIGN}
+    command: ["node", "packages/emissary/dist/index.js", "control", "4312"]
+    restart: unless-stopped
+
+  hearthold-agent-emissary:
+    image: ${AEGIS_IMAGE:-hearthold:sandbox}
+    networks: [default]
+    volumes:
+      - ${AGENT_HH_DATA_ROOT:?set AGENT_HH_DATA_ROOT}:/data
+    environment:
+      HEARTHOLD_DATA_ROOT: /data
+      HEARTHOLD_PASSPHRASE: ${HEARTHOLD_PASSPHRASE:?set HEARTHOLD_PASSPHRASE}
+      HEARTHOLD_NODE_URL: ${HEARTHOLD_NODE_URL:-http://table-gateway:4299}
+      HEARTHOLD_DIDCOMM_ENDPOINT: ${HEARTHOLD_DIDCOMM_ENDPOINT:-http://drawbridge:4222/didcomm}
+      HEARTHOLD_REGISTRY: ${HEARTHOLD_REGISTRY:-local}
+      HEARTHOLD_CONTROL_HOST: "0.0.0.0"
+      HEARTHOLD_WARDEN_DID: ${AGENT_HH_WARDEN_DID:?set AGENT_HH_WARDEN_DID}
+      HEARTHOLD_SOVEREIGN_DID: ${AGENT_REPORT_SOVEREIGN:?set AGENT_REPORT_SOVEREIGN}
+    command: ["node", "packages/emissary/dist/index.js", "control", "4312"]
+    restart: unless-stopped
+
+  # ── Emissary host bridges — expose each agent's Emissary control (:4312) on host loopback so a browser
+  # Table can drive real invoke / contribute / accept-capability. (The agent-Signet is DIDComm-only — no HTTP
+  # :4311 to bridge; the co-sign/sovereign surface for the family is the node-watch on 127.0.0.1:4361.)
+  sevenfold-agent-emissary-bridge:
+    image: node:22-alpine
+    networks: [default, console-lan]
+    volumes: [./tcp-forward.mjs:/g/tcp-forward.mjs:ro]
+    environment: { LISTEN: "0.0.0.0:4312", TARGET: "sevenfold-agent-emissary:4312" }
+    command: ["node", "/g/tcp-forward.mjs"]
+    ports: ["127.0.0.1:4323:4312"]
+    depends_on: [sevenfold-agent-emissary]
+    restart: unless-stopped
+
+  aegis-agent-emissary-bridge:
+    image: node:22-alpine
+    networks: [default, console-lan]
+    volumes: [./tcp-forward.mjs:/g/tcp-forward.mjs:ro]
+    environment: { LISTEN: "0.0.0.0:4312", TARGET: "aegis-agent-emissary:4312" }
+    command: ["node", "/g/tcp-forward.mjs"]
+    ports: ["127.0.0.1:4324:4312"]
+    depends_on: [aegis-agent-emissary]
+    restart: unless-stopped
+
+  hearthold-agent-emissary-bridge:
+    image: node:22-alpine
+    networks: [default, console-lan]
+    volumes: [./tcp-forward.mjs:/g/tcp-forward.mjs:ro]
+    environment: { LISTEN: "0.0.0.0:4312", TARGET: "hearthold-agent-emissary:4312" }
+    command: ["node", "/g/tcp-forward.mjs"]
+    ports: ["127.0.0.1:4325:4312"]
+    depends_on: [hearthold-agent-emissary]
     restart: unless-stopped
