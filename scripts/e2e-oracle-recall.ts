@@ -17,6 +17,16 @@
  *
  * Needs a live Archon node + Ollama (embeddings + a reasoning answer model). Run:
  *   npm run e2e:oracle-recall
+ *
+ * ENVIRONMENTAL PRECONDITION (not test flake — pre-warm first on a busy box):
+ * This exercises three Ollama models (nomic-embed + qwen3:8b for classify AND answer). On a loaded host
+ * Ollama evicts/reloads between calls, and a cold reload can far exceed the recall path's 10s embed timeout
+ * — measured 2026-08-24: qwen3:8b cold-load is ~1.8s idle but ~98s at load ~15 (54x). Symptom: an index
+ * step reports "ollama embeddings unavailable: aborted due to timeout", or a query returns "Recall is
+ * temporarily unavailable". Mitigations, all applied by the npm script / here: classifier + answer are
+ * pinned to ONE model (qwen3:8b, fast now that noThink gives it think:false) to cut model-swap thrash, and
+ * nomic-embed is pre-warmed. If it still trips, the host is genuinely saturated — retry when load subsides
+ * (server-side, OLLAMA_KEEP_ALIVE=-1 keeps the answer model resident and removes the reload entirely).
  */
 import {
   loadConfig,
