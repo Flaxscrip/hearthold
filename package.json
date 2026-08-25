@@ -123,6 +123,7 @@
     "e2e:kb-docs": "npm run build && HEARTHOLD_CLASSIFIER=quarantine HEARTHOLD_DATA_ROOT=.hearthold-e2e-docs node --experimental-strip-types scripts/e2e-kb-docs.ts",
     "e2e:city-of-mages": "npm run build && HEARTHOLD_CLASSIFIER=quarantine HEARTHOLD_DATA_ROOT=.hearthold-e2e-city-of-mages node --experimental-strip-types scripts/e2e-city-of-mages.ts",
     "e2e:oracle": "npm run build && node --experimental-strip-types scripts/e2e-oracle.ts",
+    "e2e:oracle-recall": "npm run build && HEARTHOLD_ANSWER_MODEL=qwen3:8b HEARTHOLD_CLASSIFIER_MODEL=qwen3:8b HEARTHOLD_DATA_ROOT=.hearthold-e2e-oracle-recall node --experimental-strip-types scripts/e2e-oracle-recall.ts",
     "provision:hatpro": "npm run build && node --experimental-strip-types scripts/provision-hatpro-kb.ts",
     "provision:city-of-mages": "npm run build && node --experimental-strip-types scripts/provision-city-of-mages.ts",
     "sign:city-of-mages-policy": "npm run build && node --experimental-strip-types scripts/sign-city-of-mages-policy.ts",
