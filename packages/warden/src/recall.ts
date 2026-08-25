@@ -13,6 +13,7 @@ import {
   unsealAsWarden,
   openWithKey,
   rankByQuery,
+  noThink,
   type Embedder,
   type IndexEntry,
   type RecallResult,
@@ -69,7 +70,7 @@ export type Answerer = (query: string, passages: { observedAt: string; text: str
 
 const SYSTEM_PROMPT = `You are a private recall assistant answering ONLY from the user's own archived
 notes below. Answer the question concisely from the notes. If the notes don't contain the answer, say
-you don't have it. Do not invent facts. /no_think`;
+you don't have it. Do not invent facts.`;
 
 /** Shown to the user when the local model can't be reached — a clean, honest status instead of a hang. */
 const RECALL_UNAVAILABLE = 'Recall is temporarily unavailable — the local model did not respond. Try again shortly.';
@@ -86,6 +87,7 @@ export function ollamaAnswerer(url: string, model: string): Answerer {
         body: JSON.stringify({
           model,
           stream: false,
+          ...noThink(model), // disable the hidden <think> pass on reasoning models (the /no_think prompt idiom is inert)
           options: { temperature: 0 },
           messages: [
             { role: 'system', content: SYSTEM_PROMPT },
