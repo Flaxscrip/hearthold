@@ -307,6 +307,62 @@ export const HEARTHOLD_TOOLS: HeartholdTool[] = [
       };
     },
   },
+  {
+    name: 'hearthold_resolve_did',
+    description:
+      'Resolve any DID to its current DID document — inspect a counterparty, a schema, a credential, or my own identity. Read-only; composes the Archon keymaster resolveDID, never a bypass of the node.',
+    inputSchema: { type: 'object', properties: { did: { type: 'string', description: 'the DID to resolve' } }, required: ['did'], additionalProperties: false },
+    async handler(ctx, args) {
+      const did = String(args.did ?? '');
+      if (!did.startsWith('did:')) throw new Error('resolve_did needs a did: identifier');
+      const km = boundKeymaster(ctx.runtime);
+      return (await km.resolveDID(did)) as Record<string, unknown>;
+    },
+  },
+  {
+    name: 'hearthold_decrypt_did',
+    description:
+      'Decrypt an encrypted DID asset addressed to me (a sealed message or JSON) — as me, with my key. Fails if it is not decryptable to this identity. Composes the Archon keymaster; does not reimplement it.',
+    inputSchema: { type: 'object', properties: { did: { type: 'string', description: 'the encrypted asset DID' } }, required: ['did'], additionalProperties: false },
+    async handler(ctx, args) {
+      const did = String(args.did ?? '');
+      if (!did.startsWith('did:')) throw new Error('decrypt_did needs a did: identifier');
+      const km = boundKeymaster(ctx.runtime);
+      try {
+        const text = await km.decryptMessage(did);
+        try {
+          return { kind: 'json', data: JSON.parse(text) };
+        } catch {
+          return { kind: 'message', text };
+        }
+      } catch (err) {
+        throw new Error(`could not decrypt ${did} as me — not decryptable to this identity (${err instanceof Error ? err.message : String(err)})`);
+      }
+    },
+  },
+  {
+    name: 'hearthold_encrypt_message',
+    description:
+      'Seal a message to a recipient DID — produces an encrypted asset only they can decrypt (with decrypt_did / read_card). The building block for passing an encrypted note or prompt to a sibling: encrypt_message → then pass_card the returned did. Composes the Archon keymaster; my key never leaves.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', description: 'the plaintext to seal' },
+        toDid: { type: 'string', description: 'the recipient DID who alone can decrypt it' },
+      },
+      required: ['message', 'toDid'],
+      additionalProperties: false,
+    },
+    async handler(ctx, args) {
+      const message = String(args.message ?? '');
+      const toDid = String(args.toDid ?? '');
+      if (!message) throw new Error('encrypt_message needs a message');
+      if (!toDid.startsWith('did:')) throw new Error('encrypt_message needs a recipient did:');
+      const km = boundKeymaster(ctx.runtime);
+      const did = await (km.encryptMessage as (m: string, r: string, o?: unknown) => Promise<string>)(message, toDid);
+      return { did, recipient: toDid };
+    },
+  },
 ];
 
 /**
@@ -317,10 +373,10 @@ export const HEARTHOLD_TOOLS: HeartholdTool[] = [
  * `whoami`/`read_card` are the shared identity verbs. `full` is the original agent-as-principal set.
  */
 const PROFILES: Record<Exclude<HeartholdRole, 'full'>, string[]> = {
-  warden: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_recall', 'hearthold_list_inbound', 'hearthold_triage', 'hearthold_confirm_triage', 'hearthold_delegate', 'hearthold_pass_card', 'hearthold_accept_card', 'hearthold_decline_card'],
-  sovereign: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_grant_capability', 'hearthold_list_capabilities', 'hearthold_revoke_capability', 'hearthold_pending_approvals', 'hearthold_decide'],
-  emissary: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_contribute', 'hearthold_invoke', 'hearthold_accept_capability'],
-  verifier: ['hearthold_whoami', 'hearthold_read_card', 'hearthold_verify_card'],
+  warden: ['hearthold_whoami', 'hearthold_resolve_did', 'hearthold_read_card', 'hearthold_decrypt_did', 'hearthold_encrypt_message', 'hearthold_recall', 'hearthold_list_inbound', 'hearthold_triage', 'hearthold_confirm_triage', 'hearthold_delegate', 'hearthold_pass_card', 'hearthold_accept_card', 'hearthold_decline_card'],
+  sovereign: ['hearthold_whoami', 'hearthold_resolve_did', 'hearthold_read_card', 'hearthold_decrypt_did', 'hearthold_encrypt_message', 'hearthold_grant_capability', 'hearthold_list_capabilities', 'hearthold_revoke_capability', 'hearthold_pending_approvals', 'hearthold_decide'],
+  emissary: ['hearthold_whoami', 'hearthold_resolve_did', 'hearthold_read_card', 'hearthold_decrypt_did', 'hearthold_encrypt_message', 'hearthold_contribute', 'hearthold_invoke', 'hearthold_accept_capability'],
+  verifier: ['hearthold_whoami', 'hearthold_resolve_did', 'hearthold_read_card', 'hearthold_decrypt_did', 'hearthold_verify_card'],
 };
 
 /** The tool set for a role — `full` gets everything; a focused role gets only its actor's verbs. */
