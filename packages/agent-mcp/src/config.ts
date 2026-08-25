@@ -40,9 +40,20 @@ export interface HeartholdControlConfig {
 }
 
 /**
- * Which actor this MCP instance drives. Each role binds an actor's wallet and exposes only that actor's verb
- * set — the agent-facing realization of the per-actor model. `full` (the default, back-compat) is the original
- * agent-as-principal set (all facets of one agent's stack). See `TOOL_PROFILES` in tools.ts.
+ * Which actor this MCP instance drives. Each role exposes only that actor's verb set — the agent-facing
+ * realization of the per-actor model. `full` (the default, back-compat) is the original agent-as-principal
+ * set (all facets of one agent's stack). See `TOOL_PROFILES` in tools.ts.
+ *
+ * INVARIANT — ROLE MUST MATCH THE BOUND IDENTITY. The wallet this instance binds (HEARTHOLD_WALLET_PATH)
+ * MUST be the identity that plays this role for the agent: `--role warden` → the agent's WARDEN identity
+ * (which is what holds household/KB membership), `--role sovereign` → its SOVEREIGN identity, etc. The
+ * spawner (deploy launcher) enforces this by resolving the wallet FROM the role — `role=warden` →
+ * `identities/agents/<agent>/warden/wallet.json`. A mismatch is a SECURITY DEFECT, not a cosmetic one:
+ * a warden-role instance bound to the SOVEREIGN wallet mints a session that authenticates as the Sovereign,
+ * and a household Warden's visibility is `ownerOf(a) = a.owner ?? sovereignDid` — so that session matches
+ * ownerOf for EVERY unowned artefact and silently over-discloses while looking healthy (caught pre-render
+ * 2026-08-25 because `hearthold_session` returns the bound DID, not a name). Membership lives on the Warden
+ * identity; admitting the Sovereign instead is out-of-bounds, never the fix.
  */
 export type HeartholdRole = 'warden' | 'sovereign' | 'emissary' | 'verifier' | 'full';
 
