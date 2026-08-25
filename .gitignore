@@ -9,9 +9,15 @@ dist/
 data/
 
 # Env / secrets
+# NOTE: `.env` / `.env.*` do NOT match a `name.env` suffix file (e.g. deploy/node/family/agent-pass.env,
+# which holds populated wallet passphrases). Cover `*.env` too so a `git add -A` can never stage live
+# secrets; `.example` templates end in `.example` (not `.env`) so they stay tracked. (Aegis, 2026-08-25.)
 .env
 .env.*
+*.env
+*.env.bak
 !.env.example
+!*.env.example
 
 # OS / editor
 .DS_Store
