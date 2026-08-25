@@ -16,3 +16,11 @@ data/
 # OS / editor
 .DS_Store
 *.log
+
+# Populated agent/family env files carry REAL wallet passphrases (AEGIS_PASS_*).
+# The rules above match `.env` and `.env.*` but NOT `agent-pass.env` /
+# `agents-deploy.env`, which are untracked-but-stageable — a `git add -A` would
+# push live passphrases to the GitHub remote. Match by suffix as well.
+*.env
+*.env.bak
+!*.env.example
