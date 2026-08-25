@@ -2,6 +2,7 @@ import {
   Sensitivity,
   DEFAULT_SENSITIVITY,
   loadConfig,
+  noThink,
   type HearthholdConfig,
 } from '@hearthold/core';
 
@@ -62,7 +63,7 @@ Levels:
 - SEALED: extremely sensitive — exposure could cause serious harm (secrets, intimate, safety-critical).
 
 When uncertain, choose the HIGHER sensitivity — failing toward protection. Respond only with the JSON
-object. /no_think`;
+object.`;
 
 const MAX_TEXT = 4000;
 
@@ -85,6 +86,7 @@ export class OllamaClassifier implements Classifier {
         body: JSON.stringify({
           model: this.model,
           stream: false,
+          ...noThink(this.model), // reasoning models burn <think> tokens before the label; skip it (the /no_think prompt idiom is inert)
           options: { temperature: 0 },
           format: FORMAT_SCHEMA,
           messages: [

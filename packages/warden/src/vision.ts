@@ -1,4 +1,4 @@
-import { loadConfig, type HearthholdConfig } from '@hearthold/core';
+import { loadConfig, noThink, type HearthholdConfig } from '@hearthold/core';
 
 /**
  * The Warden's on-device VISION captioner. It turns an `image` submission into a factual text description +
@@ -49,6 +49,7 @@ export class OllamaVisionCaptioner implements VisionCaptioner {
         body: JSON.stringify({
           model: this.model,
           stream: false,
+          ...noThink(this.model), // no-op on the moondream default; skips <think> only if opted up to a reasoning VL model
           options: { temperature: 0 },
           messages: [{ role: 'user', content: PROMPT, images: [input.bytesB64] }],
         }),

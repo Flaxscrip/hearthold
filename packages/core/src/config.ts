@@ -287,3 +287,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): HearthholdConf
 export function agentDataFolder(config: HearthholdConfig, role: AgentRole): string {
   return join(config.dataRoot, role);
 }
+
+/**
+ * Ollama chat-body fields that DISABLE the hidden `<think>` reasoning pass — but ONLY for models that
+ * actually reason. The `/no_think` PROMPT idiom is ineffective on current Ollama (0.32.x): the string is
+ * passed through and a reasoning model reasons anyway (measured 15.7x waste on qwen3:8b — 11.6s/361tok vs
+ * 0.74s/29tok — the hidden reasoning nobody ever sees, on every query). The top-level `think` request field
+ * superseded it. We send `think:false` ONLY when the model is a known reasoning family: on a non-thinking
+ * model (the qwen2.5 / moondream defaults) the field is unnecessary and some Ollama builds 400 on it — and
+ * both the classifier and vision paths fail CLOSED to SEALED, so a blanket `think:false` would risk silently
+ * quarantining everything. Model-aware keeps the defaults untouched while killing the qwen3 latency. The
+ * list is intentionally conservative — extend it as we adopt other reasoning models.
+ */
+export function noThink(model: string): { think: false } | Record<string, never> {
+  return /qwen3|deepseek-r1|magistral|\bthinking\b/i.test(model) ? { think: false } : {};
+}
