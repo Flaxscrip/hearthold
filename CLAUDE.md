@@ -2,6 +2,13 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## ★ Which identity am I? (read IDENTITY.md)
+Your session sees **two** MCP servers that both speak "Archon": **`archon`** (`mcp__archon__*`) = **GenitriX**, the
+human operator's master wallet — NOT you; and **`hearthold-family`** (`hearthold_*`, wired by this repo's `.mcp.json`)
+= **you, Hearthold**, warden mailbox `…shfl6q`. For being Hearthold on the family DIDComm channel use the `hearthold_*`
+verbs (start with `hearthold_whoami`); reach for `mcp__archon__*` only to act as GenitriX the operator. Full
+disambiguation + your one setup step (adding your passphrase to the store): **`IDENTITY.md`**.
+
 ## What this is
 
 Hearthold gives a person a home-bound custodian agent for their private data history (the "7th
