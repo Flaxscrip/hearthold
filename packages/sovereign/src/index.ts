@@ -24,8 +24,9 @@ import {
 } from '@hearthold/core';
 
 import { makeSovereignHandler } from './handler.js';
-import { PromptGate, AgentGate } from './signet.js';
+import { PromptGate } from './signet.js';
 import { runSovereignControl } from './control.js';
+import { buildAgentGate } from './agent-gate.js';
 import { CapabilityGrantStore, grantCapability, revokeCapability, grantState } from './capability-grants.js';
 
 const SENS_NAMES = ['PUBLIC', 'LOW', 'MEDIUM', 'HIGH', 'SEALED'];
@@ -143,17 +144,25 @@ async function main(): Promise<void> {
     case 'agent-signet': {
       const transport = new DidCommTransport(handle, IDENTITY_NAME.sovereign, config.nodeUrl);
       await transport.ready();
-      const gate = new AgentGate((ctx, approved) => {
+      // Build the gate through the SHARED wiring site (agent-gate.ts) — the SAME builder runSovereignControl
+      // uses — so this production daemon actually ENFORCES the parent-signed allowance. Before 2026-08-26 this
+      // path constructed a receipt-only AgentGate with no `permit`, so the merged enforcement was unreachable
+      // here and the signet self-approved everything despite the banner claiming otherwise (Aegis's catch).
+      const build = await buildAgentGate(handle, config, id.did, transport, (ctx, approved) => {
         // The receipt feed — the agent's within-scope self-authorizations (the parent's observation trail).
         process.stderr.write(
           `[agent-signet] ${approved ? 'self-approved' : 'refused'} ${ctx.action?.action ?? 'action'}` +
             `${ctx.action?.summary ? ` — ${ctx.action.summary}` : ''}\n`,
         );
       });
-      const stop = await transport.serve(makeSovereignHandler(handle, gate, reopenSovereign, config.wardenDid));
+      const stop = await transport.serve(makeSovereignHandler(handle, build.gate, reopenSovereign, config.wardenDid));
+      const posture = !build.isChild
+        ? 'ROOT agent — no parent; SELF-APPROVES every act (correct only for a root Sovereign)'
+        : build.bound
+          ? 'CHILD — parent-signed allowance BOUND + live-enforced; above-scope escalates to the parent (proof-of-human)'
+          : 'CHILD — DENY-BY-DEFAULT: no allowance bound; self-approves nothing above standing, every act escalates to the parent';
       process.stdout.write(
-        `Agent Signet serving over DIDComm (AgentGate — self-approves within the parent-signed allowance;\n` +
-          `above-scope escalates to the parent). No PIN; proof-of-agent + receipts.\n  did: ${id.did}\n  (Ctrl-C to stop)\n`,
+        `Agent Signet serving over DIDComm (AgentGate — ${posture}).\n  did: ${id.did}\n  (Ctrl-C to stop)\n`,
       );
       const shutdown = (): void => {
         stop();

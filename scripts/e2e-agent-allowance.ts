@@ -13,10 +13,11 @@
  *   (d) A SELF-WIDENED allowance is refused — an allowance the AGENT signed itself does not verify against
  *       `expectedSigner: parentDid`, is treated as absent, and deny-by-default holds.
  *
- * The child's gate is wired EXACTLY as `sovereign/control.ts` wires it for a child agent (permit +
- * escalate over `tierForControlAct` / `bandForTier` / `approverForTier` / `requestActionApprovalOverDidComm`,
- * allowance resolved via `activeRuleset(..., { expectedSigner: parentDid })`). The parent's Signet is the
- * real `makeSovereignHandler` + `PinGate` answering `hearthold/kb-approval-request`.
+ * The child's gate is built through `buildAgentGate` — the SINGLE production wiring site the `sovereign
+ * control` HTTP surface AND the `agent-signet` DIDComm daemon both use — so this proves the gate the
+ * running signets actually serve, not a hand-wired mirror of it (the 2026-08-26 gap: agent-signet had
+ * bypassed the predicate). The parent's Signet is the real `makeSovereignHandler` answering
+ * `hearthold/kb-approval-request`.
  *
  * Run:  HEARTHOLD_PASSPHRASE=… HEARTHOLD_GATEKEEPER_URL=http://flaxlap.local:4222 HEARTHOLD_REGISTRY=local \
  *         npm run e2e:agent-allowance
@@ -30,24 +31,16 @@ import {
   openKeymaster,
   ensureIdentity,
   signRuleset,
-  activeRuleset,
-  tierForControlAct,
-  bandForTier,
-  approverForTier,
-  requestActionApprovalOverDidComm,
-  AuthzTier,
   DidCommTransport,
   IDENTITY_NAME,
   type KeymasterHandle,
   type HearthholdMessage,
   type Ruleset,
-  type SignedRuleset,
   type ControlAllowance,
-  type FamilyTopology,
-  type HumanPresenceAssertion,
 } from '@hearthold/core';
 import { makeSovereignHandler } from '@hearthold/sovereign/handler';
-import { AgentGate, type ApprovalContext, type ApprovalGate } from '@hearthold/sovereign/signet';
+import { buildAgentGate } from '@hearthold/sovereign/agent-gate';
+import { type AgentGate, type ApprovalContext, type ApprovalGate } from '@hearthold/sovereign/signet';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const DATA_ROOT = join(here, '..', '.hearthold-e2e-agent-allowance');
@@ -72,8 +65,6 @@ async function main(): Promise<void> {
   const parentId = await ensureIdentity(parent, config);
   const childId = await ensureIdentity(child, config);
   check('identities ready', parentId.did.startsWith('did:') && childId.did.startsWith('did:'));
-
-  const topology: FamilyTopology = { agentDid: childId.did, parentDid: parentId.did };
 
   // The parent SIGNS a control-allowance Ruleset for the child: it may self-approve `grant-capability` (any
   // resource) and `mint-root-capability` only for resources under `did:cid:friendly`. Everything else escalates.
@@ -107,35 +98,15 @@ async function main(): Promise<void> {
   await childTransport.ready();
   await new DidCommTransport(parent, IDENTITY_NAME.warden, config.nodeUrl).ready();
 
-  // ── The child's gate, wired EXACTLY as sovereign/control.ts wires a child agent ──────────────────────────
-  const resolveAllowance = async (asset?: string): Promise<ControlAllowance | undefined> => {
-    if (!asset) return undefined;
-    const data = await child.keymaster.resolveAsset(asset).catch(() => null);
-    const chain = Array.isArray(data) ? (data as SignedRuleset[]) : [];
-    if (chain.length === 0) return undefined;
-    const head = await activeRuleset(child, chain, { expectedSigner: parentId.did }).catch(() => null);
-    return head?.capabilities.control;
-  };
-  const makeChildGate = (asset?: string): AgentGate => {
-    const permit = async (ctx: ApprovalContext): Promise<boolean> => {
-      const act = ctx.action ?? { action: 'unknown', resource: '' };
-      return bandForTier(tierForControlAct(act, await resolveAllowance(asset))) !== 'parent';
-    };
-    const escalate = async (ctx: ApprovalContext): Promise<HumanPresenceAssertion | null> => {
-      const act = ctx.action ?? { action: 'unknown', resource: '' };
-      const tier = tierForControlAct(act, await resolveAllowance(asset));
-      const approverDid = approverForTier(tier, topology);
-      if (!approverDid) return { method: 'agent', level: 1, timestamp: new Date().toISOString() };
-      const timeout = tier >= AuthzTier.HUMAN ? config.stepUpTimeoutMs.factor2 : config.stepUpTimeoutMs.factor1;
-      const ok = await requestActionApprovalOverDidComm(
-        childTransport,
-        approverDid,
-        { action: act.action, resource: act.resource ?? '', summary: ctx.action?.summary ?? '' },
-        timeout,
-      );
-      return ok ? { method: 'pin', level: tier >= AuthzTier.MULTIFACTOR ? 2 : 1, timestamp: new Date().toISOString() } : null;
-    };
-    return new AgentGate(undefined, permit, escalate);
+  // ── The child's gate, built through the PRODUCTION wiring site `buildAgentGate` — the SAME builder the
+  //    `sovereign control` HTTP surface AND the `agent-signet` DIDComm daemon now use. This is the fix for the
+  //    2026-08-26 gap: the prior version hand-wired permit/escalate, so it proved the MODEL but not that the
+  //    production entrypoints actually invoke it (agent-signet did not). Building via `buildAgentGate` here
+  //    means a future entrypoint that stops funnelling through it — or a broken builder — fails this e2e.
+  const makeChildGate = async (asset?: string): Promise<AgentGate> => {
+    const childConfig = { ...config, parentDid: parentId.did, controlAllowanceAsset: asset };
+    const build = await buildAgentGate(child, childConfig, childId.did, childTransport, undefined);
+    return build.gate;
   };
 
   // The parent's real Signet over DIDComm — ONE long-lived reader (the mailbox is destructive; a second
@@ -172,7 +143,7 @@ async function main(): Promise<void> {
   step('(a) WITHIN allowance ⇒ the agent SELF-APPROVES (proof-of-agent), the parent is never contacted');
   arm(true);
   {
-    const gate = makeChildGate(allowanceAsset);
+    const gate = await makeChildGate(allowanceAsset);
     const a = await gate.approve(grantAct('did:cid:anyone')); // grant-capability, any resource ⇒ within
     check('grant-capability self-approves with method:agent', a?.method === 'agent' && a?.level === 1);
     const b = await gate.approve(mintAct('did:cid:friendly-child')); // mint-root under the allowed prefix ⇒ within
@@ -184,14 +155,14 @@ async function main(): Promise<void> {
   step('(b) ABOVE allowance ⇒ escalate to the PARENT Signet');
   arm(true);
   {
-    const gate = makeChildGate(allowanceAsset);
+    const gate = await makeChildGate(allowanceAsset);
     const a = await gate.approve(mintAct('did:cid:stranger')); // mint-root OUTSIDE the allowed prefix ⇒ above
     check('parent APPROVES ⇒ proof-of-HUMAN (method:pin) and the act proceeds', a?.method === 'pin');
     check('the parent Signet was contacted for the above-allowance act', parentContacted >= 1);
   }
   arm(false);
   {
-    const gate = makeChildGate(allowanceAsset);
+    const gate = await makeChildGate(allowanceAsset);
     const a = await gate.approve(mintAct('did:cid:stranger'));
     check('parent DECLINES ⇒ refused (null), fail-closed', a === null);
     check('the parent Signet was still contacted (the escalation happened)', parentContacted >= 1);
@@ -202,21 +173,21 @@ async function main(): Promise<void> {
   step('(c) NO allowance bound ⇒ deny-by-default: nothing self-approves');
   arm(false);
   {
-    const gate = makeChildGate(undefined); // no control-allowance asset
+    const gate = await makeChildGate(undefined); // no control-allowance asset
     const a = await gate.approve(grantAct('did:cid:anyone'));
     check('grant-capability does NOT self-approve (no method:agent)', a?.method !== 'agent');
     check('it escalated (parent contacted) and, declined, is refused (null)', a === null && parentContacted >= 1);
   }
 
   // (d) A SELF-WIDENED allowance (child-signed) does not verify against the parent ⇒ treated as absent.
+  //     Proven through the PRODUCTION gate: a forged allowance that (wrongly) verified would let
+  //     grant-capability self-approve (method:agent); it must instead escalate + be refused.
   step('(d) A SELF-SIGNED (widened) allowance is REFUSED — verified against parentDid, so it grants nothing');
-  const forgedResolved = await resolveAllowance(forgedAsset);
-  check('the child-signed allowance resolves to NOTHING (wrong signer, governor-pinned)', forgedResolved === undefined);
   arm(false);
   {
-    const gate = makeChildGate(forgedAsset);
+    const gate = await makeChildGate(forgedAsset);
     const a = await gate.approve(grantAct('did:cid:anyone'));
-    check('with a forged allowance, grant-capability does NOT self-approve', a?.method !== 'agent');
+    check('a child-signed (forged) allowance does NOT self-approve grant-capability (wrong signer, governor-pinned)', a?.method !== 'agent');
     check('it escalates and, declined, is refused (deny-by-default holds)', a === null && parentContacted >= 1);
   }
 
