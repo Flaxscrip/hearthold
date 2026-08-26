@@ -650,6 +650,25 @@ export interface SignetStatus {
   nodeUrl: string;
   serving: boolean;
   pendingCount: number;
+  /**
+   * How this Signet's gate authorizes control acts: `human` (a person PINs each act) or `agent` (an
+   * AI-agent Sovereign self-approves within its parent-signed control-allowance, escalating above it). Lets
+   * the Table render what is actually enforced instead of the honesty marker (docs/agentgate-allowance.md).
+   */
+  gateMode?: 'human' | 'agent';
+  /**
+   * Agent gate only: a summary of the ACTIVE, parent-signed control-allowance the AgentGate self-approves
+   * within — so the Table shows the real bound. `bound:false` means no verified allowance is in force (a
+   * child agent then escalates every above-standing control act to the parent; the ROOT agent self-approves).
+   */
+  controlAllowance?: {
+    /** Whether a parent-signed, governor-pinned allowance is actually in force. */
+    bound: boolean;
+    /** The parent (governor) DID the allowance is pinned to, when a child agent is bound to one. */
+    parentDid?: string;
+    /** The self-approvable control acts (action + optional resource prefix), when bound. */
+    selfApprove?: { action: string; resourcePrefix?: string }[];
+  };
 }
 
 export interface SignetSnapshot {
