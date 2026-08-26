@@ -363,7 +363,17 @@ export async function runWardenControl(
         }
         return { status: { ...full, sessionDid: sessionDid ?? undefined } };
       },
-      'GET /api/snapshot': async (ctx) => await snapshot(effectiveViewer(ctx)),
+      'GET /api/snapshot': async (ctx) => {
+        // `status.sessionDid` MUST come from the PROVEN session, never `effectiveViewer` — the same rule the
+        // /api/status route follows. effectiveViewer is the "who we FILTER by" and falls back to
+        // config.sovereignDid on a single-Sovereign node; reporting THAT as sessionDid would label a Sovereign
+        // as an authenticated session member — the viewer-vs-proven-identity conflation behind the
+        // over-disclosure trap, one layer up. Filtering still rides effectiveViewer (correct); only the
+        // reported identity comes from the session. (The `status()` helper omits sessionDid by construction.)
+        const snap = await snapshot(effectiveViewer(ctx));
+        const sessionDid = sessions.resolve(sessionToken(ctx));
+        return { ...snap, status: { ...snap.status, sessionDid: sessionDid ?? undefined } };
+      },
 
       // ── Control-plane session (Phase 2) — proven identity only (no client-asserted DID). The member's
       // wallet/Signet createResponse()s the challenge; keys never leave it. The Table rides the bearer

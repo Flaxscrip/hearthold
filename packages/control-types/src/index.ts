@@ -95,7 +95,12 @@ export interface WardenStatus {
   artefactCount?: number;
   delegationCount?: number;
   serving: boolean;
-  /** Whose view this is — the authenticated session member DID. Undefined when unauthenticated / single-Sovereign. */
+  /** Whose view this is — the authenticated session member DID. Undefined when unauthenticated / single-Sovereign.
+   *  PRODUCER RULE: populate this ONLY from the PROVEN session (`sessions.resolve(token)`), NEVER from the
+   *  "effective viewer" we filter by — the latter falls back to the configured Sovereign on a single-Sovereign
+   *  node, and reporting that here would label a Sovereign as a session member (the viewer-vs-proven-identity
+   *  conflation behind the over-disclosure class). This DTO answers "who did we PROVE is calling", not "who do
+   *  we filter by"; the two are equal only when a session exists. */
   sessionDid?: string;
   /**
    * The canonical HearthholdAuthorization schema DID this Warden's invocation challenge requests. Wire it into

@@ -49,6 +49,32 @@ HEARTHOLD_EMISSARY_CONTROL_URL=http://127.0.0.1:4312 \
 `full` (the default, back-compat) is the original agent-as-principal set — every verb, for an AI that runs its
 own whole stack. The keymaster-direct verbs (`whoami`, `read_card`, `verify_card`) work with no control URL.
 
+### Invariant: the role must match the bound identity (`role → wallet`)
+
+`HEARTHOLD_WALLET_PATH` **must** be the identity that plays the chosen `HEARTHOLD_MCP_ROLE` for this agent —
+`role=warden` binds the agent's **warden** identity, `role=sovereign` its **sovereign** identity, and so on.
+The spawner (deploy launcher) enforces this by resolving the wallet **from** the role:
+
+```
+role=warden  →  identities/agents/<agent>/warden/wallet.json
+role=sovereign → identities/agents/<agent>/sovereign/wallet.json
+```
+
+This is a **security** contract, not a style rule. Household / KB **membership lives on the agent's Warden
+identity** (the Warden DID is what the read group holds). A warden-role instance accidentally bound to the
+**Sovereign** wallet mints — via `hearthold_session` — a bearer that authenticates as the Sovereign; a
+household Warden's visibility is `ownerOf(a) = a.owner ?? sovereignDid`, so that session matches `ownerOf` for
+**every unowned artefact** and **silently over-discloses while rendering healthy**. (Caught pre-render on
+2026-08-25 only because `hearthold_session` returns the bound **DID**, never a name.) Admitting the Sovereign
+to the household instead is out-of-bounds — it *is* the over-disclosure, never the fix. Bind the Warden
+identity for member-auth.
+
+**And the `did` from `hearthold_session` is a cross-check, not proof.** It is `ctx.identity.did` — the MCP's
+own binding, an *assertion* of who it is. A consumer must confirm the **server** resolves the bearer to the
+expected member (ride it against a scoped route) before trusting it: a DID answering "who is calling" must
+come from a **proven session**, never a self-report. The returned field is a useful early mismatch signal
+(it caught the Sovereign-binding pre-render); the server's resolution is the evidence.
+
 ---
 
 ## Shared verbs (every role)
