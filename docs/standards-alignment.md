@@ -60,9 +60,13 @@ on the Sovereign's own device).
    person; the signed Warden description proves they approve the *right thing* even if the Emissary
    app is compromised).
 
-3. **Session token is a plain bearer token, not sender-constrained.** The draft `SHOULD`s
-   sender-constrained tokens (DPoP/mTLS) for high-impact ops (§7.5). Tailscale + in-band sealing
-   mitigate wire theft, but a lifted bearer token is still usable by another party. **Gap.**
+3. **The control-plane session token is a plain bearer token, not sender-constrained.** The draft `SHOULD`s
+   sender-constrained tokens (DPoP/mTLS) for high-impact ops (§7.5). A lifted (or exported) bearer is usable
+   by whoever holds it. **This gap is confined to the browser↔local-daemon CONTROL-PLANE surface** (the
+   `X-Hearthold-Session` token, `control-types`), NOT the agent↔agent transport — see the surface note below.
+   It is scoped by the control ports binding `127.0.0.1` (a lifted token needs local host access, which
+   already grants strictly more), and by gating token export (`hearthold_session` default-off) + a bounded
+   TTL; it widens the moment the control plane is served to another host. **Gap (control-plane surface).**
 
 4. **No single-use / replay state for high-impact disclosures** (§6.2.5). **Gap.**
 
@@ -105,9 +109,13 @@ authcrypt message.
   verbatim to the Sovereign and MUST NOT substitute its own description (§7.7). The Sovereign's
   **signed response** to that challenge is the approval record.
 
-- **R3 — Sender constraint.** DIDComm authcrypt binds each message to the sender's key at the
-  transport layer, satisfying the sender-constraint goal (§7.5) without a separate bearer token;
-  any retained approval is a signed artefact bound to its `txn`.
+- **R3 — Sender constraint (AGENT↔AGENT transport).** DIDComm authcrypt binds each message to the sender's
+  key at the transport layer, satisfying the sender-constraint goal (§7.5) without a separate bearer token;
+  any retained approval is a signed artefact bound to its `txn`. **This resolves gap 3 for the DIDComm
+  agent-transport surface ONLY.** The two are NOT the same surface, so both statements hold at once: agent↔agent
+  is authcrypt (no bearer, sender-constrained); the browser↔local-daemon control plane still uses a session
+  bearer (gap 3), unresolved by design there and scoped by loopback binding + export gating + TTL. Making the
+  control plane sender-constrained (DPoP/mTLS) is future work, load-bearing before it is ever served off-host.
 
 - **R4 — Explicit decline + minimization.** The Sovereign can decline at the Emissary before a
   sensitive request proceeds; challenges and granted attestations carry the minimum necessary and
