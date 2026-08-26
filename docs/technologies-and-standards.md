@@ -86,4 +86,10 @@ The design posture in one line: **conservative at the bottom, contributive at th
 
 ## Reading the stack
 
-Three properties fall out of these choices. **Verifiability without connectivity** — everything that crosses a boundary is a signed credential checkable offline against issuer DIDs; no phone-home, no oracle. **Accountability as cryptography** — every agent authority is a signature chain terminating at a human principal's key, answering the "who is the responsible party?" gap in current agent data models. **Privacy as custody, not policy promise** — personal context never leaves the principal's hardware as a standing blob; what leaves is derived, purpose-bound, expiring, and pairwise-addressed. The standards above are the load-bearing walls of those three properties.
+Three properties fall out of these choices. **Offline signature verification** — everything that crosses a
+boundary is a signed credential whose *authenticity* is checkable offline against issuer DIDs; no phone-home,
+no oracle to confirm a signature. Revocation is the honest exception: status is a W3C Bitstring Status List
+published as an Archon asset (`docs/status-list/FINDINGS.md`), so a *revocation* check requires a resolve, and
+it is fail-closed — offline, a revocation-sensitive verification **fails** rather than silently passing. So
+the precise claim is "signature verification is offline; revocation status requires a resolve" — still strong,
+and stated as what it is. **Accountability as cryptography** — every agent authority is a signature chain terminating at a human principal's key, answering the "who is the responsible party?" gap in current agent data models. **Privacy as custody, not policy promise** — personal context never leaves the principal's hardware as a standing blob; what leaves is derived, purpose-bound, expiring, and pairwise-addressed. The standards above are the load-bearing walls of those three properties.
