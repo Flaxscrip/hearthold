@@ -20,6 +20,7 @@ import {
 } from '@hearthold/core';
 import { routeCoSign } from '@hearthold/warden/escalate';
 import { makeSovereignHandler } from '@hearthold/sovereign/handler';
+import { buildAgentGate } from '@hearthold/sovereign/agent-gate';
 import { AgentGate, PinGate } from '@hearthold/sovereign/signet';
 
 let failures = 0;
@@ -60,7 +61,12 @@ async function main(): Promise<void> {
     const receipts: { summary: string; approved: boolean }[] = [];
     const agentSig = new DidCommTransport(agent, IDENTITY_NAME.sovereign, base.nodeUrl);
     await agentSig.ready();
-    const stop = await agentSig.serve(makeSovereignHandler(agent, new AgentGate((ctx, ok) => { receipts.push({ summary: ctx.action?.summary ?? '', approved: ok }); })), { pollMs: 1000 });
+    // Build the agent's Signet gate through the PRODUCTION builder (root branch here — this base config has no
+    // parentDid) so this routing test exercises the gate production actually serves, not a hand-built mirror.
+    const { gate: agentGate } = await buildAgentGate(agent, base, agentId.did, agentSig, (ctx, ok) => {
+      receipts.push({ summary: ctx.action?.summary ?? '', approved: ok });
+    });
+    const stop = await agentSig.serve(makeSovereignHandler(agent, agentGate), { pollMs: 1000 });
     const outcome = await routeCoSign(wardenTransport, topology, AuthzTier.CHALLENGE, req('a provenance-only card pass'), TIMEOUTS);
     stop();
     check('routes to the AGENT’s Signet and self-approves', outcome.approved && outcome.band === 'agent' && outcome.approver === agentId.did);
@@ -71,6 +77,10 @@ async function main(): Promise<void> {
   {
     const agentSig = new DidCommTransport(agent, IDENTITY_NAME.sovereign, base.nodeUrl);
     await agentSig.ready();
+    // DELIBERATE hand-built gate — NOT a production wiring site: this injects an always-refusing `permit` to
+    // test the AgentGate PRIMITIVE's fail-closed path (a within-scope act its policy refuses ⇒ denied). No
+    // production config produces an always-false permit, so this can't come from `buildAgentGate`; the
+    // production gate construction is covered by e2e-agent-allowance (through buildAgentGate).
     const stop = await agentSig.serve(makeSovereignHandler(agent, new AgentGate(undefined, () => false)), { pollMs: 1000 });
     const outcome = await routeCoSign(wardenTransport, topology, AuthzTier.CHALLENGE, req('a refused act'), TIMEOUTS);
     stop();

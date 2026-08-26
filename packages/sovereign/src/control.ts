@@ -54,7 +54,8 @@ import type {
 
 import { makeSovereignHandler } from './handler.js';
 import { HttpGate } from './http-gate.js';
-import { AgentGate, type SignetGate, type ApprovalContext } from './signet.js';
+import { type SignetGate, type ApprovalContext } from './signet.js';
+import { buildAgentGate } from './agent-gate.js';
 import { CapabilityGrantStore, grantCapability, mintRootGrant, revokeCapability, grantState, type CapabilityGrant } from './capability-grants.js';
 import { LineageStore } from './lineage-store.js';
 
@@ -78,75 +79,28 @@ export async function runSovereignControl(
   // ONLY the control acts its parent-signed allowance names; everything else escalates to the parent's Signet
   // (proof-of-human) or is refused (fail-closed). The ROOT agent (no parentDid) has no parent to escalate to —
   // it IS the root of authority — so its gate self-approves (permit/escalate stay unset, the prior behavior).
-  const isChildAgent = agentMode && !!config.parentDid;
-  const topology: FamilyTopology | undefined = isChildAgent
-    ? { agentDid: id.did, parentDid: config.parentDid as string }
-    : undefined;
-
-  // Resolve the OPERATIVE control-allowance under governor-pinning: only a chain the PARENT signed grants any
-  // self-authority. Absent / unresolvable / wrong-signer ⇒ undefined ⇒ deny-by-default. Re-resolved per act so
-  // a parent-signed supersession (widened, narrowed, or revoked allowance) takes effect without a restart.
-  const resolveAllowance = async (): Promise<ControlAllowance | undefined> => {
-    if (!isChildAgent || !config.controlAllowanceAsset) return undefined;
-    const data = await handle.keymaster.resolveAsset(config.controlAllowanceAsset).catch(() => null);
-    const chain = Array.isArray(data) ? (data as SignedRuleset[]) : [];
-    if (chain.length === 0) return undefined;
-    const head = await activeRuleset(handle, chain, { expectedSigner: config.parentDid }).catch(() => null);
-    return head?.capabilities.control;
-  };
-
-  // Within-allowance predicate: an act whose required tier is standing/agent is WITHIN self-authority; a
-  // 'parent'-band act is ABOVE it (escalate). Deny-by-default falls out of `tierForControlAct` (no match ⇒ HUMAN).
-  const permit = async (ctx: ApprovalContext): Promise<boolean> => {
-    const act = ctx.action ?? { action: 'unknown', resource: '' };
-    const tier = tierForControlAct(act, await resolveAllowance());
-    return bandForTier(tier) !== 'parent';
-  };
-  // Above-allowance escalation: route the act to the human PARENT's Signet (proof-of-human on approval, null on
-  // decline/timeout — fail-closed). The same `hearthold/kb-approval-request` door the parent's handler answers.
-  const escalate = async (ctx: ApprovalContext): Promise<HumanPresenceAssertion | null> => {
-    const act = ctx.action ?? { action: 'unknown', resource: '' };
-    const tier = tierForControlAct(act, await resolveAllowance());
-    const approverDid = approverForTier(tier, topology as FamilyTopology);
-    // Standing band — no Signet to route to; within standing authority (proof-of-agent). Not reached for an
-    // above-allowance act (which is always the parent band), but keeps the handler total.
-    if (!approverDid) return { method: 'agent', level: 1, timestamp: new Date().toISOString() };
-    const timeout = tier >= AuthzTier.HUMAN ? config.stepUpTimeoutMs.factor2 : config.stepUpTimeoutMs.factor1;
-    const ok = await requestActionApprovalOverDidComm(
-      transport,
-      approverDid,
-      { action: act.action, resource: act.resource ?? '', summary: ctx.action?.summary ?? '' },
-      timeout,
-    );
-    return ok ? { method: 'pin', level: tier >= AuthzTier.MULTIFACTOR ? 2 : 1, timestamp: new Date().toISOString() } : null;
-  };
-
   const onAgentDecision = (ctx: ApprovalContext, approved: boolean): void => {
     process.stderr.write(
       `[agent-signet] ${approved ? 'approved' : 'refused'} ${ctx.action?.action ?? 'act'}${ctx.action?.summary ? ` — ${ctx.action.summary}` : ''}\n`,
     );
   };
 
-  // The gate: a human PIN (HttpGate) or an AI agent's self-approval (AgentGate). A CHILD agent binds a real
-  // permit + escalate (bounded self-approval, escalate above); a ROOT agent leaves them unset (self-approves).
-  const gate: SignetGate = agentMode
-    ? isChildAgent
-      ? new AgentGate(onAgentDecision, permit, escalate)
-      : new AgentGate(onAgentDecision)
-    : new HttpGate(config.signetPin ?? '');
+  // The gate: a human PIN (HttpGate) or an AI agent's self-approval — built through the ONE shared wiring site
+  // (agent-gate.ts) so THIS HTTP control surface and the `agent-signet` DIDComm daemon enforce IDENTICALLY. A
+  // CHILD agent binds a real permit + escalate (bounded self-approval, escalate above); a ROOT agent self-approves.
+  const agentBuild = agentMode ? await buildAgentGate(handle, config, id.did, transport, onAgentDecision) : null;
+  const gate: SignetGate = agentBuild ? agentBuild.gate : new HttpGate(config.signetPin ?? '');
 
   // Boot posture — honest about what is enforced (docs/agentgate-allowance.md §"Honest UI becomes honest enforcement").
   let controlAllowanceSummary: SignetStatus['controlAllowance'];
-  if (agentMode && isChildAgent) {
-    const bootAllowance = await resolveAllowance();
-    const bound = !!bootAllowance?.selfApprove?.length;
+  if (agentBuild?.isChild) {
     controlAllowanceSummary = {
-      bound,
+      bound: agentBuild.bound,
       ...(config.parentDid ? { parentDid: config.parentDid } : {}),
-      ...(bootAllowance?.selfApprove ? { selfApprove: bootAllowance.selfApprove } : {}),
+      ...(agentBuild.allowance?.selfApprove ? { selfApprove: agentBuild.allowance.selfApprove } : {}),
     };
-    if (bound) {
-      const acts = (bootAllowance?.selfApprove ?? [])
+    if (agentBuild.bound) {
+      const acts = (agentBuild.allowance?.selfApprove ?? [])
         .map((e) => e.action + (e.resourcePrefix ? `:${e.resourcePrefix}` : ''))
         .join(', ');
       process.stderr.write(
