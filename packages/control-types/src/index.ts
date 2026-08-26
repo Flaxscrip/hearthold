@@ -736,6 +736,45 @@ export interface EmissarySnapshot {
   proofs: ProofRecord[];
 }
 
+// ─────────────────────────────── Trinity (aggregate view) ───────────────────────────────
+
+/** Reachability + bound identity of ONE Trinity role's control plane, so a Table can render each actor up or
+ *  down independently. `did` is present only when the role answered (from its own `status.identity.did`). */
+export interface TrinityRoleReachability {
+  role: 'warden' | 'signet' | 'emissary';
+  /** The control-plane base URL probed (e.g. http://127.0.0.1:4310). */
+  url: string;
+  reachable: boolean;
+  did?: string;
+  /** Populated when `reachable` is false — why the probe failed (for an honest "down" render). */
+  error?: string;
+}
+
+/**
+ * A Sovereign's full Trinity — Warden · Signet · Emissary — as one canonical "here is my Trinity" shape,
+ * so every family app (each Sovereign's own Table) assembles into the SAME structure.
+ *
+ * There is no single Trinity server: the three run as SEPARATE control planes (Warden `4310`/`4320` ·
+ * Signet `4311` · Emissary `4312`), so this is ASSEMBLED CLIENT-SIDE by reading each role's status route.
+ * Each per-role status is present only when that role answered; `reach` always lists all three, so a role
+ * that is down still renders as down rather than vanishing.
+ *
+ * NOTE — authority is NOT uniform across the Trinity's Signet: a human Signet gates with proof-of-human
+ * (leveled: L1 MEDIUM/HIGH, L2 SEALED), an AI's with proof-of-agent (flat L1, self-approval). A consumer
+ * rendering approvals MUST carry each approval's `method` (pin | agent) + level and never present an agent
+ * self-approval as a proof-of-human co-sign. (The Signet's gate mode is not yet on `SignetStatus`; surfacing
+ * it there is paired with the AgentGate allowance-enforcement work.)
+ */
+export interface TrinityStatus {
+  /** The Sovereign this Trinity serves — human or AI. From the Warden/Emissary `sovereignDid`, or the bound
+   *  identity when this Trinity IS a Sovereign's own. */
+  sovereignDid?: string;
+  warden?: WardenStatus;
+  signet?: SignetStatus;
+  emissary?: EmissaryStatus;
+  reach: TrinityRoleReachability[];
+}
+
 /** Submit a captured observation to the Warden. */
 export interface SubmitRequest {
   kind: string;
