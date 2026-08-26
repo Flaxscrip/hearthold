@@ -53,6 +53,47 @@ export interface SpendAllowance {
   unit?: string;
 }
 
+/**
+ * What CONTROL acts an AI-agent Sovereign may SELF-approve — the parent-signed control-authority bound, the
+ * analog of `SpendAllowance` for the sovereign's own control surface (mint-root, authorize-capability, grant,
+ * revoke, …). It is a positive allow-list: an act is within self-authority iff it matches an entry. Anything
+ * NOT matched escalates to the human parent's Signet. Deny-by-default — an absent allowance self-approves
+ * nothing above standing, exactly like an absent `SpendAllowance` self-authorizes nothing priced.
+ *
+ * SIGNED by the parent into the agent's Ruleset (`RulesetCapabilities.control`) and read under governor-
+ * pinning, so a self-signed widening does not verify and the operative allowance stays the parent's.
+ */
+export interface ControlAllowance {
+  /**
+   * The control acts the agent may self-approve. An act matches an entry when its `action` is EQUAL and its
+   * `resource` STARTS WITH `resourcePrefix` (or the entry has no prefix — any resource for that action). A
+   * match ⇒ the agent's own Signet self-approves (CHALLENGE / agent band); no match ⇒ escalate (HUMAN).
+   */
+  selfApprove?: { action: string; resourcePrefix?: string }[];
+}
+
+/**
+ * The tier a CONTROL act demands, given the parent-signed control-allowance. A match in `selfApprove`
+ * (action equal AND resource starts with `resourcePrefix`, or no prefix) ⇒ `CHALLENGE` (the agent
+ * self-approves at its own Signet, proof-of-agent). No match / no allowance ⇒ `HUMAN` (escalate to the
+ * parent's Signet, proof-of-human). Deny-by-default, mirroring `tierForCost`: absent allowance grants no
+ * self-authority, so every control act escalates.
+ */
+export function tierForControlAct(
+  act: { action: string; resource?: string },
+  allowance?: ControlAllowance,
+): AuthzTier {
+  const entries = allowance?.selfApprove ?? [];
+  const resource = act.resource ?? '';
+  for (const e of entries) {
+    if (e.action !== act.action) continue;
+    if (e.resourcePrefix === undefined || e.resourcePrefix === '' || resource.startsWith(e.resourcePrefix)) {
+      return AuthzTier.CHALLENGE; // within the parent-signed allowance — the agent self-approves
+    }
+  }
+  return AuthzTier.HUMAN; // above the allowance (or none) — escalate to the human parent (deny-by-default)
+}
+
 /** Which principal a tier's step-up routes to in the agent family. */
 export type EscalationBand = 'standing' | 'agent' | 'parent';
 

@@ -16,7 +16,7 @@ import { createHash } from 'node:crypto';
 
 import type { KeymasterHandle } from './keymaster.js';
 import type { AssuranceTier } from './trust-registry.js';
-import type { SpendAllowance } from './escalation.js';
+import type { SpendAllowance, ControlAllowance } from './escalation.js';
 
 /** Lifecycle of the chain's head. Non-head versions are 'superseded' by position (a display state). */
 export type RulesetStatus = 'active' | 'superseded' | 'revoked';
@@ -62,6 +62,16 @@ export interface RulesetCapabilities {
    * tier is the max of the two).
    */
   spend?: SpendAllowance;
+  /**
+   * Agent-family CONTROL allowance (docs/agentgate-allowance.md): the control acts (mint-root,
+   * authorize-capability, grant, revoke, …) an AI-agent Sovereign may SELF-approve at its own Signet, and
+   * — by omission — the point past which a control act escalates to the human PARENT's Signet. Set + SIGNED
+   * by the parent, read under governor-pinning (`activeRuleset` with `expectedSigner = parentDid`), so the
+   * agent cannot widen its own control authority — a raise is a parent-signed supersession. Absent ⇒ no
+   * self-authority: every above-standing control act escalates (deny-by-default). Consumed by the sovereign's
+   * `AgentGate` via `tierForControlAct`; orthogonal to `spend` (cost) and the sensitivity ladder.
+   */
+  control?: ControlAllowance;
 }
 
 export interface Ruleset {

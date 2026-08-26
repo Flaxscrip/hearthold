@@ -128,7 +128,11 @@ export class DenyGate implements ApprovalGate {
  * conscience), the Warden custodies + enforces. See docs/agent-family.md.
  *
  * `onDecision` is the receipt hook — the parent's observation feed / an audit log (evidence pointed inward).
- * An optional `permit` predicate can refuse a within-scope act the agent's own policy rejects (fail closed).
+ * An optional `permit` predicate decides whether an act is WITHIN the agent's parent-signed allowance:
+ * within ⇒ the agent self-approves (proof-of-AGENT). An optional `escalate` handler is invoked when an act
+ * is ABOVE the allowance — it routes to the human PARENT's Signet and returns a proof-of-HUMAN assertion if
+ * the parent approved, else null. With `escalate` UNSET, an above-allowance act is DENIED (fail-closed);
+ * with BOTH unset the gate self-approves everything (the ROOT agent — it IS the root of authority).
  */
 export class AgentGate implements SignetGate {
   /** Wired to the control server's `emit` (a receipt feed) when this gate backs `sovereign control`. */
@@ -138,18 +142,39 @@ export class AgentGate implements SignetGate {
   constructor(
     private readonly onDecision?: (ctx: ApprovalContext, approved: boolean) => void | Promise<void>,
     private readonly permit?: (ctx: ApprovalContext) => boolean | Promise<boolean>,
+    private readonly escalate?: (ctx: ApprovalContext) => Promise<HumanPresenceAssertion | null>,
   ) {}
 
   async approve(ctx: ApprovalContext): Promise<HumanPresenceAssertion | null> {
-    const ok = this.permit ? await this.permit(ctx) : true;
-    await this.onDecision?.(ctx, ok);
-    const entry: ApprovalHistoryEntry = { id: randomUUID(), requester: ctx.requester, decision: ok ? 'approved' : 'denied', method: 'agent', level: 1, at: new Date().toISOString() };
+    // Within the parent-signed allowance? No `permit` ⇒ within (the ROOT agent, or a plain self-approver).
+    const within = this.permit ? await this.permit(ctx) : true;
+    let assertion: HumanPresenceAssertion | null;
+    if (within) {
+      // Proof-of-AGENT: the agent's own key deliberately co-signs a within-scope act. Method names it as an
+      // agent assertion (not human presence); level 1 is the agent's standing authority.
+      assertion = { method: 'agent', level: 1, timestamp: new Date().toISOString() };
+    } else if (this.escalate) {
+      // Above the allowance — route to the human PARENT's Signet. Proof-of-HUMAN on approval, else null.
+      assertion = await this.escalate(ctx);
+    } else {
+      // Above the allowance with no escalation path — deny (fail-closed). This is the deny-by-default posture
+      // when a child agent has no allowance bound and no parent to escalate to.
+      assertion = null;
+    }
+    const approved = assertion !== null;
+    await this.onDecision?.(ctx, approved);
+    const entry: ApprovalHistoryEntry = {
+      id: randomUUID(),
+      requester: ctx.requester,
+      decision: approved ? 'approved' : 'denied',
+      method: assertion?.method ?? 'agent',
+      level: assertion?.level ?? 1,
+      at: new Date().toISOString(),
+    };
     this.history.push(entry);
-    this.emit(ok ? 'approval-approved' : 'approval-denied', { id: entry.id, decision: entry.decision, agent: true });
-    if (!ok) return null;
-    // Proof-of-AGENT: the agent's own key deliberately co-signs a within-scope act. Method names it as an
-    // agent assertion (not human presence); level 1 is the agent's standing authority.
-    return { method: 'agent', level: 1, timestamp: new Date().toISOString() };
+    // `agent:` records HONESTLY whether this was a self-approval (proof-of-agent) or a parent proof-of-human.
+    this.emit(approved ? 'approval-approved' : 'approval-denied', { id: entry.id, decision: entry.decision, agent: within });
+    return assertion;
   }
 
   // Control-plane surface: an AgentGate self-approves synchronously, so nothing ever pends.

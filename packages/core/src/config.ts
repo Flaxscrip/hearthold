@@ -50,6 +50,16 @@ export interface HearthholdConfig {
    * single-Sovereign plane: co-signs route to the acting member as before (back-compat). See docs/agent-family.md.
    */
   parentDid?: string;
+  /**
+   * Agent-family CONTROL surface: the Archon asset DID holding this AI-agent Sovereign's OWN parent-signed
+   * Ruleset chain (`SignedRuleset[]`), whose head `capabilities.control` is the control-allowance the
+   * `AgentGate` self-approves within. The sovereign daemon has no Warden-side RulesetStore, so the pointer
+   * to its own governing chain is supplied here (env `HEARTHOLD_CONTROL_ALLOWANCE_ASSET`) — resolved and
+   * verified under governor-pinning against `parentDid`. Absent ⇒ no allowance ⇒ deny-by-default: every
+   * above-standing control act escalates to the parent (a self-signed or wrong-signer chain fails the pin
+   * and is treated as absent). See docs/agentgate-allowance.md.
+   */
+  controlAllowanceAsset?: string;
   /** Warden: local model endpoint for the classifier (Ollama). Stays on-device. */
   ollamaUrl: string;
   /** Warden: local model used to classify sensitivity. */
@@ -241,6 +251,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): HearthholdConf
     wardenDid: env.HEARTHOLD_WARDEN_DID,
     sovereignDid: env.HEARTHOLD_SOVEREIGN_DID,
     parentDid: env.HEARTHOLD_PARENT_DID,
+    controlAllowanceAsset: env.HEARTHOLD_CONTROL_ALLOWANCE_ASSET,
     ollamaUrl: env.HEARTHOLD_OLLAMA_URL ?? DEFAULT_OLLAMA_URL,
     visionModel: env.HEARTHOLD_VISION_MODEL ?? DEFAULT_VISION_MODEL,
     classifierModel,

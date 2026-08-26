@@ -128,6 +128,7 @@
     "provision:city-of-mages": "npm run build && node --experimental-strip-types scripts/provision-city-of-mages.ts",
     "sign:city-of-mages-policy": "npm run build && node --experimental-strip-types scripts/sign-city-of-mages-policy.ts",
     "e2e:kb-member-key": "npm run build && node --experimental-strip-types scripts/e2e-kb-member-key.ts",
+    "e2e:agent-allowance": "npm run build && node --experimental-strip-types scripts/e2e-agent-allowance.ts",
     "e2e:kb-spaces-enable": "npm run build && HEARTHOLD_CLASSIFIER=quarantine node --experimental-strip-types scripts/e2e-kb-spaces-enable.ts",
     "e2e:partition-rewrap": "npm run build && node --experimental-strip-types scripts/e2e-partition-rewrap.ts",
     "e2e:family-isolation": "npm run build && node --experimental-strip-types scripts/e2e-family-isolation.ts",
