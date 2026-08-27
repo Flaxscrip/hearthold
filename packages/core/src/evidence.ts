@@ -378,13 +378,8 @@ export async function mintPairwiseGrant(
 }
 
 // ── Step-up: the Sovereign co-signs a sensitive disclosure (A2) ───────────────
-
-/** Proof-of-human assurance level required to externally disclose data at a given sensitivity. */
-export function requiredLevelFor(sensitivity: number): number {
-  if (sensitivity >= Sensitivity.SEALED) return 2; // multifactor
-  if (sensitivity >= Sensitivity.MEDIUM) return 1; // a fresh proof-of-human (PIN+)
-  return 0; // standing delegation suffices (A1)
-}
+// (`requiredLevelFor` moved to security.ts — it is a pure sensitivity→level function that belongs with the
+//  release ladder, and living in a leaf module makes it importable in unit tests without a build.)
 
 export interface ApprovalHumanProof {
   method: string;
