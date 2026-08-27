@@ -29,6 +29,41 @@ export const SENSITIVITY_NAMES: readonly SensitivityName[] = [
 ];
 
 /**
+ * The proof-of-human level a disclosure at `sensitivity` requires — a browser-safe MIRROR of core's
+ * `requiredLevelFor` (`packages/core/src/evidence.ts`), so the Table can render the REAL required level
+ * from the sensitivity it already holds instead of parsing a reason string or hand-guessing. It is the
+ * SAME rule the Warden gates on (`assertion.level < requiredLevelFor(sensitivity) ⇒ refused`):
+ *   - SEALED (4) → 2  (multifactor / proof-of-human; an AgentGate self-approval caps at level 1, so an
+ *                       AI-agent Sovereign CANNOT self-satisfy a SEALED reveal — it escalates to the parent,
+ *                       or a root agent is refused. THIS is the "Tier-2 / requires proof-of-human" class.)
+ *   - MEDIUM/HIGH (2,3) → 1  (a fresh proof-of-human OR a proof-of-agent — an agent self-approves these).
+ *   - PUBLIC/LOW (0,1) → 0   (a standing delegation suffices; no fresh approval).
+ * Kept in sync with core by an agreement unit test (`packages/core/test/*.test.ts`) — a divergence fails it.
+ */
+export function requiredLevelFor(sensitivity: number): number {
+  if (sensitivity >= 4) return 2; // SEALED — proof-of-human only (above the agent's level-1 ceiling)
+  if (sensitivity >= 2) return 1; // MEDIUM/HIGH — a fresh proof-of-human or proof-of-agent
+  return 0; // PUBLIC/LOW — standing delegation suffices
+}
+
+/**
+ * Human-readable labels for the agent-family CONTROL acts an AgentGate self-approves / escalates
+ * (`SignetStatus.controlAllowance.selfApprove[].action`). A canonical anchor so a Signet-card render and any
+ * future surface show the SAME label — the same anti-drift move as `HEARTHOLD_TERMINOLOGY`. Use
+ * `controlActionLabel(action)`; an unknown action falls back to the raw string (never throws).
+ */
+export const HEARTHOLD_CONTROL_ACTIONS: Readonly<Record<string, string>> = {
+  'mint-root-capability': 'Mint a root capability',
+  'grant-capability': 'Grant a capability',
+  'authorize-capability': 'Authorize a capability',
+  'revoke-capability': 'Revoke a capability',
+  delegate: 'Delegate (attenuate) a capability',
+};
+export function controlActionLabel(action: string): string {
+  return HEARTHOLD_CONTROL_ACTIONS[action] ?? action;
+}
+
+/**
  * Canonical vocabulary for the words that were historically overloaded — so every agent and GUI cites ONE
  * source instead of tracking prose. Mirrors `docs/terminology.md` (the repo's source of truth); keep the two
  * in sync. Import `HEARTHOLD_TERMINOLOGY.Sphere` etc. rather than re-explaining a term in local copy.

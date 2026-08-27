@@ -56,6 +56,20 @@ export function clearanceCeiling(tier: AuthzTier): Sensitivity {
   return CLEARANCE[tier];
 }
 
+/**
+ * The proof-of-HUMAN assurance level required to externally disclose data at a given sensitivity — the level
+ * the Signet gate must return, distinct from the AuthzTier ladder above (this is the human-presence axis).
+ * SEALED needs level 2 (multifactor / proof-of-human), which an AI-agent's AgentGate self-approval (level 1)
+ * cannot reach; MEDIUM/HIGH need level 1 (a fresh proof-of-human OR proof-of-agent); PUBLIC/LOW need none.
+ * Mirrored (browser-safe) in `@hearthold/control-types` as `requiredLevelFor`, kept in lockstep by an
+ * agreement unit test.
+ */
+export function requiredLevelFor(sensitivity: number): number {
+  if (sensitivity >= Sensitivity.SEALED) return 2; // multifactor
+  if (sensitivity >= Sensitivity.MEDIUM) return 1; // a fresh proof-of-human (PIN+)
+  return 0; // standing delegation suffices (A1)
+}
+
 /** The minimum authorization tier required to release a given sensitivity. */
 export function requiredTier(sensitivity: Sensitivity): AuthzTier {
   const tiers: AuthzTier[] = [
