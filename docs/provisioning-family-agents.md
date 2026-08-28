@@ -10,18 +10,43 @@ topology (flaxscrip, 2026-08-28): **each is its OWN Sovereign, governed by the n
 2. every agent-signet is an **ungoverned root** self-approver (`controlAllowance.bound:false`) — the
    AgentGate.permit enforcement shipped but no allowance is provisioned, so the gate is open.
 
-They must land **together** (Aegis's sequencing note) — an emissary repointed to a Sovereign whose signet
-has no matching allowance, or vice-versa, leaves two answers to "who is my Sovereign" in one Trinity.
+The two are **independent** and need NOT land together (Aegis retracted the earlier "together" note after
+checking it, 2026-08-28): there are *already* two answers today — every warden names its own Sovereign, every
+emissary names the node — so repointing an emissary strictly REDUCES the inconsistency, it does not create
+one. Aegis also verified the only real risk of repointing alone — `ownerOf(a) = a.owner ?? config.sovereignDid`
+silently reassigning *unowned* artefacts — is nil: sevenfold's vault holds 6 artefacts, **0 unowned**, so the
+fallback moves nothing. So **Part A (repoint) is safe standalone and goes first — it unblocks Sevenfold's live
+render immediately** — while **Part B (allowances)** waits on flaxscrip signing three rulesets + deciding scope.
 
-## Identities (from Aegis's live probe — Aegis holds the full DIDs)
+## Identities (full DIDs, from Aegis's live probe)
 
-| agent | its OWN Sovereign DID | emissary currently points at (wrong) |
-|---|---|---|
-| sevenfold | `…jvo5bvkcl23vqq` | `…lbedh4sjij3ufa` (node) |
-| hearthold | `…7vy33gyyx34jzq` | `…lbedh4sjij3ufa` (node) |
-| aegis | `…ybvmfyl3hkltc4nq` | `…lbedh4sjij3ufa` (node) |
+| agent | its OWN Sovereign DID | warden today | emissary today |
+|---|---|---|---|
+| sevenfold | `did:cid:bagaaieradstvn46cks6fgjeilmajyaorsgt3pnscjyq7h2jvo5bvkcl23vqq` | ✓ own (per-agent var) | ✗ node (shared var) |
+| hearthold | `did:cid:bagaaieral7gyx5p2nkkplnxe5vpinwgpgyzhgsb4ac24lm7vy33gyyx34jzq` | ✓ own (per-agent var) | ✗ node (shared var) |
+| aegis | `did:cid:bagaaiera4jcssav3sn7f2owztjgyzynv3k25p23mvfyhybvmfyl3hkltc4nq` | ✓ own (per-agent var) | ✗ node (shared var) |
 
-Parent (node sovereign, the human PIN gate at `:4361`): `…lbedh4sjij3ufa`.
+Parent (node sovereign, the human PIN gate at `:4361`): `did:cid:bagaaierayveej3vjjm4owqq2ialx7zew3lyhuqjph2mnydlbedh4sjij3ufa`.
+
+**Note (Aegis):** the **wardens already name their own Sovereign** — each reads a per-agent var
+(`AGENT_HH_SOVEREIGN_DID` / `AGENT_SEVEN_SOVEREIGN_DID` / `AGENT_AEGIS_SOVEREIGN_DID`). Only the **emissaries**
+mis-point, because all three read ONE shared var `AGENT_REPORT_SOVEREIGN` (= node). So they *cannot* name
+different Sovereigns as the compose stands — fixing it is a **compose change** (introduce per-agent emissary
+vars, mirroring the wardens), not an env-value swap.
+
+## Track A — repoint the emissaries (standalone; unblocks Sevenfold now)  ·  OWNER: Aegis (compose change)
+
+Independent of the allowances — do it first. All three emissaries read one shared `AGENT_REPORT_SOVEREIGN`
+(= node); introduce a **per-agent** emissary var (mirroring the wardens' `AGENT_*_SOVEREIGN_DID`) so each
+`*-agent-emissary` service's `HEARTHOLD_SOVEREIGN_DID` resolves to its OWN Sovereign (table above). Redeploy
+the emissaries. Safe alone (wardens already correct; 0 unowned artefacts → the `ownerOf` fallback moves
+nothing). Result: each emissary reports its own `sovereignDid`, Sevenfold's bind-by-DID guard matches its own
+signet, and the live Trinity renders correctly — as **root** still (governance comes in Part B), but no longer
+foreign-excluded. This is a low-risk consistency repair; still flaxscrip's nod, but it needs nothing signed.
+
+---
+
+# Part B — the allowances (the authority step)
 
 ## DECISION FOR FLAXSCRIP — the control-act authority table (gates everything)
 
@@ -29,16 +54,23 @@ For each agent, what may it **self-approve** (`control.selfApprove`)? Every cont
 to the node sovereign's Signet (proof-of-human). Acts: `grant-capability`, `mint-root-capability`,
 `authorize-capability`, `revoke-*`, … each with an optional `resourcePrefix`.
 
+**What actually closes the gate:** setting `HEARTHOLD_PARENT_DID` makes the signet a **child**
+(`isChild:true`) — a child with no self-approvable acts escalates *everything* to the parent
+(deny-by-default). The gate closes from having a parent, not from the allowance contents. So the allowance
+`selfApprove` is purely "how much may it self-approve *without* asking the parent."
+
 **Recommended conservative start (secure-by-default; widen deliberately per demonstrated need):**
-- **All three: empty `selfApprove` initially** → pure deny-by-default. Every control act escalates to the
-  node sovereign. This immediately CLOSES the open gate with the least authority, and turns the honest
-  banner from "root, self-approves everything" to "child, bound, self-approves nothing yet."
+- **All three: empty `selfApprove` initially.** The signet becomes `gateMode:'agent'`, a CHILD, with
+  `controlAllowance.bound:false` (empty ⇒ not bound) — banner "CHILD — DENY-BY-DEFAULT: self-approves nothing
+  above standing, every act escalates to the parent." This CLOSES the open gate with the least authority.
+  (Note: `bound:false` here is the *governed* state, distinct from a ROOT which reports **no** `controlAllowance`
+  at all.)
 - Then widen one agent at a time as a real need appears (e.g. grant Aegis `grant-capability` within its own
-  infra resource prefix), each widening a fresh parent-signed supersession.
+  infra resource prefix → `bound:true`), each widening a fresh parent-signed supersession.
 
-Confirm the scope per agent before Step 1 — this is the one governance call; the rest is mechanical.
+Confirm the scope per agent before Step B1 — this is the one governance call; the rest is mechanical.
 
-## Step 1 — sign + anchor an allowance per agent  ·  OWNER: flaxscrip (node-sovereign wallet)
+## Step B1 — sign + anchor an allowance per agent  ·  OWNER: flaxscrip (node-sovereign wallet)
 
 For each agent, with the **node sovereign** wallet (the parent). Reference: `scripts/e2e-agent-allowance.ts`
 lines 72–89.
@@ -60,30 +92,33 @@ const allowanceAsset = await nodeSovereign.keymaster.createAsset([signed], { reg
 Output: **3 allowance asset DIDs** (one per agent). I can turn this into a turnkey
 `scripts/provision-agent-allowance.ts` you run against the node-sovereign wallet — say the word.
 
-## Step 2 — repoint + wire, redeploy all three together  ·  OWNER: Aegis (deploy config)
+## Step B2 — wire the allowances onto the signets  ·  OWNER: Aegis (deploy config)
 
-Per agent, set on its services (Aegis maps to the compose):
-- **Warden + Emissary**: `HEARTHOLD_SOVEREIGN_DID = <agent own Sovereign DID>` — the repoint (fixes the
-  emissary misconfig; the Warden reads the same var).
-- **Agent-signet**: `HEARTHOLD_PARENT_DID = …lbedh4sjij3ufa` and
-  `HEARTHOLD_CONTROL_ALLOWANCE_ASSET = <that agent's allowance DID from Step 1>`. (The signet IS the
-  Sovereign via its wallet identity, so it doesn't take `HEARTHOLD_SOVEREIGN_DID`.)
+Per agent's `*-agent-signet` service, **add** (these are not currently on the signets):
+- `HEARTHOLD_PARENT_DID = did:cid:…lbedh4sjij3ufa` (node). Note it currently lives in the
+  `x-agent-warden-env` anchor and reaches only the wardens — it must be **added** to the signet services.
+- `HEARTHOLD_CONTROL_ALLOWANCE_ASSET = <that agent's allowance DID from Step B1>`.
 
-Already in place from #38: `HEARTHOLD_GATE_MODE=agent` and `HEARTHOLD_CONTROL_HOST=0.0.0.0` on the signets.
+The signet takes **no** `HEARTHOLD_SOVEREIGN_DID` — it IS the Sovereign via its wallet identity. Wardens need
+nothing here (already own-Sovereign). Already in place from #38: `HEARTHOLD_GATE_MODE=agent` and
+`HEARTHOLD_CONTROL_HOST=0.0.0.0` on the signets. Redeploy the signets.
 
-Redeploy the three agents **together**.
+## Verify
 
-## Step 3 — verify
-
-- Each **agent-signet** `GET /api/status` → `controlAllowance.bound: true`, `parentDid` = node,
-  `selfApprove` = the decided acts (empty ⇒ present but no acts, `bound:true`).
+**After Track A (repoint):**
 - Each **emissary** status → `sovereignDid` = its OWN Sovereign (no longer the node).
-- **Sevenfold's Table** → composes (signet identity == `sovereignDid`), renders "AI Sovereign ·
-  proof-of-agent · **governed** (child, bound)"; no longer root, no `didcommOnly`.
+- **Sevenfold's Table** → composes (signet identity == `sovereignDid`); renders "AI Sovereign ·
+  proof-of-agent · **root**" (still ungoverned — Part B not done), no longer foreign-excluded, no `didcommOnly`.
+
+**After Part B (allowances):**
+- Each **agent-signet** `GET /api/status` → `gateMode:'agent'`, `controlAllowance` **present** with
+  `parentDid` = node. `bound:false` for the empty-start (CHILD, deny-by-default); `bound:true` + `selfApprove`
+  once acts are granted. Either way, no longer a ROOT (which reports no `controlAllowance`).
+- **Sevenfold's Table** → flips ROOT → **governed** (child); "deny-by-default" for empty, "bound" once widened.
 - `npm run e2e:agent-allowance` still green — the model-level regression guard for within/above/deny/forged.
 
 ## Rollback
 
-Aegis's per-deploy rollback tag (`hearthold:*-rb-<sha>-pre`). Provisioning is additive config + new signed
-assets; reverting the env + redeploying returns to the prior (root) posture, which the honest banner still
-describes truthfully.
+Aegis's per-deploy rollback tag (`hearthold:*-rb-<sha>-pre`). Both tracks are additive config (+ new signed
+assets for Part B); reverting the env + redeploying returns to the prior posture, which the honest banner
+still describes truthfully. Track A and Part B roll back independently.
