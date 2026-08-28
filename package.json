@@ -2,7 +2,7 @@
   "name": "hearthold",
   "version": "0.1.0",
   "private": true,
-  "description": "Hearthold \u2014 a Sovereign First Person's 7th Capital, made safely liquid. Two separated Archon agents: Warden (home Keeper) and Emissary (Companion).",
+  "description": "Hearthold — a Sovereign First Person's 7th Capital, made safely liquid. Two separated Archon agents: Warden (home Keeper) and Emissary (Companion).",
   "type": "module",
   "license": "MIT",
   "workspaces": [
@@ -29,7 +29,7 @@
     "verifier": "node packages/verifier/dist/index.js",
     "registry": "node packages/registry/dist/index.js",
     "test:unit": "node --experimental-strip-types --test packages/core/test/*.test.ts packages/emissary/test/*.test.ts packages/sovereign/test/*.test.ts",
-    "e2e": "npm run e2e:delegation && npm run e2e:submission && npm run e2e:invocation && npm run e2e:multihop && npm run e2e:chain-family && npm run e2e:watch-lineage && npm run e2e:write-cosign && npm run e2e:oracle && npm run e2e:transport-timeout && npm run e2e:durable-drain && npm run e2e:node-capabilities && npm run e2e:foreign-credential && npm run e2e:emissary-module && npm run e2e:capture-fs",
+    "e2e": "npm run e2e:delegation && npm run e2e:submission && npm run e2e:invocation && npm run e2e:multihop && npm run e2e:chain-family && npm run e2e:watch-lineage && npm run e2e:write-cosign && npm run e2e:oracle && npm run e2e:transport-timeout && npm run e2e:durable-drain && npm run e2e:node-capabilities && npm run e2e:foreign-credential && npm run e2e:emissary-module && npm run e2e:capture-fs && npm run e2e:proven-sovereign",
     "e2e:delegation": "npm run build && node --experimental-strip-types scripts/e2e-delegation.ts",
     "e2e:delegation-presentation": "npm run build && node --experimental-strip-types scripts/e2e-delegation-presentation.ts",
     "e2e:submission": "npm run build && node --experimental-strip-types scripts/e2e-submission.ts",
@@ -166,7 +166,8 @@
     "e2e:foreign-credential": "npm run build && node --experimental-strip-types scripts/e2e-foreign-credential.ts",
     "e2e:emissary-module": "npm run build && node --experimental-strip-types scripts/e2e-emissary-module.ts",
     "e2e:capture-fs": "npm run build && node --experimental-strip-types scripts/e2e-capture-fs.ts",
-    "provision:agent-allowance": "npm run build && node --experimental-strip-types scripts/provision-agent-allowance.ts"
+    "provision:agent-allowance": "npm run build && node --experimental-strip-types scripts/provision-agent-allowance.ts",
+    "e2e:proven-sovereign": "npm run build && node --experimental-strip-types scripts/e2e-proven-sovereign.ts"
   },
   "engines": {
     "node": ">=22"

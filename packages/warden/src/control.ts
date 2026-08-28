@@ -38,6 +38,7 @@ import {
   sealForWarden,
   unsealAsWarden,
   GroupTrustRegistry,
+  verifyProvenSovereign,
   type HearthholdConfig,
   type KeymasterHandle,
   type RequestHandler,
@@ -252,6 +253,16 @@ export async function runWardenControl(
       ? `ollama ${config.classifierModel} @ ${config.ollamaUrl}`
       : 'quarantine (model disabled)';
 
+  // The PROVEN Sovereign of record (#40): verify the parent-signed control-allowance ONCE at startup — its
+  // `actor` is this agent's own Sovereign DID, backed by the parent's signature. Computed here (never derived
+  // from config.sovereignDid — that is the self-report the proven field must not launder). Undefined for a
+  // root agent, an unconfigured Warden (no HEARTHOLD_CONTROL_ALLOWANCE_ASSET), or a chain that fails to verify.
+  // Stable unless the allowance is re-provisioned (which is a redeploy), so once is enough.
+  const provenSovereignDid = await verifyProvenSovereign(handle, {
+    parentDid: config.parentDid,
+    controlAllowanceAsset: config.controlAllowanceAsset,
+  }).catch(() => undefined);
+
   const status = async (): Promise<WardenStatus> => ({
     identity: { role: 'warden', name: id.name, did: id.did },
     nodeUrl: config.nodeUrl,
@@ -262,6 +273,7 @@ export async function runWardenControl(
     serving: true,
     authorizationSchemaDid,
     delegationSchemaDid,
+    ...(provenSovereignDid ? { provenSovereignDid } : {}),
   });
 
   // A delegation belongs to the member it serves (`memberDid`), defaulting to the configured Sovereign for

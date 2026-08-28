@@ -393,6 +393,37 @@ export async function activeRuleset(
   return head.status === 'active' ? head : null;
 }
 
+/**
+ * The CRYPTOGRAPHICALLY PROVEN Sovereign of a governed agent — the `#40` proven source (docs/control-types
+ * `TrinityStatus.provenSovereignDid`). For a family agent (its own Sovereign, governed by the node sovereign
+ * as parent), the parent-signed control-allowance is a PARENT ATTESTATION that names the agent as a Sovereign
+ * it governs: its verified `actor` field IS the agent's own Sovereign DID, backed by the parent's signature.
+ *
+ * Returns that actor DID iff the chain verifies under governor-pinning to the PARENT (signature checks, signer
+ * resolves, actor stable) — else `undefined`. It is deliberately NOT "who config says the Sovereign is": a
+ * caller must treat an `undefined` as "unverifiable" and NEVER substitute `config.sovereignDid` (that is the
+ * self-report the `#40` rule demotes; laundering it into a `proven*` field re-opens the trust bug). It reads
+ * the ALLOWANCE's actor (the agent), never its signer (the parent) — the two must not be conflated.
+ *
+ * Cross-registry safe: `verifyRulesetChain` resolves the signer's DID through the gatekeeper regardless of the
+ * allowance's own registry (a `local` allowance signed by a `hyperswarm` parent verifies here). It requires the
+ * parent to be RESOLVABLE, not registry-confirmed — so it proves "signature-verified against a resolvable
+ * parent", the achievable bar on a sealed node that cannot gossip; it does not assert registry anchoring.
+ */
+export async function verifyProvenSovereign(
+  handle: KeymasterHandle,
+  opts: { parentDid?: string; controlAllowanceAsset?: string },
+): Promise<string | undefined> {
+  // A ROOT agent (no parent) or an unconfigured Warden has no parent attestation to verify → unverifiable.
+  if (!opts.parentDid || !opts.controlAllowanceAsset) return undefined;
+  const data = await handle.keymaster.resolveAsset(opts.controlAllowanceAsset).catch(() => null);
+  const chain = Array.isArray(data) ? (data as SignedRuleset[]) : [];
+  if (chain.length === 0) return undefined;
+  const head = await activeRuleset(handle, chain, { expectedSigner: opts.parentDid }).catch(() => null);
+  if (!head) return undefined; // signature / governor-pinning / actor-stability failed → NOT proven
+  return typeof head.actor === 'string' && head.actor ? head.actor : undefined;
+}
+
 /** A single thing a contained actor (a cantrip, a composition, …) wants to do. */
 export interface ActorRequest {
   /** 'read' | 'query' | 'propose' | 'send' | 'write' | … */

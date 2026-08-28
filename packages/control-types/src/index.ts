@@ -145,6 +145,27 @@ export interface WardenStatus {
   authorizationSchemaDid?: string;
   /** The canonical delegation schema DID (issued + challenged by the Warden itself). */
   delegationSchemaDid?: string;
+  /**
+   * The CRYPTOGRAPHICALLY PROVEN Sovereign of record — the `#40` proven source that lets a Trinity view render
+   * a VERIFIED identity instead of "identity unverified" (see `TrinityStatus.sovereignDid` precedence). It is
+   * the verified `actor` of this agent's parent-signed control-allowance (the agent's own Sovereign DID, backed
+   * by the parent's signature — a PARENT attestation, not self-report). Computed custodian-side by verifying the
+   * allowance chain (core `verifyProvenSovereign`); needs a KeymasterHandle, so it can never be computed in a
+   * browser — the whole reason it must live on a status DTO.
+   *
+   * PRODUCER RULE (mirrors `sessionDid` / the `#40` no-launder rule): populate ONLY from a chain that actually
+   * verifies (signature checks, parent signer resolves, actor stable). Leave UNDEFINED when there is no
+   * parent-signed allowance (a root agent), the chain is absent/unreachable, or verification fails — and NEVER
+   * fall back to `config.sovereignDid`; a `proven*` field that silently degrades to the self-report is exactly
+   * the laundering `#40` forbids. Three consumer-distinguishable states result: present-and-agrees-with-the
+   * self-report (proven), present-and-DISAGREES (a loud verified misprovisioning — the record still wins),
+   * absent (unverifiable). Status only — grants no authority.
+   *
+   * Proof level: "signature-verified against a RESOLVABLE parent", not registry-anchored — the achievable bar
+   * on a sealed node whose hyperswarm chain root cannot be gossip-confirmed. Present ⇒ the signature is real;
+   * it does not assert the parent's DID is registry-confirmed.
+   */
+  provenSovereignDid?: string;
 }
 
 export interface WardenSnapshot {
