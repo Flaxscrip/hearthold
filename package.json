@@ -29,7 +29,7 @@
     "verifier": "node packages/verifier/dist/index.js",
     "registry": "node packages/registry/dist/index.js",
     "test:unit": "node --experimental-strip-types --test packages/core/test/*.test.ts",
-    "e2e": "npm run e2e:delegation && npm run e2e:submission && npm run e2e:invocation && npm run e2e:multihop && npm run e2e:chain-family && npm run e2e:watch-lineage && npm run e2e:write-cosign && npm run e2e:oracle && npm run e2e:transport-timeout",
+    "e2e": "npm run e2e:delegation && npm run e2e:submission && npm run e2e:invocation && npm run e2e:multihop && npm run e2e:chain-family && npm run e2e:watch-lineage && npm run e2e:write-cosign && npm run e2e:oracle && npm run e2e:transport-timeout && npm run e2e:durable-drain",
     "e2e:delegation": "npm run build && node --experimental-strip-types scripts/e2e-delegation.ts",
     "e2e:delegation-presentation": "npm run build && node --experimental-strip-types scripts/e2e-delegation-presentation.ts",
     "e2e:submission": "npm run build && node --experimental-strip-types scripts/e2e-submission.ts",
@@ -160,7 +160,8 @@
     "e2e:watch-lineage": "npm run build && node --experimental-strip-types scripts/e2e-watch-lineage.ts",
     "e2e:watch-flow": "npm run build && node --experimental-strip-types scripts/e2e-watch-flow.ts",
     "e2e:write-cosign": "npm run build && node --experimental-strip-types scripts/e2e-write-cosign.ts",
-    "e2e:transport-timeout": "npm run build && node --experimental-strip-types scripts/e2e-transport-timeout.ts"
+    "e2e:transport-timeout": "npm run build && node --experimental-strip-types scripts/e2e-transport-timeout.ts",
+    "e2e:durable-drain": "npm run build && node --experimental-strip-types scripts/e2e-durable-drain.ts"
   },
   "engines": {
     "node": ">=22"
