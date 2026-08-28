@@ -3,10 +3,11 @@
 *How a Sovereign's Blazon fact reaches a party **outside Archon** as a verifiable credential, once
 Archon's credential-exchange-over-DIDComm verbs publish — preserving every Hearthold invariant.*
 
-> **Status:** design note, queued. The delivery verb (`sendCredentialDidComm`) lands with Archon
-> **PR #919** (issue-credential 3.0; client recognition in **#936**), which is **not yet published** —
-> we're pinned to `@didcid/keymaster` 0.6.2. This rides the same publish watch as the durable-drain
-> upgrade (`docs/…` transport note). No behavioural change until then.
+> **Status:** IMPLEMENTED (2026-08). The delivery verbs (`sendCredentialDidComm` / `acceptCredentialDidComm`,
+> issue-credential 3.0) shipped in **`@didcid/keymaster` 0.6.3**. The core primitive is
+> `discloseToForeignVerifier` (`core/credential-delivery.ts`) — a gated mint-and-push — proven end-to-end by
+> `npm run e2e:foreign-credential` against the live node. Still a *publish* transport only: the interactive
+> *prove* path stays Hearthold's own challenge/response (present-proof 3.0 remains deferred).
 
 ## The problem
 
@@ -91,10 +92,11 @@ resolver / public gatekeeper (that's what `uni-resolver-driver-did-cid` exists f
 - **Mint:** the Warden already mints issuer-attested VCs (`core/evidence.ts` / Archon `issueCredential`);
   the Blazon publish surface (`put-doc`/`get-doc`, `warden/kb.ts`) gains a **disclose-to-foreign-DID**
   verb that mints the pairwise-or-stable VC with `validUntil` + a StatusList `credentialStatus`.
-- **Deliver:** `core/credential-delivery.ts` (today's `did:cid` card-pass) gains a **foreign path**
-  calling `keymaster.sendCredentialDidComm` — alongside the existing card-pass for Archon holders.
-- **Gate:** `sendCredentialDidComm` / `acceptCredentialDidComm` live in **#919, unpublished** — adopt
-  when David cuts a release past `@didcid/keymaster` 0.6.2 (same trigger as the durable-drain).
+- **Deliver:** `core/credential-delivery.ts` (alongside the `did:cid` card-pass) now carries the **foreign
+  path** — `discloseToForeignVerifier`, which calls `keymaster.sendCredentialDidComm`.
+- **Gate:** the release ladder is enforced INSIDE `discloseToForeignVerifier` — it calls `decideRelease`
+  first and mints/sends nothing on a deny, so no surface can emit a foreign VC without crossing the ladder
+  (verified by `e2e:foreign-credential`, the deny-by-default case).
 
 ## Why it fits
 
