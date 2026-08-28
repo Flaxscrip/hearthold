@@ -372,6 +372,10 @@ export async function runEmissaryControl(
           job.reject(e instanceof Error ? e : new Error(String(e)));
         }
       }
+      // TODO(durable-drain): this bespoke reader is still DESTRUCTIVE (default ack). A crash between this read
+      // and persisting an inbound chain-grant (`held.put`) below loses the grant. Adopt the same pattern the
+      // core transport now uses — `receiveDidComm({ ack: false })` + `ackDidComm(ids)` after the grant is
+      // durably stored (see packages/core/src/transport.ts and scripts/e2e-durable-drain.ts). Follow-up PR.
       let inbound: Awaited<ReturnType<typeof handle.keymaster.receiveDidComm>> = [];
       try {
         inbound = await handle.keymaster.receiveDidComm({ name });

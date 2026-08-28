@@ -162,11 +162,19 @@ export class DidCommTransport implements Transport {
     }
   }
 
-  // `receiveDidComm` is destructive, so there must be exactly ONE reader of the mailbox. This single
-  // loop serves both roles: it resolves replies to in-flight requests (matched by `thid`) and
-  // dispatches incoming requests to the handler. Handlers run WITHOUT blocking the loop, so a handler
-  // that itself awaits a reply (an approver / relay) can't deadlock the sole reader.
+  // DURABLE DRAIN (@didcid 0.6.3): the loop reads NON-destructively (`receiveDidComm({ack:false})` — each
+  // result carries its mailbox `id`) and ACKs a message (`ackDidComm`) only once it is DURABLY handled — a
+  // reply resolved to its waiter, or a serving handler run to completion. A crash between read and handling
+  // therefore loses nothing: the un-acked message stays on the relay and is redelivered next read (the
+  // server TTL is the backstop). At-least-once, not at-most-once — the right trade for a custody system,
+  // where a lost submission is worse than a rare duplicate.
+  //
+  // There must still be exactly ONE reader of the mailbox. This single loop serves both roles: it resolves
+  // replies (matched by `thid`) and dispatches incoming requests to the handler. Handlers run WITHOUT
+  // blocking the loop. `inFlight` holds the ids of messages whose async handler hasn't finished yet, so a
+  // re-read (the same un-acked message returned on the next poll) is NOT dispatched twice.
   private readonly pending = new Map<string, (m: HearthholdMessage) => void>();
+  private readonly inFlight = new Set<string>();
   private handler: RequestHandler | null = null;
   private loopRunning = false;
   private keepDraining = false;
@@ -181,34 +189,49 @@ export class DidCommTransport implements Transport {
     if (this.loopRunning) return;
     this.loopRunning = true;
     void (async () => {
-      while (this.keepDraining || this.handler || this.pending.size > 0) {
+      while (this.keepDraining || this.handler || this.pending.size > 0 || this.inFlight.size > 0) {
         let inbound: Awaited<ReturnType<typeof this.handle.keymaster.receiveDidComm>> = [];
         try {
-          inbound = await this.handle.keymaster.receiveDidComm({ name: this.idName });
+          // Non-destructive: messages stay on the relay until we ackDidComm them (below).
+          inbound = await this.handle.keymaster.receiveDidComm({ name: this.idName, ack: false });
         } catch (err) {
-          // DO NOT swallow: a fetched message that fails to unpack (can't authdecrypt, or can't verify/resolve
-          // the sender) is consumed from the mailbox but never dispatched — a silent drop that looks like a
-          // hang to the sender. Name the cause so it's diagnosable (Aegis's ask), then keep the loop alive.
+          // DO NOT swallow: name the cause (Aegis's ask), then keep the loop alive. Un-acked messages remain
+          // on the relay, so a fetch failure loses nothing — the next read retries them.
           process.stderr.write(
             `[didcomm] ${this.idName}: receiveDidComm/unpack FAILED — ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`,
           );
           inbound = [];
         }
 
+        // Ack ids we resolve/drop SYNCHRONOUSLY within this pass (replies, poison) as a batch at the end.
+        // Requests are handled async and self-ack when their handler completes (see below).
+        const doneNow: string[] = [];
+        const ack = (ids: string[]): Promise<void> =>
+          ids.length === 0
+            ? Promise.resolve()
+            : this.handle.keymaster.ackDidComm(ids, { name: this.idName }).then(() => undefined).catch(() => undefined);
+
         for (const m of inbound) {
+          const id = (m as { id?: string }).id;
+          // A message still being handled from a prior poll (its async handler hasn't acked yet) — skip it,
+          // don't dispatch twice. (The single-reader invariant means no other reader will take it either.)
+          if (id && this.inFlight.has(id)) continue;
+
           const wrapped = m.message as { thid?: string; body?: HearthholdMessage };
           const body = wrapped?.body;
           const thid = wrapped?.thid;
           if (!body?.type) {
             process.stderr.write(`[didcomm] ${this.idName}: dropped a fetched message with no usable body (unpacked but empty) — investigate the sender's pack\n`);
+            if (id) doneNow.push(id); // poison — ack-drop so it doesn't redeliver forever
             continue;
           }
 
-          // A reply to one of our in-flight requests — hand it to the waiter.
+          // A reply to one of our in-flight requests — hand it to the waiter, then ack (consumed).
           if (thid && this.pending.has(thid)) {
             const resolve = this.pending.get(thid);
             this.pending.delete(thid);
             resolve?.(body);
+            if (id) doneNow.push(id);
             continue;
           }
 
@@ -220,33 +243,51 @@ export class DidCommTransport implements Transport {
           // is this `fromDid`.
           const authenticated = m.metadata?.authenticated === true;
           const fromDid = authenticated ? bareDid(m.metadata?.sender) : '';
-          if (!h || !fromDid) {
-            // A body with no resolvable AUTHENTICATED sender = the authcrypt sender couldn't be
-            // verified/resolved — the likely cause of a silent submit drop. Surface it (but stay quiet when
-            // we simply aren't serving).
-            if (h && !authenticated && m.metadata?.sender) {
-              process.stderr.write(`[didcomm] ${this.idName}: dropped '${body.type}' — envelope not authcrypt-authenticated (sender not trusted)\n`);
-            } else if (h && !fromDid) {
-              process.stderr.write(`[didcomm] ${this.idName}: dropped '${body.type}' — no verified sender (authcrypt sender unresolved)\n`);
-            }
+          if (!h) {
+            // Not serving yet — LEAVE it on the relay (don't ack) so a future serving reader gets it. This is
+            // the whole point of durable drain: a request that arrives before we're serving is not lost.
             continue;
           }
+          if (!fromDid) {
+            // Serving, but the authcrypt sender couldn't be verified/resolved — a poison message THIS (sole)
+            // reader can never dispatch. Surface it and ack-drop (else it redelivers forever until TTL).
+            if (!authenticated && m.metadata?.sender) {
+              process.stderr.write(`[didcomm] ${this.idName}: dropped '${body.type}' — envelope not authcrypt-authenticated (sender not trusted)\n`);
+            } else {
+              process.stderr.write(`[didcomm] ${this.idName}: dropped '${body.type}' — no verified sender (authcrypt sender unresolved)\n`);
+            }
+            if (id) doneNow.push(id);
+            continue;
+          }
+          // Dispatch + ack-AFTER-handle: a crash before the handler's durable work completes leaves the
+          // message on the relay for redelivery. `inFlight` guards against re-dispatch while it runs.
+          if (id) this.inFlight.add(id);
           void (async () => {
             let reply: HearthholdMessage | null = null;
+            let handled = false;
             try {
               reply = await h(body, fromDid);
+              // A normal return IS handling — even a `null` (a decline / no-reply) is a decision, so ack it.
+              // Only an EXCEPTION means the handler did not take responsibility → leave it for redelivery.
+              handled = true;
             } catch {
-              reply = null;
+              handled = false;
             }
             if (reply) {
               await this.handle.keymaster
                 .sendDidComm({ type: reply.type, thid, body: reply }, fromDid, { name: this.idName })
                 .catch(() => undefined);
             }
+            // Ack ONLY on a clean handle (at-least-once): a thrown handler leaves the message on the relay so
+            // the next read redelivers it; the server TTL is the final backstop for a persistently-poison one.
+            if (id && handled) await ack([id]);
+            if (id) this.inFlight.delete(id);
           })();
         }
 
-        if (this.keepDraining || this.handler || this.pending.size > 0) await sleep(pollMs);
+        await ack(doneNow);
+
+        if (this.keepDraining || this.handler || this.pending.size > 0 || this.inFlight.size > 0) await sleep(pollMs);
       }
       this.loopRunning = false;
     })();
