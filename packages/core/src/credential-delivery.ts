@@ -27,6 +27,7 @@ import type { Transport, RequestHandler } from './transport.js';
 import type { GatekeeperEvent } from '@didcid/gatekeeper/types';
 import type { DmzSession } from './dmz.js';
 import { buildIssuedLeaf, type IssuedLeaf, type ResolvedCredential } from './issued.js';
+import { decideRelease, type ReleaseContext } from './security.js';
 import {
   PROTOCOL_VERSION,
   type CredentialDeliveryMessage,
@@ -341,4 +342,106 @@ export function makeCredentialDeliveryHandler(
       };
     }
   };
+}
+
+// ── Foreign-verifier path (issue-credential 3.0 · @didcid 0.6.3) ──────────────────────────────────────────
+//
+// The card-pass path above ships raw ops for an ARCHON holder to import + accept into a wallet. This path is
+// for a subject OUTSIDE Archon. It carries the SIGNED CREDENTIAL ITSELF as an issue-credential/3.0 attachment
+// (`keymaster.sendCredentialDidComm`), and the recipient trusts it by resolving the ISSUER's `did:cid` and
+// checking the proof — no wallet, no op-import, no shared registry. This is the Blazon *publish* transport
+// (`docs/blazon-didcomm-disclosure.md`): the interop route for Hearthold-issued evidence to reach a
+// non-Archon verifier. `sendCredentialDidComm` is publish, NOT a replacement for the interactive *prove*
+// path (challenge/response), which stays ours.
+
+export interface ForeignDisclosureArgs {
+  /** The DIDComm recipient — the foreign agent's inbox DID (what the issue-credential message is sent `to`). */
+  toDid: string;
+  /**
+   * The subject the fact is ABOUT (`credentialSubject.id`): the foreign agent's own identifier (a
+   * `did:web` / `did:key` / …), a pairwise DID, or a public Blazon DID. A NON-`did:cid` subject makes this a
+   * genuine foreign issue — `issueCredential` encrypts-to-issuer and embeds the asset `id` under the proof,
+   * so the VC is self-contained and portable to a holder that is not on Archon.
+   */
+  subjectDid: string;
+  /** The Archon schema DID the fact conforms to. */
+  schemaDid: string;
+  /** The disclosed claims — the Warden's issuer-attested fact. */
+  claims: Record<string, unknown>;
+  /**
+   * Short-lived by design: a push is a snapshot, not a live proof, so it expires and the verifier re-checks.
+   * ISO-8601; strongly recommended for a foreign disclosure.
+   */
+  validUntil?: string;
+  /** Optional human-readable comment carried in the issue-credential message body. */
+  comment?: string;
+}
+
+export interface ForeignDisclosureResult {
+  /** Whether the release ladder allowed the disclosure. When false, NOTHING was minted or sent. */
+  released: boolean;
+  /** The `decideRelease` reason (allow or deny), surfaced for audit. */
+  reason: string;
+  /** The issued VC's asset DID — present iff `released`. This is what the recipient resolves to verify. */
+  credentialDid?: string;
+}
+
+/**
+ * Issuer side (Warden): mint an issuer-attested VC for a subject that may be OUTSIDE Archon and push it
+ * WHOLE to `toDid` over DIDComm's issue-credential/3.0.
+ *
+ * Deny-by-default: the disclosure MUST clear `decideRelease(release)` FIRST, and the gate is INSIDE this
+ * path — no caller can emit a foreign VC without crossing the ladder (a sensitive field is refused unless
+ * the passed `tier` already reflects the Sovereign co-sign that cleared it; `decideRelease` is pure, the
+ * step-up is the caller's job and its RESULT is the tier here). On denial this returns `{released:false}`
+ * having minted and sent nothing.
+ *
+ * Choosing the recipient here is not a confused deputy: this is the owner disclosing her own fact by her own
+ * act (the Blazon publish), not a delegated agent forging-for-a-peer — that guard lives on the *prove* path.
+ */
+export async function discloseToForeignVerifier(
+  issuer: KeymasterHandle,
+  issuerName: string,
+  release: ReleaseContext,
+  args: ForeignDisclosureArgs,
+): Promise<ForeignDisclosureResult> {
+  const decision = decideRelease(release);
+  if (!decision.allow) {
+    // Fail closed BEFORE any mint/send — a denied disclosure leaves no trace on the wire or the registry.
+    return { released: false, reason: `release denied: ${decision.reason}` };
+  }
+
+  const km = issuer.keymaster;
+
+  // use-id guard (same reasoning as deliverCredential): setCurrentId returns false for an unknown name
+  // instead of throwing, so a typo'd issuer would silently sign as whoever is current. Fail loud.
+  const ids = await km.listIds();
+  if (!ids.includes(issuerName)) {
+    throw new Error(
+      `discloseToForeignVerifier: unknown issuer identity '${issuerName}' (wallet has: ${ids.join(', ') || 'none'})`,
+    );
+  }
+  await km.setCurrentId(issuerName);
+
+  // Mint the issuer-attested VC. A non-`did:cid` subject ⇒ issueCredential encrypts-to-issuer and embeds the
+  // asset id under the proof (#108), so the credential is self-contained and verifiable off-network.
+  const bound = await km.bindCredential(args.subjectDid, {
+    schema: args.schemaDid,
+    validUntil: args.validUntil,
+    claims: args.claims,
+  });
+  const credentialDid = await km.issueCredential(bound, {
+    schema: args.schemaDid,
+    validUntil: args.validUntil,
+  });
+
+  // Deliver the SIGNED CREDENTIAL ITSELF, addressed to the foreign DID. Verification is the recipient's job:
+  // resolve the issuer's did:cid (any Universal Resolver with the did:cid driver), check the proof — never
+  // the sender's word, never a gateway's.
+  await km.sendCredentialDidComm(credentialDid, args.toDid, {
+    name: issuerName,
+    ...(args.comment ? { comment: args.comment } : {}),
+  });
+
+  return { released: true, reason: decision.reason, credentialDid };
 }
