@@ -77,7 +77,10 @@ async function main(): Promise<void> {
     };
     check('GET /api/introspect → ok', j.ok === true);
     check('reports the real identity DID', j.identity?.did === id.did);
-    check('reports node capabilities (live node: didcomm:true)', j.nodeCapabilities?.didcomm === true);
+    // Node-version-agnostic: a newer node advertises {didcomm:true}; an older node (0.11.0 gatekeeper) has no
+    // capabilities endpoint → null, which is the permissive "supported" case. Both are a pass.
+    const caps = j.nodeCapabilities;
+    check('reports node capabilities (advertised didcomm:true, or null on an older node — both fine)', caps === null || caps.didcomm === true);
     check('loadout is enumerable via the API', JSON.stringify(j.loadout) === JSON.stringify(['introspect', 'demo']));
     const introMan = j.manifest?.find((m) => m.name === 'introspect');
     check('manifest names the introspect route', JSON.stringify(introMan?.routes) === JSON.stringify(['GET /api/introspect']));
