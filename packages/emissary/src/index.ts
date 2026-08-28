@@ -12,12 +12,15 @@ import {
   DidCommTransport,
   IDENTITY_NAME,
   PROTOCOL_VERSION,
+  presentProof,
   revokeStatusIndex,
   type WitnessSubmission,
   type Sensitivity,
   type WitnessKind,
+  type ChallengeResponseMessage,
 } from '@hearthold/core';
 
+import { crawlDirectory } from './modules/capture-fs.js';
 import { makeEmissaryProjectorHandler } from './handler.js';
 import { makeKbRelayHandler } from './kb-relay.js';
 import { startKbPortalServer } from './kb-portal-server.js';
@@ -33,6 +36,10 @@ Usage:
   emissary accept <credDid>     Accept a delegation credential from the Warden
   emissary submit <kind> <text> Seal an observation and submit it to the Warden over DIDComm
   emissary submit-image <path>  Submit an image; the Warden captions it on-device, then classifies
+  emissary crawl <dir> [--dry-run]
+                                capture:fs — walk a directory and submit a derived summary + metadata + hash
+                                per text file to the Warden (never the body bytes); the Warden classifies
+                                on-device and quarantines each until you confirm
   emissary invoke <claim...> [kind=location] [target=…]
                                 Present the scope capability to PROVE a fact — the Warden mints a signed
                                 evidence graph (sensitive claims step up to the Signet)
@@ -175,6 +182,47 @@ async function main(): Promise<void> {
         process.stderr.write(`Unexpected reply: ${reply.type}\n`);
         process.exitCode = 1;
       }
+      break;
+    }
+    // capture:fs — walk a directory, submit a derived summary + metadata + hash per text file to the Warden.
+    // The RAW CONTENT never leaves this process; the Warden classifies on-device and quarantines each item.
+    case 'crawl': {
+      const dir = process.argv[3];
+      const dryRun = process.argv.includes('--dry-run');
+      if (!dir || dir.startsWith('-')) throw new Error('usage: emissary crawl <dir> [--dry-run]');
+      const wardenDid = config.wardenDid;
+      if (!wardenDid) throw new Error('HEARTHOLD_WARDEN_DID is required for crawl');
+
+      const transport = new DidCommTransport(handle, IDENTITY_NAME.emissary, config.nodeUrl);
+      await transport.ready();
+
+      // Present the delegation per submission the same way the daemon does: request a fresh challenge from the
+      // Warden, accept any credential it hands back (idempotent), then sign the challenge with the delegation.
+      const presentDelegation = async (): Promise<string | undefined> => {
+        const reply = await transport.request(
+          wardenDid,
+          { type: 'hearthold/challenge-request', version: PROTOCOL_VERSION, purpose: 'delegation' },
+          { timeoutMs: 30_000 },
+        );
+        if (reply.type !== 'hearthold/challenge-response') return undefined;
+        for (const cid of (reply as ChallengeResponseMessage).acceptCredentials ?? []) {
+          await handle.keymaster.acceptCredential(cid).catch(() => undefined);
+        }
+        const challenge = (reply as ChallengeResponseMessage).challenge;
+        return challenge ? presentProof(handle, challenge) : undefined;
+      };
+
+      process.stdout.write(`capture:fs — crawling ${dir}${dryRun ? ' (dry-run)' : ''} → Warden ${wardenDid.slice(0, 24)}…\n`);
+      const report = await crawlDirectory({ handle, wardenDid, transport, presentDelegation }, { root: dir, dryRun });
+      for (const f of report.files) {
+        if (f.artefactId) process.stdout.write(`  ✓ ${f.relPath}  → ${f.artefactId.slice(0, 20)}…  (${f.summary})\n`);
+        else if (f.summary && dryRun) process.stdout.write(`  · ${f.relPath}  (${f.summary})\n`);
+        else process.stdout.write(`  – ${f.relPath}  skipped: ${f.skipped}\n`);
+      }
+      process.stdout.write(
+        `\n${dryRun ? 'Would submit' : 'Submitted'} ${dryRun ? report.files.filter((f) => f.summary).length : report.submitted} of ${report.scanned} scanned` +
+          `${dryRun ? '' : ` (${report.skipped} skipped)`} — each quarantined born-obsidian until the Sovereign confirms in triage.\n`,
+      );
       break;
     }
     case 'invoke': {

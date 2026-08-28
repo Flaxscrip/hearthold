@@ -93,7 +93,7 @@ class Emissary {
 | `capture:web` | fetch + read web content into the KB (inbound) | planned | `capture` + a web adapter |
 | `capture:didcomm-in` | drain inbound DIDComm messages into the KB (inbound) | planned | `capture` + durable-drain reader |
 | `capture:phone` | phone / device data intake (inbound) | planned | `capture` + a device adapter |
-| `capture:fs` | file-system scanner → classify into the KB (inbound) | planned | `capture` + an fs adapter |
+| `capture:fs` | file-system scanner → derived summary+hash per file → Warden (inbound) | **built** | `capture` + `sealForWarden` |
 | `disclose:foreign` | issue + push a signed VC to a non-Archon verifier (outbound) | built (core primitive) | `discloseToForeignVerifier` / `sendCredentialDidComm` |
 | `payments` | invoices / zaps | planned | `addLightning`, Lightning |
 | `messaging` | direct messages / notifications | planned | `addNostr`, dmail |
@@ -105,6 +105,17 @@ untrusted (→ Warden classifies fail-safe `SEALED`). `disclose:foreign` is the 
 its core primitive shipped (`core/credential-delivery.ts`), and wiring it into a module is the point where a
 genuine `ReleaseContext` + pairwise-vs-stable subject choice must be gate-reviewed (see
 `blazon-didcomm-disclosure.md`).
+
+**`capture:fs` — the first built `capture:*` variant** (`emissary/src/modules/capture-fs.ts`, CLI
+`emissary crawl <dir>`, `e2e:capture-fs`). It walks a directory and, per text file, derives a summary + the
+file's structural index (headings / symbol names) + metadata + a `sha256`, seals THAT to the Warden and
+submits it as a `WitnessSubmission{kind:'document'}` — **the body bytes never leave the process** (pinned by
+`capture-fs.test.ts` and the e2e's decrypt-and-check). It respects the Emissary boundary exactly: it holds a
+delegation and submits to the Warden's **personal vault** (born-obsidian, `SEALED`, quarantined until the
+Sovereign admits) — it does NOT write a KB space, which needs a member/Sovereign signature. The Warden's
+on-device classifier does the sensitivity call; the crawler only proposes. Follow-ups: an Ollama-backed
+paraphrasing summarizer behind the same `FileSummarizer` seam; image/PDF adapters; wiring the module into the
+live daemon (it runs one-shot today, since `runEmissaryControl` doesn't yet compose `Emissary.routes()`).
 
 Each capability has a reference implementation in the Archon web/react-native wallet, so building a
 module is: wrap a proven Keymaster capability, give it a DIDComm and/or HTTP face, and attach its policy.
