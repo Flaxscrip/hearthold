@@ -55,7 +55,7 @@ import type {
 import { makeSovereignHandler } from './handler.js';
 import { HttpGate } from './http-gate.js';
 import { type SignetGate, type ApprovalContext } from './signet.js';
-import { buildAgentGate } from './agent-gate.js';
+import { buildAgentGate, agentControlAllowanceSummary } from './agent-gate.js';
 import { CapabilityGrantStore, grantCapability, mintRootGrant, revokeCapability, grantState, type CapabilityGrant } from './capability-grants.js';
 import { LineageStore } from './lineage-store.js';
 
@@ -92,13 +92,9 @@ export async function runSovereignControl(
   const gate: SignetGate = agentBuild ? agentBuild.gate : new HttpGate(config.signetPin ?? '');
 
   // Boot posture — honest about what is enforced (docs/agentgate-allowance.md §"Honest UI becomes honest enforcement").
-  let controlAllowanceSummary: SignetStatus['controlAllowance'];
+  // The summary is built by the SHARED assembler so this HTTP surface and the agent-signet daemon never drift.
+  const controlAllowanceSummary = agentControlAllowanceSummary(agentBuild, config);
   if (agentBuild?.isChild) {
-    controlAllowanceSummary = {
-      bound: agentBuild.bound,
-      ...(config.parentDid ? { parentDid: config.parentDid } : {}),
-      ...(agentBuild.allowance?.selfApprove ? { selfApprove: agentBuild.allowance.selfApprove } : {}),
-    };
     if (agentBuild.bound) {
       const acts = (agentBuild.allowance?.selfApprove ?? [])
         .map((e) => e.action + (e.resourcePrefix ? `:${e.resourcePrefix}` : ''))

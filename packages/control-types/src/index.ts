@@ -796,11 +796,20 @@ export interface EmissarySnapshot {
  *  down independently. `did` is present only when the role answered (from its own `status.identity.did`). */
 export interface TrinityRoleReachability {
   role: 'warden' | 'signet' | 'emissary';
-  /** The control-plane base URL probed (e.g. http://127.0.0.1:4310). */
+  /** The control-plane base URL probed (e.g. http://127.0.0.1:4310). Empty when the role has no HTTP surface. */
   url: string;
+  /** True iff an HTTP status route answered. False for both a genuine failure AND a `didcommOnly` role. */
   reachable: boolean;
   did?: string;
-  /** Populated when `reachable` is false — why the probe failed (for an honest "down" render). */
+  /**
+   * A THIRD outcome beyond up/down: the role serves correctly over DIDComm and has NO HTTP status surface BY
+   * DESIGN — an **agent-signet** is DIDComm-only. This is NOT a failure; `reachable` is false only because
+   * there is no HTTP to read. A consumer MUST check this BEFORE `reachable`: `didcommOnly` ⇒ render
+   * "DIDComm-only" (healthy, posture sourced elsewhere), NEVER "down". Rendering it as down is the mirror of
+   * the pre-#24 banner bug — a healthy component reported as failed.
+   */
+  didcommOnly?: boolean;
+  /** Populated when `reachable` is false AND `didcommOnly` is not — why the probe genuinely failed. */
   error?: string;
 }
 
@@ -813,15 +822,26 @@ export interface TrinityRoleReachability {
  * Each per-role status is present only when that role answered; `reach` always lists all three, so a role
  * that is down still renders as down rather than vanishing.
  *
+ * COMPOSITION RULE (anti-fabrication, load-bearing). A Trinity serves exactly ONE Sovereign. The Signet
+ * bound here MUST be the signet whose `identity.did === sovereignDid` — bind by DID-EQUALITY, never by URL
+ * or port convention. If the only reachable signet has a DIFFERENT identity than `sovereignDid` (e.g. a
+ * Table pointed at the NODE sovereign's human signet while the warden/emissary serve an agent Sovereign),
+ * that is a MIXED-identity Trinity — do NOT compose it; leave `signet` absent and render the Signet role as
+ * "gate unknown". Substituting a different-identity signet is the fabricated-authority failure this whole
+ * shape exists to prevent.
+ *
  * NOTE — authority is NOT uniform across the Trinity's Signet: a human Signet gates with proof-of-human
- * (leveled: L1 MEDIUM/HIGH, L2 SEALED), an AI's with proof-of-agent (flat L1, self-approval). A consumer
- * rendering approvals MUST carry each approval's `method` (pin | agent) + level and never present an agent
- * self-approval as a proof-of-human co-sign. (The Signet's gate mode is not yet on `SignetStatus`; surfacing
- * it there is paired with the AgentGate allowance-enforcement work.)
+ * (leveled: L1 MEDIUM/HIGH, L2 SEALED), an AI's with proof-of-agent (flat L1, self-approval within its
+ * parent-signed control-allowance). `SignetStatus.gateMode` ('human' | 'agent') now carries this, and a
+ * consumer rendering approvals MUST carry each approval's `method` (pin | agent) + level and never present
+ * an agent self-approval as a proof-of-human co-sign. An **agent Sovereign's** own signet is an agent-signet
+ * that is DIDComm-only (no HTTP) — its `reach` entry is `didcommOnly`, and its `gateMode='agent'` posture is
+ * read from its status surface once exposed, not inferred from a human signet on the node.
  */
 export interface TrinityStatus {
   /** The Sovereign this Trinity serves — human or AI. From the Warden/Emissary `sovereignDid`, or the bound
-   *  identity when this Trinity IS a Sovereign's own. */
+   *  identity when this Trinity IS a Sovereign's own. The Signet is bound by DID-equality to THIS (see the
+   *  COMPOSITION RULE above); never compose a signet whose identity differs from it. */
   sovereignDid?: string;
   warden?: WardenStatus;
   signet?: SignetStatus;

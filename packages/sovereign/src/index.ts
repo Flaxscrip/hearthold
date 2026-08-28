@@ -12,6 +12,7 @@ import {
   IssuedStore,
   DidCommTransport,
   IDENTITY_NAME,
+  startControlServer,
   publishMailboxPointer,
   ensureSchema,
   openSchema,
@@ -26,7 +27,7 @@ import {
 import { makeSovereignHandler } from './handler.js';
 import { PromptGate } from './signet.js';
 import { runSovereignControl } from './control.js';
-import { buildAgentGate } from './agent-gate.js';
+import { buildAgentGate, agentSignetStatus } from './agent-gate.js';
 import { CapabilityGrantStore, grantCapability, revokeCapability, grantState } from './capability-grants.js';
 
 const SENS_NAMES = ['PUBLIC', 'LOW', 'MEDIUM', 'HIGH', 'SEALED'];
@@ -156,15 +157,31 @@ async function main(): Promise<void> {
         );
       });
       const stop = await transport.serve(makeSovereignHandler(handle, build.gate, reopenSovereign, config.wardenDid));
+
+      // Read-only STATUS surface. Approvals stay on the DIDComm gate above (an agent self-approves within its
+      // parent-signed allowance and escalates over DIDComm — it has no proof-of-human to give over HTTP); this
+      // exposes ONLY GET /api/status so a Table can read the agent's gate posture (gateMode='agent' +
+      // controlAllowance) by DID-equality. NEVER add an approval route here — that is the no-credential-over-HTTP
+      // line. If even this port isn't bridged, the Trinity view falls back to `didcommOnly` (control-types).
+      const statusPort = Number(process.env.HEARTHOLD_CONTROL_PORT ?? 4311);
+      const statusServer = startControlServer({
+        port: statusPort,
+        host: config.controlHost,
+        allowOrigins: config.controlAllowOrigins,
+        routes: { 'GET /api/status': () => ({ status: agentSignetStatus(id, config, build) }) },
+      });
+
       const posture = !build.isChild
         ? 'ROOT agent — no parent; SELF-APPROVES every act (correct only for a root Sovereign)'
         : build.bound
           ? 'CHILD — parent-signed allowance BOUND + live-enforced; above-scope escalates to the parent (proof-of-human)'
           : 'CHILD — DENY-BY-DEFAULT: no allowance bound; self-approves nothing above standing, every act escalates to the parent';
       process.stdout.write(
-        `Agent Signet serving over DIDComm (AgentGate — ${posture}).\n  did: ${id.did}\n  (Ctrl-C to stop)\n`,
+        `Agent Signet serving over DIDComm (AgentGate — ${posture}).\n  did: ${id.did}\n` +
+          `  status (read-only): http://${config.controlHost}:${statusPort}/api/status\n  (Ctrl-C to stop)\n`,
       );
       const shutdown = (): void => {
+        statusServer.close();
         stop();
         process.exit(0);
       };
