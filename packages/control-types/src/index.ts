@@ -839,9 +839,22 @@ export interface TrinityRoleReachability {
  * read from its status surface once exposed, not inferred from a human signet on the node.
  */
 export interface TrinityStatus {
-  /** The Sovereign this Trinity serves — human or AI. From the Warden/Emissary `sovereignDid`, or the bound
-   *  identity when this Trinity IS a Sovereign's own. The Signet is bound by DID-equality to THIS (see the
-   *  COMPOSITION RULE above); never compose a signet whose identity differs from it. */
+  /**
+   * The Sovereign this Trinity serves — human or AI. The Signet is bound by DID-equality to THIS (COMPOSITION
+   * RULE above), so where it comes from is load-bearing. SOURCE-OF-RECORD PRECEDENCE (strongest first) — the
+   * SAME proven-vs-self-reported discipline `WardenStatus.sessionDid` already enforces (never trust the
+   * configured fallback as identity):
+   *   1. PROVEN — the authenticated session (`sessions.resolve`) when the Table is a Sovereign's OWN Trinity;
+   *      ultimately the signer of the Warden's Sovereign-signed Ruleset (cryptographic ground truth).
+   *   2. SELF-REPORTED — a `WardenStatus`/`EmissaryStatus` `sovereignDid`. This is UNAUTHENTICATED config on
+   *      the agents (the Warden reads `config.sovereignDid`; the Emissary is the world-facing, most-exposed
+   *      member), so it is a display hint + CROSS-CHECK ONLY, never the authority. When it disagrees with a
+   *      proven source, that is the AGENT's misprovisioning to SURFACE — not grounds to exclude a signet whose
+   *      identity matches the proven Sovereign. Use a self-report as the record only when NO proven source
+   *      exists, and then render it as unverified.
+   * Making a world-facing agent's self-report the authority is the failure that silently flips a correct
+   * signet to "foreign" when that one config value is wrong.
+   */
   sovereignDid?: string;
   warden?: WardenStatus;
   signet?: SignetStatus;
