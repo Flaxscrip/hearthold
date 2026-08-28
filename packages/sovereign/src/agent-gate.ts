@@ -32,6 +32,10 @@ import {
 
 import { AgentGate, type ApprovalContext } from './signet.js';
 
+// The pure status assemblers live in a type-only module so they're unit-testable without loading the gate
+// class; re-exported here so callers keep importing them from `./agent-gate.js`.
+export { agentControlAllowanceSummary, agentSignetStatus } from './signet-status.js';
+
 export interface AgentGateBuild {
   /** The wired gate — bounded (child) or plain self-approving (root). */
   gate: AgentGate;
