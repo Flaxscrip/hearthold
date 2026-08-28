@@ -84,6 +84,7 @@ class Emissary {
 
 | Module | What it does | Status | Underlying Keymaster capability |
 |---|---|---|---|
+| `introspect` | self-describe: identity + enumerable loadout/manifest + bound-node capabilities (`GET /api/introspect`) | **built** (first module) | node-capability discovery |
 | `didcomm` | the DIDComm endpoint (send/receive, correlation) | built (base) | DIDComm pack/unpack |
 | `capture` | seal + submit observations to the Warden | built | encrypt-to-DID |
 | `query` | relay a KB query to the Warden (recall) + its portal face | built | DIDComm relay |
@@ -136,9 +137,17 @@ and shrink to a thin client.
 
 ## Path (incremental, not a framework)
 
-1. Extract the runtime + module registry from the current Emissary.
+1. **DONE** — the runtime + module registry now exist as an **additive** seam (`src/module.ts`:
+   `CapabilityModule` + `Emissary`), landed alongside the working `runEmissaryControl` (which is untouched)
+   rather than extracted from it. `use()` composes and refuses name / route / message-type collisions up
+   front; `routes()` and `handler()` feed the merged surfaces to the existing control-server / transport.
+   The first module, **`introspect`** (`src/modules/introspect.ts`), ships on it — realizing the
+   "explicit and enumerable powers" thesis (`GET /api/introspect` reports the loadout + manifest + node
+   capabilities). Covered by `packages/emissary/test/module.test.ts` (registry) and
+   `scripts/e2e-emissary-module.ts` (compose + serve, live node).
 2. Convert the existing capabilities (`capture`, `query`, `proof-relay`, `auth`) into modules with no
-   behaviour change — they already are self-contained, this only formalizes the seam.
+   behaviour change — they already are self-contained, this only formalizes the seam. The durable-drain
+   inbound reader (now crash-safe) becomes the `capture:didcomm-in` module.
 3. Add new capabilities as modules from the start — beginning with the `auth` module gaining a
    registry-driven assurance step-up (an out-of-band Sovereign approval for higher-stakes actions).
 4. Layer in `payments`, `messaging`, and `theming` as the need arises.

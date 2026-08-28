@@ -10,6 +10,8 @@
   "exports": {
     ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
     "./control": { "types": "./dist/control.d.ts", "import": "./dist/control.js" },
+    "./module": { "types": "./dist/module.d.ts", "import": "./dist/module.js" },
+    "./modules/introspect": { "types": "./dist/modules/introspect.d.ts", "import": "./dist/modules/introspect.js" },
     "./invoke": { "types": "./dist/invoke.d.ts", "import": "./dist/invoke.js" },
     "./chain": { "types": "./dist/chain.d.ts", "import": "./dist/chain.js" },
     "./handler": { "types": "./dist/handler.d.ts", "import": "./dist/handler.js" },

@@ -28,8 +28,8 @@
     "sovereign": "node packages/sovereign/dist/index.js",
     "verifier": "node packages/verifier/dist/index.js",
     "registry": "node packages/registry/dist/index.js",
-    "test:unit": "node --experimental-strip-types --test packages/core/test/*.test.ts",
-    "e2e": "npm run e2e:delegation && npm run e2e:submission && npm run e2e:invocation && npm run e2e:multihop && npm run e2e:chain-family && npm run e2e:watch-lineage && npm run e2e:write-cosign && npm run e2e:oracle && npm run e2e:transport-timeout && npm run e2e:durable-drain && npm run e2e:node-capabilities && npm run e2e:foreign-credential",
+    "test:unit": "node --experimental-strip-types --test packages/core/test/*.test.ts packages/emissary/test/*.test.ts",
+    "e2e": "npm run e2e:delegation && npm run e2e:submission && npm run e2e:invocation && npm run e2e:multihop && npm run e2e:chain-family && npm run e2e:watch-lineage && npm run e2e:write-cosign && npm run e2e:oracle && npm run e2e:transport-timeout && npm run e2e:durable-drain && npm run e2e:node-capabilities && npm run e2e:foreign-credential && npm run e2e:emissary-module",
     "e2e:delegation": "npm run build && node --experimental-strip-types scripts/e2e-delegation.ts",
     "e2e:delegation-presentation": "npm run build && node --experimental-strip-types scripts/e2e-delegation-presentation.ts",
     "e2e:submission": "npm run build && node --experimental-strip-types scripts/e2e-submission.ts",
@@ -163,7 +163,8 @@
     "e2e:transport-timeout": "npm run build && node --experimental-strip-types scripts/e2e-transport-timeout.ts",
     "e2e:durable-drain": "npm run build && node --experimental-strip-types scripts/e2e-durable-drain.ts",
     "e2e:node-capabilities": "npm run build && node --experimental-strip-types scripts/e2e-node-capabilities.ts",
-    "e2e:foreign-credential": "npm run build && node --experimental-strip-types scripts/e2e-foreign-credential.ts"
+    "e2e:foreign-credential": "npm run build && node --experimental-strip-types scripts/e2e-foreign-credential.ts",
+    "e2e:emissary-module": "npm run build && node --experimental-strip-types scripts/e2e-emissary-module.ts"
   },
   "engines": {
     "node": ">=22"
