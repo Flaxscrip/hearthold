@@ -213,7 +213,8 @@ async function main(): Promise<void> {
       };
 
       process.stdout.write(`capture:fs — crawling ${dir}${dryRun ? ' (dry-run)' : ''} → Warden ${wardenDid.slice(0, 24)}…\n`);
-      const report = await crawlDirectory({ handle, wardenDid, transport, presentDelegation }, { root: dir, dryRun });
+      // Never let the crawler read the Hearthold data root (vault + wallets), whatever it's pointed at.
+      const report = await crawlDirectory({ handle, wardenDid, transport, presentDelegation }, { root: dir, dryRun, excludeRoots: [config.dataRoot] });
       for (const f of report.files) {
         if (f.artefactId) process.stdout.write(`  ✓ ${f.relPath}  → ${f.artefactId.slice(0, 20)}…  (${f.summary})\n`);
         else if (f.summary && dryRun) process.stdout.write(`  · ${f.relPath}  (${f.summary})\n`);
