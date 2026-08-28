@@ -1,0 +1,30 @@
+{
+  "handle": "hearthold",
+  "note": "Sovereign privacy primitives on Archon did:cid — issuer-attested, capability-gated, foreign-verifiable.",
+  "skills": [
+    {
+      "name": "issuer-attested-evidence",
+      "kind": "skill",
+      "card": "Derive a fact from your private vault and hand out a signed, decomposable evidence graph — never a raw record, never a score. A verifier checks the issuer's signature, not any gateway's word.",
+      "brief": "The Warden assembles supporting artefacts into a Merkle-committed provenance group and mints a W3C VC 2.0; sensitive disclosures carry a detached Sovereign co-signature (proof-of-human). Selective disclosure reveals chosen leaves against a signed root (SD-JWT-VC-style; explicitly not ZK). Composite proofs fold third-party credentials so each issuer is checked independently. Ephemeral + single-use (short validUntil, one txn). Trust is the did:cid issuer signature, verifiable offline — no gateway, no score.",
+      "body": "bodies/issuer-attested-evidence.md",
+      "bodyHash": "sha256:fe58a91d7246cadbc57fdb2c4f814dbcf70bf55e0c5db261cb91ee86ae9c17a4"
+    },
+    {
+      "name": "object-capability-invocation",
+      "kind": "skill",
+      "card": "Authority as a signed, scoped, revocable capability object — verified at the point of use, never a role or a standing permission. Mint → delegate (narrowing only) → invoke → revoke.",
+      "brief": "Alan Karp's ocap model on did:cid. Attenuation is monotonic — a delegated capability can only narrow; widening is refused at issuance and unrepresentable in a verified chain, so there is no confused deputy. Multi-hop chains verify origin, subset-narrowing per hop, and per-hop revocation (fail-closed). Designation is authority: the act names its resource, no ambient lookup. The reference monitor re-verifies the whole chain at the point of use.",
+      "body": "bodies/object-capability-invocation.md",
+      "bodyHash": "sha256:15aff8910fa9b559531a3879683469e45f6d6f911c5dd45dd0b17eb046f3663a"
+    },
+    {
+      "name": "foreign-credential-exchange",
+      "kind": "skill",
+      "card": "Issue a verifiable credential to a subject outside your network and push the signed VC itself over DIDComm — a foreign verifier checks it by resolving the issuer's DID, no wallet or shared registry required.",
+      "brief": "Archon did:cid + issue-credential 3.0. A non-did:cid subject makes the credential self-contained (encrypted-to-issuer, embeds its asset id under the proof). sendCredentialDidComm delivers the signed VC whole as an attachment; the recipient verifies the issuer via any Universal Resolver with the did:cid driver. Publish, not prove: a revocable, short-lived snapshot, gated by the same deny-by-default release ladder — no surface emits it without crossing the gate. Trust is the issuer signature, never the sender's word. The federation interop route a garden would otherwise lack.",
+      "body": "bodies/foreign-credential-exchange.md",
+      "bodyHash": "sha256:03ceab70a89355d67464fe7688c7bd4b8c8e534abb7029ffd2c89e5be9fb6cb7"
+    }
+  ]
+}
