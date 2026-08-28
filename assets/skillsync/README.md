@@ -32,5 +32,21 @@ console.log(s.name, g===s.bodyHash?"OK":"MISMATCH");}'
 
 ## To publish
 
-Host this directory at `<hearthold-site>/assets/skillsync/`, then `POST /garden` at the Librarian with the
-`hearthold` handle, the URL, and the one-line `note`. Nothing ever writes back to us.
+Host this directory at `<hearthold-site>/assets/skillsync/`, then register at the Librarian. Nothing ever
+writes back to us.
+
+```sh
+# 1. Fill these in once known:
+LIBRARIAN="https://<librarian-base>"          # PrivacyMage / pi5 Librarian base URL (tailnet-side)
+HEARTHOLD_GARDEN_URL="https://<hearthold-site>" # where assets/skillsync/ is hosted
+
+# 2. Register (POST /garden {handle, url, note}); the Librarian fetches + verifies the catalog at the door:
+curl -X POST "$LIBRARIAN/garden" \
+  -H 'Content-Type: application/json' \
+  -d "{\"handle\":\"hearthold\",\"url\":\"$HEARTHOLD_GARDEN_URL\",\"note\":\"Sovereign privacy primitives on Archon did:cid — issuer-attested, capability-gated, foreign-verifiable.\"}"
+```
+
+**Open question (ask the Librarian):** whether `url` is the site/garden **base** (the Librarian appends
+`assets/skillsync/catalog.json`) or the **full `catalog.json` URL**. The snapshot says it "fetches your
+catalog at the door" but not which form `url` takes — one of the schema questions in
+`docs/agentprivacy-skills-integration.md`.
