@@ -15,6 +15,7 @@
 
 import { randomUUID } from 'node:crypto';
 
+import { discoverNodeCapabilities, nodeExplicitlyLacks } from './node-capabilities.js';
 import type { KeymasterHandle } from './keymaster.js';
 import type { HearthholdMessage } from './protocol.js';
 
@@ -71,6 +72,15 @@ export class DidCommTransport implements Transport {
    * endpoint stuck forever. Throws (with a clear reason) if the write can't go through — see `publishTo`.
    */
   async ready(): Promise<void> {
+    // Capability preflight (fail-fast): a node that EXPLICITLY does not offer DIDComm can never route this
+    // transport, so catch it here with a clear message instead of a cryptic failure deep in the first
+    // serve/send. Permissive — an unreachable node or one with no capabilities endpoint (null) is allowed
+    // through, so older nodes are never broken; only a node that SAYS `didcomm:false` is refused. The probe
+    // also warms the keymaster's capability cache the per-op guards read.
+    const caps = await discoverNodeCapabilities(this.nodeUrl).catch(() => null);
+    if (nodeExplicitlyLacks(caps, 'didcomm')) {
+      throw new Error(`the Archon node at ${this.nodeUrl} does not offer DIDComm — bind this agent to a node whose /api/v1/capabilities reports didcomm:true`);
+    }
     const endpoint = await this.desiredEndpoint();
     const current = await this.currentEndpoint();
     if (current === endpoint) return; // already correct — avoid DID-doc churn
