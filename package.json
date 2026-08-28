@@ -164,7 +164,8 @@
     "e2e:durable-drain": "npm run build && node --experimental-strip-types scripts/e2e-durable-drain.ts",
     "e2e:node-capabilities": "npm run build && node --experimental-strip-types scripts/e2e-node-capabilities.ts",
     "e2e:foreign-credential": "npm run build && node --experimental-strip-types scripts/e2e-foreign-credential.ts",
-    "e2e:emissary-module": "npm run build && node --experimental-strip-types scripts/e2e-emissary-module.ts"
+    "e2e:emissary-module": "npm run build && node --experimental-strip-types scripts/e2e-emissary-module.ts",
+    "provision:agent-allowance": "npm run build && node --experimental-strip-types scripts/provision-agent-allowance.ts"
   },
   "engines": {
     "node": ">=22"
