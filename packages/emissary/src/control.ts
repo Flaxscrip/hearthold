@@ -372,31 +372,52 @@ export async function runEmissaryControl(
           job.reject(e instanceof Error ? e : new Error(String(e)));
         }
       }
-      // TODO(durable-drain): this bespoke reader is still DESTRUCTIVE (default ack). A crash between this read
-      // and persisting an inbound chain-grant (`held.put`) below loses the grant. Adopt the same pattern the
-      // core transport now uses — `receiveDidComm({ ack: false })` + `ackDidComm(ids)` after the grant is
-      // durably stored (see packages/core/src/transport.ts and scripts/e2e-durable-drain.ts). Follow-up PR.
+      // DURABLE DRAIN (@didcid 0.6.3): read NON-destructively and ack only AFTER the durable handling
+      // completes — the same at-least-once upgrade the core transport uses (packages/core/src/transport.ts,
+      // scripts/e2e-durable-drain.ts). The one piece of durable state on this reader is an inbound chain-grant
+      // (`held.put`); every message is acked once handled EXCEPT a chain-grant whose put failed — that is left
+      // on the relay for redelivery (held.put is idempotent by vcDid, so a redelivered grant is harmless).
       let inbound: Awaited<ReturnType<typeof handle.keymaster.receiveDidComm>> = [];
       try {
-        inbound = await handle.keymaster.receiveDidComm({ name });
+        inbound = await handle.keymaster.receiveDidComm({ name, ack: false });
       } catch {
         inbound = [];
       }
 
+      const doneNow: string[] = [];
       for (const m of inbound) {
+        const id = (m as { id?: string }).id;
         const fromDid = bareDid(m.metadata?.sender);
         const wrapped = m.message as { thid?: string; body?: HearthholdMessage };
         const body = wrapped?.body;
         const thid = wrapped?.thid;
-        if (!body?.type) continue;
+        if (!body?.type) {
+          if (id) doneNow.push(id); // poison — ack-drop so it doesn't redeliver forever
+          continue;
+        }
 
         // Inbound chain grant: a Sovereign seeding a ROOT, or a delegator handing us a child hop. Persist it so
         // we can invoke (and further-delegate) it. authcrypt already authenticated the sender at the transport.
         if (body.type === 'hearthold/chain-grant') {
           const grant = (body as ChainGrantMessage).grant;
           if (grant?.handle?.issued?.vcDid) {
-            await held.put(grant).catch(() => undefined);
-            server.emit('chain-grant', { leafVcDid: grant.handle.issued.vcDid, counter: grant.handle.issued.counter, from: fromDid });
+            // The ONE durable write on this reader. Ack ONLY if it persisted; a failed (or crashed) put leaves
+            // the message on the relay for redelivery next pass. held.put is idempotent by vcDid, so retrying
+            // a grant that did land is a harmless overwrite — this is what makes the grant crash-safe.
+            let stored = false;
+            try {
+              await held.put(grant);
+              stored = true;
+            } catch {
+              stored = false;
+            }
+            if (stored) {
+              server.emit('chain-grant', { leafVcDid: grant.handle.issued.vcDid, counter: grant.handle.issued.counter, from: fromDid });
+              if (id) doneNow.push(id);
+            }
+            // not stored → leave unacked → retried on a later pass
+          } else if (id) {
+            doneNow.push(id); // malformed grant, nothing to persist → ack-drop
           }
           continue;
         }
@@ -435,6 +456,7 @@ export async function runEmissaryControl(
           };
           projections.push(rec);
           server.emit('projection', { projection: rec });
+          if (id) doneNow.push(id); // at-least-once relay attempted + replied → ack
           continue;
         }
 
@@ -466,9 +488,15 @@ export async function runEmissaryControl(
           }
           receipts.push(rec);
           server.emit('receipt', { receipt: rec });
+          if (id) doneNow.push(id); // reply consumed by the in-memory waiter → ack
           continue;
         }
-        // Anything else on our mailbox is ignored.
+        // Anything else on our mailbox: ack-drop so it doesn't redeliver forever.
+        if (id) doneNow.push(id);
+      }
+
+      if (doneNow.length > 0) {
+        await handle.keymaster.ackDidComm(doneNow, { name }).catch(() => undefined);
       }
 
       if (running) await new Promise((r) => setTimeout(r, 1500));
