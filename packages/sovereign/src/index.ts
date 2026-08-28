@@ -163,6 +163,13 @@ async function main(): Promise<void> {
       // exposes ONLY GET /api/status so a Table can read the agent's gate posture (gateMode='agent' +
       // controlAllowance) by DID-equality. NEVER add an approval route here — that is the no-credential-over-HTTP
       // line. If even this port isn't bridged, the Trinity view falls back to `didcommOnly` (control-types).
+      //
+      // HOST — same convention as the Warden/Emissary control planes: bind `controlHost` (default 127.0.0.1).
+      // In a CONTAINER deployment this route exists to be read from ANOTHER container (the Table), so the
+      // deployment MUST set HEARTHOLD_CONTROL_HOST=0.0.0.0 or the healthy route is unreachable and the Table
+      // renders `didcommOnly` for a route that is actually serving (Aegis's 2026-08-28 finding). We keep the
+      // secure loopback DEFAULT (a status route on 0.0.0.0 would be LAN-exposed in local dev) but warn loudly
+      // at boot so the footgun is never silent.
       const statusPort = Number(process.env.HEARTHOLD_CONTROL_PORT ?? 4311);
       const statusServer = startControlServer({
         port: statusPort,
@@ -176,9 +183,15 @@ async function main(): Promise<void> {
         : build.bound
           ? 'CHILD — parent-signed allowance BOUND + live-enforced; above-scope escalates to the parent (proof-of-human)'
           : 'CHILD — DENY-BY-DEFAULT: no allowance bound; self-approves nothing above standing, every act escalates to the parent';
+      const loopbackOnly = ['127.0.0.1', 'localhost', '::1'].includes(config.controlHost);
       process.stdout.write(
         `Agent Signet serving over DIDComm (AgentGate — ${posture}).\n  did: ${id.did}\n` +
-          `  status (read-only): http://${config.controlHost}:${statusPort}/api/status\n  (Ctrl-C to stop)\n`,
+          `  status (read-only): http://${config.controlHost}:${statusPort}/api/status\n` +
+          (loopbackOnly
+            ? `  ⚠ status bound to loopback — reachable only from THIS host/container. To bridge it (a Table on ` +
+              `another host/container), set HEARTHOLD_CONTROL_HOST=0.0.0.0; until then the Trinity view shows didcommOnly.\n`
+            : '') +
+          `  (Ctrl-C to stop)\n`,
       );
       const shutdown = (): void => {
         statusServer.close();
