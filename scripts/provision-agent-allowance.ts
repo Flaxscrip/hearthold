@@ -25,7 +25,9 @@ import {
   passphraseFor,
   ensureIdentity,
   signRuleset,
+  activeRuleset,
   type Ruleset,
+  type SignedRuleset,
   type ControlAllowance,
 } from '@hearthold/core';
 
@@ -94,7 +96,29 @@ async function main(): Promise<void> {
     }
     const signed = await signRuleset(node, rs);
     const asset = await node.keymaster.createAsset([signed], { registry: config.registry });
-    process.stdout.write(`  → HEARTHOLD_CONTROL_ALLOWANCE_ASSET = ${asset}\n`);
+
+    // POSITIVE self-verify (credit Aegis) — at deny-by-default every misconfig is INVISIBLE, because the safe
+    // state (bound:false) is also the failure state: a wrong-signer, unresolvable, OR wrong-ACTOR allowance all
+    // read identical to a correct empty one, surfacing only at the first widening (and a wrong-actor pairing
+    // surfaces on the WRONG agent). So we verify by resolving + inspecting, never by behaviour — using the SAME
+    // path the agent-signet uses (resolveAsset → activeRuleset with expectedSigner=parent): the head is null
+    // unless the chain is governor-pinned to the node sovereign, and we then assert its actor is THIS agent.
+    const back = await node.keymaster.resolveAsset(asset).catch(() => null);
+    const chain = Array.isArray(back) ? (back as SignedRuleset[]) : [];
+    const head = chain.length ? await activeRuleset(node, chain, { expectedSigner: NODE_SOVEREIGN }).catch(() => null) : null;
+    if (!head) {
+      throw new Error(
+        `[provision] ${a.name}: anchored asset ${asset} does NOT verify against the node sovereign ` +
+          `(governor-pinning failed) — refusing to hand out an unverifiable allowance. Investigate before wiring.`,
+      );
+    }
+    if (head.actor !== a.sovereignDid) {
+      throw new Error(
+        `[provision] ${a.name}: CROSSED PAIR — asset ${asset} verifies but names actor ${head.actor}, ` +
+          `not ${a.sovereignDid}. Wiring this would grant the wrong agent. Refusing.`,
+      );
+    }
+    process.stdout.write(`  → HEARTHOLD_CONTROL_ALLOWANCE_ASSET = ${asset}  ✓ verified (signer=node, actor=${a.name})\n`);
     wiring.push({ name: a.name, asset });
   }
 
