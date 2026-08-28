@@ -850,10 +850,23 @@ export interface TrinityStatus {
    *      the agents (the Warden reads `config.sovereignDid`; the Emissary is the world-facing, most-exposed
    *      member), so it is a display hint + CROSS-CHECK ONLY, never the authority. When it disagrees with a
    *      proven source, that is the AGENT's misprovisioning to SURFACE — not grounds to exclude a signet whose
-   *      identity matches the proven Sovereign. Use a self-report as the record only when NO proven source
-   *      exists, and then render it as unverified.
+   *      identity matches the proven Sovereign.
    * Making a world-facing agent's self-report the authority is the failure that silently flips a correct
    * signet to "foreign" when that one config value is wrong.
+   *
+   * NO-PROVEN-SOURCE (the honest fallback, credit Sevenfold). With NO proven source, a self-report is the
+   * only record available — but it is UNVERIFIED, and it must not be laundered into authority. Two failure
+   * modes are then SYMMETRIC and, without a proven arbiter, INDISTINGUISHABLE from the Table's side:
+   *   (A) the emissary is misprovisioned and the signet is correct (our actual 2026-08 bug);
+   *   (B) the signet URL points at a FOREIGN gate (e.g. the node's human signet) and the emissary is correct.
+   * So the render rule when no proven source exists:
+   *   - self-report AGREES with the signet's identity (or is the sole source) → take it as the record, mark
+   *     "identity unverified";
+   *   - self-report DISAGREES with the signet's identity → assert NEITHER as the Sovereign, compose NEITHER
+   *     gate (gate-unknown, but NOT "down"/foreign), name no confident identity, surface BOTH DIDs as the
+   *     cross-check. Deferring to the signet here would re-open (B); deferring to the emissary re-opens (A).
+   * Only a PROVEN source (case 1) unlocks the authority+exclusion path — the cryptographic tiebreak the
+   * disagreement lacks.
    */
   sovereignDid?: string;
   warden?: WardenStatus;
