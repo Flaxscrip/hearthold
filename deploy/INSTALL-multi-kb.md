@@ -77,9 +77,12 @@ npm run build -- --outDir dist-hatpro
 - **The `.env.*` files are host-only by design** (0600 secrets: `HEARTHOLD_PASSPHRASE`, `HEARTHOLD_WARDEN_DID`,
   registry, node URL, Ollama URL). They are intentionally **not** committed. A rebuild recreates them on the
   host; the unit files reference them via `EnvironmentFile=` and contain no inline secrets.
-- **The detailed `INSTALL-mages.md` (≈378 lines) and `INSTALL-hatpro.md` (≈139 lines)** are the step-by-step
-  provisioning runbooks; they still live host-only and are being folded into the repo as a follow-up. The
-  units above `Documentation=`-reference them.
+- **`INSTALL-hatpro.md` and `INSTALL-mages.md` are now both in the repo** (this branch). Two corrections were
+  applied on commit rather than transcribing the stale host-only copies verbatim: the megaflax prereq (it is an
+  always-on workstation, not a sleeping laptop — the stale claim had caused real faults to be dismissed), and
+  the mages doc's stale "NOT PROVISIONED"/"BLOCKER" sections (the KB has been live since 2026-08-24; the checkout
+  is no longer on the old branch), now moved to a dated **Historical record** section. The units
+  `Documentation=`-reference both. Each carries a "Known defects" list surfaced during provisioning — see below.
 
 ## Backup
 
