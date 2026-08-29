@@ -1,25 +1,23 @@
 /**
- * The Emissary's Knowledge Portal — HTTP → DIDComm bridge.
+ * The Emissary's Knowledge Portal — HTTP → DIDComm bridge, assembled as a loadout on the Emissary module
+ * runtime (`kb-relay` + optional `oracle`).
  *
- * The member's keys never touch the portal. Login is challenge/response (the archon.social pattern):
- * the browser gets a challenge from the Warden (via this Emissary), the member's wallet/Signet responds
- * out-of-band, and the Warden mints a session. The browser then rides that session. This server only
- * relays — it authenticates and authorizes nothing (the Warden does, end-to-end). It holds no secret.
+ * The member's keys never touch the portal. Login is challenge/response (the archon.social pattern): the
+ * browser gets a challenge from the Warden (via this Emissary), the member's wallet/Signet responds
+ * out-of-band, and the WARDEN mints a session. This server only relays — it authenticates and authorizes
+ * nothing (the Warden does, end-to-end). It holds no secret, bar the oracle's read-only reader.
  *
- * A per-attempt `loginId` correlates three parties: the browser (polls for its session), the wallet
- * (POSTs its response to the callback), and the Warden (verifies + mints).
+ * The route logic lives in `modules/kb-web.ts` (`kbRelayModule`, `oracleModule`); this file wires the
+ * transport, the held reader, CORS, and the HTTP server. Contrast the doorman (`modules/doorman.ts`), where
+ * the EMISSARY authenticates the visitor itself — the pattern for a SEALED Warden that can't resolve its
+ * members. Same runtime, different skill; a deployment composes the web face it needs.
  */
 
-import { randomBytes } from 'node:crypto';
-import type { IncomingMessage } from 'node:http';
+import { startControlServer, type ControlServer, type Transport } from '@hearthold/core';
 
-import {
-  startControlServer,
-  PROTOCOL_VERSION,
-  type ControlServer,
-  type Transport,
-  type KbSessionMessage,
-} from '@hearthold/core';
+import { Emissary } from './module.js';
+import { makeHeldReader } from './held-reader.js';
+import { kbRelayModule, oracleModule } from './modules/kb-web.js';
 
 /**
  * The read-only ORACLE reader that powers anonymous (no-wallet) queries. The Warden requires a verified
@@ -57,105 +55,40 @@ export interface KbPortalOptions {
   oracle?: OracleReader;
 }
 
-interface LoginAttempt {
-  kbId: string;
-  challenge: string;
-  session?: KbSessionMessage;
-  createdAt: number;
-}
-
 export function startKbPortalServer(opts: KbPortalOptions): ControlServer {
   const { transport, wardenDid, publicUrl } = opts;
   // The Emissary is request-only (it relays to the Warden). Keep its mailbox reader continuously alive so
-  // it never goes idle between logins — an idle reader lets the relay session go stale and later
-  // replies silently vanish (symptom: works for a while, then `transport: timeout` until restart).
+  // it never goes idle between logins — an idle reader lets the relay session go stale and later replies
+  // silently vanish (symptom: works for a while, then `transport: timeout` until restart).
   transport.keepAlive?.();
-  const logins = new Map<string, LoginAttempt>();
 
-  // Drop login attempts older than 10 min so the map can't grow unbounded.
-  const sweep = (): void => {
-    const cutoff = Date.now() - 10 * 60_000;
-    for (const [id, a] of logins) if (a.createdAt < cutoff) logins.delete(id);
-  };
-
-  // ── Anonymous oracle: a held read-only reader session + rate guards ──
-  const oracle = opts.oracle;
-  // The reader's session, refreshed on expiry. Concurrent refreshes collapse into one in-flight login.
-  let readerSession: KbSessionMessage | null = null;
-  let readerLoginInFlight: Promise<KbSessionMessage> | null = null;
-  async function loginReader(reader: OracleReader): Promise<KbSessionMessage> {
-    // The portal is BOTH browser and wallet here: it drives login/start then answers the challenge itself.
-    const start = await transport.request(
+  // Compose the web face from skills on the runtime: member-login relay, plus the anonymous oracle if a
+  // reader was supplied. (Neither module has an `init` hook, so `routes()` is the only merge point needed.)
+  const runtime = new Emissary().use(kbRelayModule({ transport, wardenDid, publicUrl }));
+  if (opts.oracle) {
+    const o = opts.oracle;
+    const reader = makeHeldReader({
+      transport,
       wardenDid,
-      { type: 'hearthold/kb-login-start', version: PROTOCOL_VERSION, kbId: reader.kbId, callback: `${publicUrl}/api/kb/ask` },
-      { timeoutMs: 60_000 },
+      kbId: o.kbId,
+      createResponse: o.createResponse,
+      registry: o.registry,
+      callbackUrl: `${publicUrl}/api/kb/ask`,
+    });
+    runtime.use(
+      oracleModule({
+        reader,
+        kbId: o.kbId,
+        ...(o.perIpPerMin !== undefined ? { perIpPerMin: o.perIpPerMin } : {}),
+        ...(o.maxConcurrent !== undefined ? { maxConcurrent: o.maxConcurrent } : {}),
+      }),
     );
-    if (start.type !== 'hearthold/kb-login-challenge') {
-      throw new Error(`oracle login: Warden issued no challenge (${'reason' in start ? start.reason : start.type})`);
-    }
-    const response = await reader.createResponse(start.challenge, { registry: reader.registry });
-    const sess = await transport.request(
-      wardenDid,
-      { type: 'hearthold/kb-login-complete', version: PROTOCOL_VERSION, kbId: reader.kbId, response },
-      { timeoutMs: 60_000 },
-    );
-    if (sess.type !== 'hearthold/kb-session') {
-      throw new Error(`oracle login failed: ${'reason' in sess ? sess.reason : sess.type}`);
-    }
-    return sess;
   }
-  async function readerToken(reader: OracleReader): Promise<string> {
-    if (readerSession && new Date(readerSession.expiresAt).getTime() - Date.now() > 30_000) return readerSession.token;
-    if (!readerLoginInFlight) {
-      readerLoginInFlight = loginReader(reader)
-        .then((s) => {
-          readerSession = s;
-          return s;
-        })
-        .finally(() => {
-          readerLoginInFlight = null;
-        });
-    }
-    return (await readerLoginInFlight).token;
-  }
-
-  // Two guards on the anonymous route: a per-IP window (abuse) and a GLOBAL in-flight cap (the model host
-  // behind recall is the scarce resource — cap concurrency regardless of source). Both fail closed.
-  const perIpPerMin = oracle?.perIpPerMin ?? 8;
-  const maxConcurrent = oracle?.maxConcurrent ?? 3;
-  let inFlight = 0;
-  const ipHits = new Map<string, { count: number; windowStart: number }>();
-  const ipAllowed = (ip: string): boolean => {
-    const now = Date.now();
-    const rec = ipHits.get(ip);
-    if (!rec || now - rec.windowStart >= 60_000) {
-      ipHits.set(ip, { count: 1, windowStart: now });
-      return true;
-    }
-    if (rec.count >= perIpPerMin) return false;
-    rec.count += 1;
-    return true;
-  };
-  const sweepIps = (): void => {
-    const cutoff = Date.now() - 60_000;
-    for (const [ip, rec] of ipHits) if (rec.windowStart < cutoff) ipHits.delete(ip);
-  };
-  const clientIp = (req: IncomingMessage): string => {
-    // Take the RIGHTMOST X-Forwarded-For hop — the one our own reverse proxy appended (`$proxy_add_x_forwarded_for`),
-    // NOT the leftmost, which a client can freely spoof. Assumes a single trusted proxy in front (the deploy
-    // shape). The per-IP window is best-effort regardless; the GLOBAL concurrent cap is the unspoofable guard.
-    const xff = req.headers['x-forwarded-for'];
-    if (typeof xff === 'string' && xff.length > 0) {
-      const hops = xff.split(',');
-      return (hops[hops.length - 1] ?? xff).trim();
-    }
-    return req.socket?.remoteAddress ?? 'unknown';
-  };
 
   // The KB portal is a DELIBERATELY-public Mage (fronted by nginx at `publicUrl`), so it must allow its own
-  // public origin/host — but still not `*`. Requests from its own UI (Origin/Host = publicUrl) and non-browser
-  // callers (no Origin) are allowed; other browser origins are refused. Add more via a deployment override if
-  // a third-party browser client ever needs it.
+  // public origin/host — but still not `*`. Requests from its own UI (Origin/Host = publicUrl) and
+  // non-browser callers (no Origin) are allowed; other browser origins are refused. Add more via a
+  // deployment override if a third-party browser client ever needs it.
   const portalOrigins = (() => {
     const own = (() => {
       try {
@@ -172,127 +105,12 @@ export function startKbPortalServer(opts: KbPortalOptions): ControlServer {
     port: opts.port,
     host: opts.host,
     allowOrigins: portalOrigins,
-    routes: {
-      // ── Login (challenge/response) ──
-      // Browser begins login → Warden issues a challenge bound to a callback carrying our loginId.
-      'POST /api/kb/login/start': async ({ body }) => {
-        sweep();
-        const { kbId } = (body ?? {}) as { kbId?: string };
-        if (!kbId) throw new Error('kbId is required');
-        const loginId = randomBytes(12).toString('hex');
-        const callback = `${publicUrl}/api/kb/login/callback?login=${loginId}`;
-        process.stdout.write(`[kb-web] login/start → relaying to Warden ${wardenDid.slice(0, 20)}…\n`);
-        const reply = await transport.request(
-          wardenDid,
-          { type: 'hearthold/kb-login-start', version: PROTOCOL_VERSION, kbId, callback },
-          { timeoutMs: 60_000 },
-        );
-        if (reply.type !== 'hearthold/kb-login-challenge') {
-          const why = reply.type === 'hearthold/error' ? reply.reason : reply.type;
-          process.stdout.write(`[kb-web] login/start ✗ ${why}\n`);
-          throw new Error(`Warden did not issue a challenge: ${why}`);
-        }
-        process.stdout.write(`[kb-web] login/start ✓ challenge received\n`);
-        logins.set(loginId, { kbId, challenge: reply.challenge, createdAt: Date.now() });
-        return { loginId, challenge: reply.challenge };
-      },
-
-      // The member's wallet POSTs its signed response here → Warden verifies + mints the session.
-      'POST /api/kb/login/callback': async ({ body, query }) => {
-        const loginId = query.get('login') ?? '';
-        const { response } = (body ?? {}) as { response?: string };
-        const attempt = logins.get(loginId);
-        if (!attempt) throw new Error('unknown or expired login');
-        if (!response) throw new Error('response is required');
-        const reply = await transport.request(
-          wardenDid,
-          { type: 'hearthold/kb-login-complete', version: PROTOCOL_VERSION, kbId: attempt.kbId, response },
-          { timeoutMs: 60_000 },
-        );
-        if (reply.type !== 'hearthold/kb-session') throw new Error(reply.type === 'hearthold/kb-error' ? reply.reason : 'login failed');
-        attempt.session = reply;
-        return { accepted: true };
-      },
-
-      // Browser polls until its wallet has responded and the Warden has minted a session.
-      'GET /api/kb/login/poll': async ({ query }) => {
-        const attempt = logins.get(query.get('login') ?? '');
-        if (!attempt) return { status: 'unknown' };
-        if (!attempt.session) return { status: 'pending' };
-        const session = attempt.session;
-        logins.delete(query.get('login') ?? ''); // one-shot
-        return { status: 'ready', session };
-      },
-
-      // ── Session-authenticated KB ops ──
-      'POST /api/kb/session-request': async ({ body }) => {
-        const { token, kbId, action, query, k, kind, text, scope, docKey, owner } = (body ?? {}) as {
-          token?: string;
-          kbId?: string;
-          action?: 'query' | 'update' | 'put-doc' | 'get-doc';
-          query?: string;
-          k?: number;
-          kind?: string;
-          text?: string;
-          scope?: 'shared' | 'private';
-          docKey?: string;
-          owner?: string;
-        };
-        if (!token || !kbId || !action) throw new Error('token, kbId and action are required');
-        const reply = await transport.request(
-          wardenDid,
-          { type: 'hearthold/kb-session-request', version: PROTOCOL_VERSION, token, kbId, action, query, k, kind, text, scope, docKey, owner },
-          // Long enough to outlast a factor-2 step-up (the Warden may be awaiting the member's Signet).
-          { timeoutMs: 200_000 },
-        );
-        return { result: reply };
-      },
-
-      // ── Anonymous public query (no wallet) ──
-      // A visitor asks the chronicle with no login. The portal answers AS its read-only oracle reader,
-      // pinned to the reader's KB and (by that member's read authority) the shared chronicle. Rate-limited
-      // per IP and globally. Absent an oracle reader, the route reports it is disabled — never open by default.
-      'POST /api/kb/ask': async ({ body, req }) => {
-        if (!oracle) throw new Error('anonymous query is not enabled on this portal');
-        const { kbId, query, k } = (body ?? {}) as { kbId?: string; query?: string; k?: number };
-        if (!query || query.trim().length === 0) throw new Error('query is required');
-        // The oracle answers ONLY for its configured KB — a caller cannot redirect it at another KB.
-        if ((kbId ?? oracle.kbId) !== oracle.kbId) throw new Error('this portal answers only for its configured KB');
-        sweepIps();
-        if (!ipAllowed(clientIp(req))) throw new Error('rate limit exceeded — please wait a moment and try again');
-        if (inFlight >= maxConcurrent) throw new Error('the oracle is busy — please try again shortly');
-        inFlight += 1;
-        try {
-          let token = await readerToken(oracle);
-          const ask = () =>
-            transport.request(
-              wardenDid,
-              // scope:'shared' pins recall to the SHARED partition only — defence in depth so the ANSWER
-              // text (not just the citations we filter) can never draw on any private partition.
-              { type: 'hearthold/kb-session-request', version: PROTOCOL_VERSION, token, kbId: oracle.kbId, action: 'query', query, k: k ?? 5, scope: 'shared' },
-              { timeoutMs: 200_000 },
-            );
-          let reply = await ask();
-          // A stale reader session surfaces as a kb-error — re-login ONCE and retry (never loop).
-          if (reply.type === 'hearthold/kb-error' && /session|token|unauthor|expired|401/i.test(reply.reason)) {
-            readerSession = null;
-            token = await readerToken(oracle);
-            reply = await ask();
-          }
-          if (reply.type === 'hearthold/kb-error') throw new Error(reply.reason);
-          if (reply.type !== 'hearthold/kb-result' || reply.action !== 'query') throw new Error('the oracle could not answer that');
-          // Defence in depth: the read-only reader has no private partition, but never surface a private citation.
-          const citations = reply.citations.filter((c) => c.scope !== 'private');
-          return { answer: reply.answer, citations };
-        } finally {
-          inFlight -= 1;
-        }
-      },
-    },
+    routes: runtime.routes(),
     onListening: (p) =>
       process.stdout.write(
         `KB Portal (Emissary web face) on http://${opts.host ?? '127.0.0.1'}:${p}\n` +
           `  public URL:  ${publicUrl}\n  relaying to Warden: ${wardenDid.slice(0, 28)}…\n` +
+          `  skills:      ${runtime.loadout().join(', ')}\n` +
           `  login: challenge/response (keys stay in the member's wallet/Signet); the Emissary only carries\n`,
       ),
   });

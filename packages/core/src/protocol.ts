@@ -345,6 +345,36 @@ export interface KbSessionRequestMessage {
   owner?: string;
 }
 
+// ── Doorman authorization check (the Emissary web-authenticator "doorman" skill) ─────────────────────
+// The doorman authenticates a public visitor with the EMISSARY's own keymaster (challenge/response), then
+// asks the sealed Warden this: is the now-authenticated visitor an authorized member? Authentication moved
+// to the public Emissary (it can resolve the visitor); AUTHORIZATION stays at the Warden — and it is a pure
+// group-membership test (`testGroup` on the DID string, no DID resolution), so a Warden on a sealed `local`
+// node can answer it for a member whose identity it could never resolve. This is the seam that lets a
+// private node admit an external member without the custodian ever reaching a public resolver.
+
+/** Doorman (Emissary) → Warden: is `subjectDid` authorized for `action` on this KB? GATED — only a caller
+ *  already read-authorized on this KB (the doorman holds that read authority) gets a truthful verdict; any
+ *  other caller is told `false` (fail-closed, and no membership leak to an un-trusted prober). */
+export interface KbAuthorizeCheckMessage {
+  type: 'hearthold/kb-authorize-check';
+  version: typeof PROTOCOL_VERSION;
+  kbId: string;
+  subjectDid: string;
+  action: 'read' | 'write';
+}
+
+/** Warden → doorman: the authorization verdict for `subjectDid` (never carries any content). */
+export interface KbAuthorizeResultMessage {
+  type: 'hearthold/kb-authorize-result';
+  version: typeof PROTOCOL_VERSION;
+  kbId: string;
+  subjectDid: string;
+  authorized: boolean;
+  /** The assurance the KB's policy requires for this action (`factor1`/`factor2`), when a policy is set. */
+  requiredAssurance?: string;
+}
+
 // ── Partition-key rewrap (Phase 2 / guardianship-threat-model §4a) ──────────────────────────────────
 // The read-guest handshake. The Warden holds a member's private-partition keys wrapped to the member's
 // key (it cannot open them at rest). On a member's session, the Warden asks that member's OWN Signet to
@@ -733,6 +763,8 @@ export type HearthholdMessage =
   | KbLoginCompleteMessage
   | KbSessionMessage
   | KbSessionRequestMessage
+  | KbAuthorizeCheckMessage
+  | KbAuthorizeResultMessage
   | PartitionRewrapRequestMessage
   | PartitionRewrapResponseMessage
   | KbApprovalRequestMessage

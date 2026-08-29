@@ -39,6 +39,7 @@ import {
   type KbResultMessage,
   type KbSessionMessage,
   type KbSessionRequestMessage,
+  type KbAuthorizeResultMessage,
   type SpendApprovalDetail,
 } from '@hearthold/core';
 
@@ -287,6 +288,46 @@ export class KbService {
       expiresAt: new Date(exp).toISOString(),
       memberPartitions: this.opts.memberPartitions ?? false,
       defaultScope: this.opts.defaultScope ?? 'shared',
+    };
+  }
+
+  /**
+   * Doorman authorization check — the Warden's half of the Emissary web-authenticator flow.
+   *
+   * The doorman has ALREADY authenticated `subjectDid` (challenge/response with its OWN keymaster — the
+   * public Emissary can resolve the visitor; this sealed node can't). Here the Warden supplies the other
+   * half: is that authenticated DID an authorized member? It is a pure `authorize()` — group membership on
+   * the DID string, no DID resolution — so it works even for a member whose identity this node could never
+   * resolve. That is the whole point: authentication moved to where resolution is possible (the Emissary);
+   * authorization stayed on the custodian, where it needs nothing but the DID string.
+   *
+   * GATED: only a caller already read-authorized on THIS KB (the doorman holds that read authority as its
+   * corpus-serving identity) receives a truthful verdict; every other caller is told `false`. So this is
+   * not a membership oracle a stranger can probe. It never returns any content — only a boolean.
+   */
+  async authorizeCheck(
+    callerDid: string,
+    subjectDid: string,
+    action: 'read' | 'write' = 'read',
+  ): Promise<KbAuthorizeResultMessage> {
+    const deny: KbAuthorizeResultMessage = {
+      type: 'hearthold/kb-authorize-result',
+      version: PROTOCOL_VERSION,
+      kbId: this.opts.kbId,
+      subjectDid,
+      authorized: false,
+    };
+    // The caller must itself be trusted to read this KB, or we reveal nothing (fail-closed, no leak).
+    const caller = await this.opts.registry.authorize({ entity_id: callerDid, action: 'read', resource: this.opts.kbId });
+    if (!caller.authorized) return deny;
+    const subj = await this.opts.registry.authorize({ entity_id: subjectDid, action, resource: this.opts.kbId });
+    return {
+      type: 'hearthold/kb-authorize-result',
+      version: PROTOCOL_VERSION,
+      kbId: this.opts.kbId,
+      subjectDid,
+      authorized: subj.authorized,
+      ...(subj.requiredAssurance ? { requiredAssurance: subj.requiredAssurance } : {}),
     };
   }
 

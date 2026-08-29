@@ -90,6 +90,9 @@ class Emissary {
 | `query` | relay a KB query to the Warden (recall) + its portal face | built | DIDComm relay |
 | `proof-relay` | relay proof requests to the Sovereign/Signet | built | challenge/response |
 | `auth` | sovereign sign-in — challenge/response login + sessions | built | `createChallenge` / `verifyResponse` |
+| `kb-relay` | MEMBER KB login + session ops, relayed to the Warden (the **Warden** authenticates) | **built** | DIDComm relay |
+| `oracle` | anonymous (no-wallet) shared-corpus query via a held read-only reader | **built** | held-reader `createResponse` |
+| `auth:web` | 🚪 **Doorman** — public web-authenticator: the **Emissary** runs challenge/response itself, the sealed Warden only authorizes | **built** | `createChallenge` / `verifyResponse` + `authorizeCheck` |
 | `capture:web` | 📖 **Book Worm** — fetch + chunk + embed a web book into recall (inbound) | **built** | `capture` + a web adapter + section-chunker |
 | `capture:didcomm-in` | drain inbound DIDComm messages into the KB (inbound) | planned | `capture` + durable-drain reader |
 | `capture:phone` | phone / device data intake (inbound) | planned | `capture` + a device adapter |
@@ -116,6 +119,16 @@ Sovereign admits) — it does NOT write a KB space, which needs a member/Soverei
 on-device classifier does the sensitivity call; the crawler only proposes. Follow-ups: an Ollama-backed
 paraphrasing summarizer behind the same `FileSummarizer` seam; image/PDF adapters; wiring the module into the
 live daemon (it runs one-shot today, since `runEmissaryControl` doesn't yet compose `Emissary.routes()`).
+
+**The web faces are one runtime, three skills.** `kb-relay`, `oracle`, and `auth:web` (doorman) all mount on
+the `Emissary` runtime — a deployment composes its web face from a loadout instead of a hard-wired server. The
+mages/`kb.archon.social` portal (`emissary kb-web`) loads `kb-relay` + `oracle`: the Warden authenticates its
+members, and an anonymous reader answers the shared corpus. A **sealed**-Warden KB (e.g. the agency corpus)
+loads `auth:web` (`emissary doorman`) instead: the Emissary authenticates the visitor itself (it can resolve
+them; the sealed node can't) and the Warden only authorizes — a pure `testGroup`, no resolution. The one
+difference is *where authentication happens*, dictated by the Warden's posture; `kb-relay` and `auth:web` are
+siblings, not one replacing the other. All three share `makeHeldReader` for shared-scope serving
+(`emissary/src/held-reader.ts`). See `docs/doorman.md`.
 
 Each capability has a reference implementation in the Archon web/react-native wallet, so building a
 module is: wrap a proven Keymaster capability, give it a DIDComm and/or HTTP face, and attach its policy.

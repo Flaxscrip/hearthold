@@ -14,13 +14,18 @@ import {
   PROTOCOL_VERSION,
   presentProof,
   revokeStatusIndex,
+  startControlServer,
   type WitnessSubmission,
   type Sensitivity,
   type WitnessKind,
   type ChallengeResponseMessage,
+  type KbAuthorizeResultMessage,
 } from '@hearthold/core';
 
 import { crawlDirectory } from './modules/capture-fs.js';
+import { doormanModule } from './modules/doorman.js';
+import { makeHeldReader } from './held-reader.js';
+import { Emissary } from './module.js';
 import { makeEmissaryProjectorHandler } from './handler.js';
 import { makeKbRelayHandler } from './kb-relay.js';
 import { startKbPortalServer } from './kb-portal-server.js';
@@ -46,6 +51,9 @@ Usage:
   emissary serve                Project to the world: relay proof-requests to the Sovereign (Signet)
   emissary kb-portal            Emissary: relay Knowledge Base traffic to the Warden (carries only)
   emissary kb-web [port]        Emissary web portal: HTTP→DIDComm bridge for the browser (default 4313)
+  emissary doorman [kbId]       auth:web — public web-authenticator: run challenge/response with visitors
+                                using THIS Emissary's keymaster, have the sealed Warden authorize them, and
+                                serve the shared corpus (set HEARTHOLD_DOORMAN_KB or pass <kbId>)
   emissary control [port]       Submit + project over DIDComm, with a control API for the Emissary app (default 4312)
   emissary republish [--endpoint <uri>]  Force-(re)publish the DIDComm endpoint (re-home)
   emissary rotate               Rotate signing keys (incident response)
@@ -401,6 +409,87 @@ async function main(): Promise<void> {
         .map((o) => o.trim())
         .filter(Boolean);
       const server = startKbPortalServer({ transport, wardenDid, port, host, publicUrl, allowOrigins, oracle });
+      const shutdown = (): void => {
+        server.close();
+        process.exit(0);
+      };
+      process.on('SIGINT', shutdown);
+      process.on('SIGTERM', shutdown);
+      break;
+    }
+    case 'doorman': {
+      // The Emissary web-authenticator ("doorman") skill, mounted on the module runtime. It runs
+      // challenge/response with a visitor using THIS Emissary's own keymaster (authentication), asks the
+      // sealed Warden whether that authenticated DID is an authorized member (authorization, a pure
+      // membership test), and serves the SHARED corpus from its own read session. See docs/doorman.md.
+      const wardenDid = config.wardenDid;
+      if (!wardenDid) throw new Error('HEARTHOLD_WARDEN_DID is required — the doorman authorizes + serves via the Warden');
+      const kbId = (process.env.HEARTHOLD_DOORMAN_KB ?? process.argv[3])?.trim();
+      if (!kbId) throw new Error('set HEARTHOLD_DOORMAN_KB (or pass <kbId>) — the KB this doorman guards');
+      const port = Number(process.env.HEARTHOLD_PORTAL_PORT ?? 4313);
+      const host = process.env.HEARTHOLD_PORTAL_HOST ?? '127.0.0.1';
+      const publicUrl = process.env.HEARTHOLD_PORTAL_PUBLIC_URL ?? `http://127.0.0.1:${port}`;
+      const allowOrigins = (process.env.HEARTHOLD_PORTAL_ALLOW_ORIGIN ?? '').split(',').map((o) => o.trim()).filter(Boolean);
+
+      const transport = new DidCommTransport(handle, IDENTITY_NAME.emissary, config.nodeUrl);
+      await transport.ready();
+      // Request-only: keep the mailbox reader alive so relay replies never vanish on an idle session.
+      transport.keepAlive?.();
+
+      // AUTHORIZE — ask the sealed Warden if an authenticated DID is a member (pure testGroup, no resolution).
+      const authorizeSubject = async (subjectDid: string): Promise<boolean> => {
+        const reply = await transport.request(
+          wardenDid,
+          { type: 'hearthold/kb-authorize-check', version: PROTOCOL_VERSION, kbId, subjectDid, action: 'read' },
+          { timeoutMs: 60_000 },
+        );
+        return reply.type === 'hearthold/kb-authorize-result' && (reply as KbAuthorizeResultMessage).authorized === true;
+      };
+
+      // SERVE — the doorman's OWN shared-scope read session (a held read member — the same mechanism the
+      // anonymous oracle uses, shared via makeHeldReader and pinned to scope:'shared').
+      const reader = makeHeldReader({
+        transport,
+        wardenDid,
+        kbId,
+        createResponse: (challenge, o) => handle.keymaster.createResponse(challenge, o),
+        registry: config.registry,
+        callbackUrl: `${publicUrl}/api/door/ask`,
+      });
+      const serveShared = (query: string, k?: number) => reader.serveShared(query, k);
+
+      const km = handle.keymaster as unknown as {
+        createChallenge(c?: Record<string, unknown>, o?: Record<string, unknown>): Promise<string>;
+        verifyResponse(r: string, o?: Record<string, unknown>): Promise<{ match?: boolean; responder?: string }>;
+      };
+      const runtime = new Emissary().use(
+        doormanModule({
+          kbId,
+          publicUrl,
+          createChallenge: ({ callback, kbId: kb }) => km.createChallenge({ callback, kbId: kb }, { registry: config.registry }),
+          verifyResponse: async (r) => {
+            const res = await km.verifyResponse(r);
+            return { match: res.match === true, ...(res.responder ? { responder: res.responder } : {}) };
+          },
+          authorizeSubject,
+          serveShared,
+        }),
+      );
+      await runtime.init({ did: id.did, name: IDENTITY_NAME.emissary, nodeUrl: config.nodeUrl, transport });
+
+      const ownOrigin = (() => { try { return [new URL(publicUrl).origin]; } catch { return []; } })();
+      const server = startControlServer({
+        port,
+        host,
+        allowOrigins: [...new Set([...ownOrigin, ...allowOrigins])],
+        routes: runtime.routes(),
+        onListening: (p) =>
+          process.stdout.write(
+            `Doorman (Emissary web-authenticator) on http://${host}:${p}\n` +
+              `  did:        ${id.did}\n  guards KB:  ${kbId}\n  warden:     ${wardenDid.slice(0, 28)}…\n  skills:     ${runtime.loadout().join(', ')}\n` +
+              `  authenticates visitors itself; the sealed Warden only authorizes (Ctrl-C to stop)\n`,
+          ),
+      });
       const shutdown = (): void => {
         server.close();
         process.exit(0);
