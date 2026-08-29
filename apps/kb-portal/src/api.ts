@@ -44,6 +44,12 @@ export interface KbCitation {
   score: number;
   /** Which partition this citation came from — shown as a badge. */
   scope?: 'shared' | 'private';
+  /** Public locus of the cited passage (book corpora) — a where-to-look, not the sealed text. */
+  volume?: string;
+  chapter?: string;
+  section?: string;
+  /** A link to the public source passage, when the corpus is public. */
+  url?: string;
 }
 
 /** The Warden's reply, relayed verbatim by the Mage. */

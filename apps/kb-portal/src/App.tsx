@@ -18,7 +18,22 @@ const SIGNET_URL = (env.VITE_SIGNET_URL as string | undefined) ?? 'https://walle
 // Member-gated KB (no anonymous oracle): the consult box is hidden until the visitor signs in, and queries
 // then ride the member's SESSION (not the /api/kb/ask oracle route, which such a deployment does not run).
 // Set VITE_MEMBER_GATED=true for a private KB (e.g. the agency book); leave unset for a public oracle KB.
-const MEMBER_GATED = (env.VITE_MEMBER_GATED as string | undefined) === 'true';
+//
+// This is a PRIVACY flag, so it must fail CLOSED. A prior strict `=== 'true'` failed OPEN: any typo (`TRUE`,
+// `1`, a trailing space) silently rendered the PUBLIC anonymous-oracle view on a PRIVATE KB. Now: recognized
+// truthy spellings gate; an explicit falsey (or unset) is public; anything SET-but-unrecognized is treated as
+// gated (fail-closed) with a loud console error — a garbled privacy flag never exposes the KB.
+const GATED_TRUE = ['true', '1', 'yes', 'on'];
+const GATED_FALSE = ['false', '0', 'no', 'off', ''];
+const rawGate = ((env.VITE_MEMBER_GATED as string | undefined) ?? '').trim().toLowerCase();
+const gateUnrecognized = rawGate !== '' && !GATED_TRUE.includes(rawGate) && !GATED_FALSE.includes(rawGate);
+const MEMBER_GATED = GATED_TRUE.includes(rawGate) || gateUnrecognized;
+if (gateUnrecognized) {
+  // eslint-disable-next-line no-console
+  console.error(
+    `VITE_MEMBER_GATED="${env.VITE_MEMBER_GATED}" is not a recognized boolean — treating this KB as MEMBER-GATED (fail-closed). Set it explicitly to "true" or "false".`,
+  );
+}
 
 export function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -196,16 +211,16 @@ function AskBox({ session }: { session?: Session | null }) {
             <p className="a">{answer}</p>
             {cites.length > 0 && (
               <div className="sources">
-                <p className="lbl">Sources</p>
-                <div className="srcrow">
+                <p className="lbl">
+                  Sources — {cites.length} passage{cites.length > 1 ? 's' : ''} from the manuscript
+                </p>
+                <ol className="srclist">
                   {cites.map((c) => (
-                    <span className="src" key={c.artefactId} title={c.artefactId}>
-                      <span className="n">{c.kind}</span>
-                      {c.scope && <span className="badge">{c.scope === 'private' ? '🔒' : '🌐'}</span>}
-                      <span className="sc">{c.score.toFixed(2)}</span>
-                    </span>
+                    <li className="src" key={c.artefactId} title={c.artefactId}>
+                      <CitationRef c={c} />
+                    </li>
                   ))}
-                </div>
+                </ol>
               </div>
             )}
             <p className="caveat">
@@ -221,7 +236,39 @@ function AskBox({ session }: { session?: Session | null }) {
   );
 }
 
-// ── Member-gated, signed out: no anonymous consult — prompt to sign in. ──
+// ── One source reference: a passage's PUBLIC locus (volume · chapter · § section) linking to the public
+//    source when present — a where-to-look into the corpus, never the sealed text. Falls back to `kind` when
+//    an artefact carries no book locus (e.g. a note). ──
+function CitationRef({ c }: { c: KbCitation }) {
+  const locus = [c.volume, c.chapter].filter(Boolean).join(' · ');
+  const inner = (
+    <>
+      <span className="loc">{locus || c.kind}</span>
+      {c.section && <span className="sec">§ {c.section}</span>}
+      {c.scope && (
+        <span className="badge" title={c.scope === 'private' ? 'from your private notes' : 'from the shared chronicle'}>
+          {c.scope === 'private' ? '🔒' : '🌐'}
+        </span>
+      )}
+      <span className="sc" title="relevance to your question">
+        {c.score.toFixed(2)}
+      </span>
+    </>
+  );
+  return c.url ? (
+    <a className="srclink" href={c.url} target="_blank" rel="noreferrer" title="Open the passage in the public source">
+      {inner}
+      <span className="ext" aria-hidden="true">
+        ↗
+      </span>
+    </a>
+  ) : (
+    inner
+  );
+}
+
+// ── Member-gated, signed out: no anonymous consult — prompt to sign in. When the KB advertises example
+//    questions, preview them here so a visitor sees the corpus's depth before committing to sign in. ──
 function SignInPrompt({ onSignIn }: { onSignIn: () => void }) {
   return (
     <section className="signin-gate">
@@ -232,6 +279,16 @@ function SignInPrompt({ onSignIn }: { onSignIn: () => void }) {
       <button className="login primary" onClick={onSignIn}>
         <span className="k">⚿</span> Sign in to consult
       </button>
+      {KB_EXAMPLES.length > 0 && (
+        <div className="gate-examples">
+          <p className="ex-lbl">Once inside, you can ask things like</p>
+          <ul className="ex-list">
+            {KB_EXAMPLES.map((x) => (
+              <li key={x}>{x}</li>
+            ))}
+          </ul>
+        </div>
+      )}
     </section>
   );
 }

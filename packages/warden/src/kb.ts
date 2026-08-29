@@ -554,14 +554,28 @@ export class KbService {
       // never surfaces to a factor1 / public-portal reader who only cleared the coarse read action.
       const kbCeiling = (readAuthz.requiredAssurance ?? 'factor1') === 'factor2' ? Sensitivity.SEALED : Sensitivity.MEDIUM;
       const result = await RecallService.forWarden(this.warden, this.config, keyFor).recall(req.query, { k: req.k, kb: visible, maxSensitivity: kbCeiling, think: this.opts.answerThink });
-      // Label each citation by partition so the portal can show where an answer came from.
-      const citations = result.citations.map((c) => ({
-        artefactId: c.artefactId,
-        kind: c.kind,
-        observedAt: c.observedAt,
-        score: c.score,
-        scope: (c.kb === own?.id ? 'private' : c.kb === this.opts.kbId ? 'shared' : undefined) as 'shared' | 'private' | undefined,
-      }));
+      // Label each citation by partition so the portal can show where an answer came from, AND enrich it with
+      // the artefact's PUBLIC locus (volume / chapter / section / url) so a member can navigate the corpus.
+      // The locus comes from the CLEARTEXT `metadata` on the vault record — never the sealed body — so this
+      // surfaces a where-to-look, not the text. Only a `string` field is carried (a non-string is dropped),
+      // and a missing artefact simply yields no locus (the citation still renders with kind + score).
+      const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v : undefined);
+      const citations = await Promise.all(
+        result.citations.map(async (c) => {
+          const meta = (await this.store.get(c.artefactId).catch(() => undefined))?.metadata ?? {};
+          return {
+            artefactId: c.artefactId,
+            kind: c.kind,
+            observedAt: c.observedAt,
+            score: c.score,
+            scope: (c.kb === own?.id ? 'private' : c.kb === this.opts.kbId ? 'shared' : undefined) as 'shared' | 'private' | undefined,
+            volume: str(meta.volume),
+            chapter: str(meta.chapter),
+            section: str(meta.section),
+            url: str(meta.url),
+          };
+        }),
+      );
       return { type: 'hearthold/kb-result', version: PROTOCOL_VERSION, action: 'query', answer: result.answer, citations };
     }
 

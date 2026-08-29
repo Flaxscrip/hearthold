@@ -479,8 +479,21 @@ export type KbResultMessage =
       version: typeof PROTOCOL_VERSION;
       action: 'query';
       answer: string;
-      /** Each citation is labelled by which partition it came from — 'shared' or the member's 'private'. */
-      citations: { artefactId: string; kind: string; observedAt: string; score: number; scope?: 'shared' | 'private' }[];
+      /** Each citation is labelled by which partition it came from — 'shared' or the member's 'private'.
+       *  Book / structured artefacts also carry their PUBLIC locus (volume / chapter / section) and, when the
+       *  source is public, a `url` — navigation aids into the corpus. These come from the artefact's CLEARTEXT
+       *  metadata only (never the sealed body), so they surface a where-to-look, not the text itself. */
+      citations: {
+        artefactId: string;
+        kind: string;
+        observedAt: string;
+        score: number;
+        scope?: 'shared' | 'private';
+        volume?: string;
+        chapter?: string;
+        section?: string;
+        url?: string;
+      }[];
     }
   | {
       type: 'hearthold/kb-result';
