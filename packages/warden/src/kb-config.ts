@@ -44,6 +44,13 @@ export interface KbConfig {
   /** Where a scope-less contribution lands. Default 'shared'. Personal-profile spaces set 'private'. */
   defaultScope?: 'shared' | 'private';
   /**
+   * Let this KB's recall answers REASON before answering — a deep-synthesis KB (e.g. a Book Worm book/corpus)
+   * where answer quality over retrieved passages matters more than latency. When true, recall runs the answer
+   * model with thinking on (a reasoning model produces a far richer synthesis). Default off (fast). Set true
+   * for a knowledge/book KB; leave off for a personal vault (quick lookups).
+   */
+  answerThink?: boolean;
+  /**
    * Open enrollment (docs/kb-spaces.md, HATPro): a proven-DID's FIRST authenticated action auto-joins the KB —
    * granted read+write and (if `memberPartitions`) a private partition — instead of requiring a Sovereign's
    * `kb-grant`. Zero-barrier onboarding for a public self-service KB. Deliberately off by default; only an
@@ -305,6 +312,7 @@ function serviceFor(
     approver,
     memberPartitions: kb.memberPartitions,
     defaultScope: kb.defaultScope,
+    answerThink: kb.answerThink,
     openEnroll: kb.openEnrollment ? (did: string) => openEnroll(handle, config, kb, did) : undefined,
     partitions: kb.memberPartitions ? new PartitionStore(handle.dataFolder) : undefined,
     sessionKeys: readGuest?.sessionKeys,

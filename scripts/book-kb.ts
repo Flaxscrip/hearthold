@@ -80,7 +80,8 @@ async function main(): Promise<void> {
   for (const c of report.perChapter) if (c.error) say(`   – ${c.url} — skipped: ${c.error}`);
 
   say(`\n▶ 3. ASK  "${query}"`);
-  const result = await RecallService.forWarden(warden, config).recall(query, { k: 6, maxSensitivity: Sensitivity.HIGH });
+  // think: the Book Worm is a deep-synthesis KB — let a reasoning answer model reason over the passages.
+  const result = await RecallService.forWarden(warden, config).recall(query, { k: 6, maxSensitivity: Sensitivity.HIGH, think: true });
   say();
   rule();
   const failed = /temporarily unavailable|couldn't retrieve|Nothing has been indexed/i.test(result.answer);

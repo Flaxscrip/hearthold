@@ -79,7 +79,8 @@ async function main(): Promise<void> {
     readGroup = await createRegistryGroup(warden, `kb-read-${kbId}`, config.registry);
     const writeGroup = await createRegistryGroup(warden, `kb-write-${kbId}`, config.registry);
     const policyAsset = await initKbAssurance(warden, config, kbId, selfSigner(warden, wid.did));
-    await kbStore.put({ kbId, readGroup, writeGroup, policyAsset, governorDid: undefined });
+    // answerThink: a book corpus is a deep-synthesis KB — recall reasons over the retrieved passages.
+    await kbStore.put({ kbId, readGroup, writeGroup, policyAsset, governorDid: undefined, answerThink: true });
     say(`   created — read ${readGroup.slice(0, 20)}… · write ${writeGroup.slice(0, 20)}…`);
   }
   await grantAuthorization(warden, readGroup, ownerId.did); // owner can query (and verify below)
