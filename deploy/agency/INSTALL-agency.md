@@ -13,6 +13,16 @@ On this M1 Max, the two requirements sit on opposite sides of the seal:
 You can't have both from one side. The fix is the pattern already running here: a **`tcp-forward` bridge**
 for the node, so a host-native process reaches the sealed node over loopback while using the host's GPU Ollama.
 
+## Build-host prerequisites (Aegis)
+- **Internet** on the build host — the run crawls `https://axionic.org` for the corpus (a sealed-net-only
+  process can't fetch it; that's the *second* reason host-native is required, alongside the GPU).
+- **Loopback to the node** for the mints (via the bridge below).
+- **`HEARTHOLD_NODE_URL` MUST be explicit.** Unset, it defaults to `flaxlap.local:4222` — a *different node*.
+  Set it to the bridge (`http://127.0.0.1:4299`) or the mints land on the wrong node.
+- **`AGENCY_DAVID`** — a sealed node can't resolve a `name@domain`, so pass David's raw DID:
+  `AGENCY_DAVID=did:cid:bagaaierar7rd7vkb5aq4ie4wzdlfpcxthvsi6q4uspn6zopy5amthleslyza` (his doc IS resolvable
+  on the sealed node; only the name lookup isn't). Off a sealed node, the `cypher@4tress.org` name default works.
+
 ## Prereq — the node bridge (Aegis, do this FIRST)
 Add a tcp-forward bridge (same kind as the ~10 already published here):
 ```
@@ -36,7 +46,8 @@ Members: owner + **David** (`cypher@4tress.org` → `did:cid:bagaaierar7rd7vkb5a
 ## Env files (0600, under `~/.hearthold-agency/`)
 - `.env.agency-warden`: `HEARTHOLD_PASSPHRASE`, `HEARTHOLD_DATA_ROOT=~/.hearthold-agency-warden`,
   `HEARTHOLD_REGISTRY=local`, `HEARTHOLD_ANSWER_MODEL=qwen3:8b`, `HEARTHOLD_NODE_URL=http://127.0.0.1:4299`,
-  `HEARTHOLD_OLLAMA_URL=http://127.0.0.1:11434`, `HEARTHOLD_APP=<repo path>`, `HEARTHOLD_NODE=<node bin>`.
+  `HEARTHOLD_OLLAMA_URL=http://127.0.0.1:11434`, `HEARTHOLD_APP=<repo path>`, `HEARTHOLD_NODE=<node bin>`,
+  and on a sealed node `AGENCY_DAVID=did:cid:…thleslyza` (David's DID — a name can't resolve there).
 - `.env.agency-kb-mage`: same passphrase/model/node/app/URLs, `HEARTHOLD_DATA_ROOT=~/.hearthold-agency-kb-mage`,
   and `HEARTHOLD_WARDEN_DID=<the agency Warden did>` (filled after Step 1).
 

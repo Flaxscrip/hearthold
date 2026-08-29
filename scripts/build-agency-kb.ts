@@ -37,7 +37,9 @@ import { OllamaEmbedder } from '@hearthold/warden/recall';
 import { ingestCorpus, type BookChunk, type BookWormDeps } from '@hearthold/emissary/modules/bookworm';
 
 const CORPUS_URL = 'https://axionic.org/book/index.html';
-const DAVID_NAME = 'cypher@4tress.org';
+// David's identity to grant read to. A NAME (name@domain) needs wider-network name resolution — a SEALED
+// node can't do that, so pass his raw did:cid via AGENCY_DAVID there. resolveDID takes either form unchanged.
+const DAVID_NAME = process.env.AGENCY_DAVID ?? 'cypher@4tress.org';
 const here = dirname(fileURLToPath(import.meta.url));
 const DATA_ROOT = process.env.HEARTHOLD_DATA_ROOT ?? join(here, '..', '.hearthold-agency-kb');
 const PASSPHRASE = process.env.HEARTHOLD_PASSPHRASE ?? 'hearthold-agency-kb';
