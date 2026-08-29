@@ -9,6 +9,7 @@ import {
   type KbLoginStartMessage,
   type KbLoginCompleteMessage,
   type KbSessionRequestMessage,
+  type KbAuthorizeCheckMessage,
   type Sensitivity,
 } from '@hearthold/core';
 
@@ -185,6 +186,17 @@ export function makeWardenHandler(
         const kb = kbFor(m.kbId);
         if (!kb) return deny('unknown KB');
         return kb.serveWithSession(m);
+      }
+
+      // Doorman authorization check — the Emissary web-authenticator has authenticated `subjectDid` itself
+      // (it can resolve the visitor; this node may not) and asks whether that DID is an authorized member.
+      // `fromDid` (the presenting doorman) is the GATE: only a caller already read-authorized on the KB gets
+      // a truthful verdict. Pure membership test, no resolution, no content — safe from a sealed node.
+      case 'hearthold/kb-authorize-check': {
+        const m = message as KbAuthorizeCheckMessage;
+        const kb = kbFor(m.kbId);
+        if (!kb) return deny('unknown KB');
+        return kb.authorizeCheck(fromDid, m.subjectDid, m.action);
       }
 
       default:
