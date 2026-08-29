@@ -27,6 +27,8 @@ import {
   grantAuthorization,
   selfSigner,
   Sensitivity,
+  DidCommTransport,
+  IDENTITY_NAME,
   type KeymasterHandle,
   type KbRequestStatement,
 } from '@hearthold/core';
@@ -202,6 +204,27 @@ async function main(): Promise<void> {
     say(`  member query returned: ${res.type} — ${(res as { reason?: string }).reason ?? ''}`);
   }
   rule();
+
+  // ▶ 5. PUBLISH the Warden's DIDComm endpoint into its DID doc, so a FRESH build is immediately reachable by
+  // the Mage — without a manual `warden republish`. `ready()` is idempotent (publish-if-absent) and, since
+  // transport.ts split the WRITE from the apply-nudge, no longer aborts when the node is a resolve-only
+  // Drawbridge front that can't proxy processEvents (it warns, the node drains its own queue). Skipped for a
+  // build whose node URL can't be published to (a sealed front) via HEARTHOLD_SKIP_PUBLISH=1 — then the
+  // operator publishes from the serving node, where `warden serve` does it on startup.
+  if (process.env.HEARTHOLD_SKIP_PUBLISH === '1') {
+    say('\n▶ 5. PUBLISH endpoint — SKIPPED (HEARTHOLD_SKIP_PUBLISH=1); publish from the serving node instead');
+  } else {
+    say('\n▶ 5. PUBLISH the Warden DIDComm endpoint (so the Mage can reach it without a manual republish)');
+    try {
+      await new DidCommTransport(warden, IDENTITY_NAME.warden, config.nodeUrl).ready();
+      say('   endpoint advertised.');
+    } catch (err) {
+      // A genuine WRITE failure (resolve-only front) — surface it, but the KB itself is built. Don't fail the
+      // whole build over the advertisement; the operator can `warden republish` from the serving node.
+      say(`   ⚠ could not publish the endpoint from this node (${err instanceof Error ? err.message.split('\n')[0] : String(err)}).`);
+      say('     The KB is built; run `warden serve` (or `warden republish`) from the node that serves it to advertise.');
+    }
+  }
 
   say(`\n  KB "${kbId}" is built and member-gated (${report.chunks} passages). A non-member is refused at the`);
   say('  challenge; the manuscript never leaves the custodian. 📖');

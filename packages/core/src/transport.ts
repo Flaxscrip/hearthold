@@ -137,31 +137,29 @@ export class DidCommTransport implements Transport {
   }
 
   /**
-   * Write the endpoint into the DID document AND apply it. Clears a DIFFERING prior endpoint first
+   * Write the endpoint into the DID document, then nudge it live. Clears a DIFFERING prior endpoint first
    * (publishDidComm may add rather than replace, which would leave a stale service entry a sender could
-   * pick), publishes, then drains the gatekeeper event queue with `processEvents` — because on `hyperswarm`
-   * a DID update QUEUES: the endpoint's service AND its **keyAgreement key** don't become resolvable until
-   * the queue is processed, so a sender can't authcrypt (this blocks both onion-endpoint advertising and
-   * credential accept between nodes). On `local` a write applies immediately, so `processEvents` is a cheap
-   * no-op — we run it unconditionally rather than sniff the registry. Publishing a DID is a WRITE, so it
-   * fails when `nodeUrl` points at a resolve-only front (a mailbox / sealed Drawbridge that doesn't proxy
-   * gatekeeper writes or inject an admin key) — the commonest cause, called out in the error so an operator
-   * isn't left guessing. Logs the applied transition to stdout on success.
+   * pick), then publishes. Two DISTINCT steps with DIFFERENT failure semantics:
+   *
+   *   1. The WRITE (`publishDidComm`) — MUST succeed. It fails when `nodeUrl` points at a resolve-only front
+   *      (a mailbox / sealed Drawbridge that doesn't proxy gatekeeper writes or inject an admin key) — the
+   *      commonest cause, called out in the thrown error so an operator isn't left guessing.
+   *   2. The APPLY NUDGE (`processEvents`) — BEST-EFFORT. On a QUEUING registry (hyperswarm / chain) a DID
+   *      update queues: the endpoint's service AND its keyAgreement key aren't resolvable until the queue
+   *      drains, so a sender can't authcrypt. processEvents nudges that drain — but the node drains its OWN
+   *      queue regardless, and a Drawbridge front doesn't proxy `/api/v1/events/process` at all (it answers
+   *      `Cannot POST …`). So a nudge failure is NOT a publish failure: the WRITE already landed. We WARN and
+   *      continue rather than throw — reporting failure on a successful write makes an operator retry a
+   *      completed publish (measured: agentic Warden behind flaxlap's Drawbridge, 2026-08-29). On `local`,
+   *      writes apply immediately, so we skip the nudge. Logs the transition to stdout on success.
    */
   private async publishTo(endpoint: string, previous: string | undefined, force = false): Promise<void> {
     const changing = !!previous && previous !== endpoint;
+    // Step 1 — the WRITE. A failure here means the endpoint never landed: throw, loud, with the likely cause.
     try {
       if (changing) await this.handle.keymaster.unpublishDidComm(this.idName);
       const ok = await this.handle.keymaster.publishDidComm(endpoint, this.idName);
       if (!ok) throw new Error('publishDidComm returned false (no current identity, or the write was rejected)');
-      // On a QUEUING registry (hyperswarm / chain) the write lands only after processEvents — until then the
-      // keyAgreement key + DIDComm service aren't resolvable, so a sender can't authcrypt. On `local` writes
-      // apply immediately AND the resolve-only Drawbridge front doesn't expose the events route, so we skip.
-      const applied = this.handle.registry !== 'local';
-      if (applied) await this.handle.gatekeeper.processEvents();
-      process.stdout.write(
-        `[didcomm] ${this.idName}: ${changing ? `${previous} → ` : force ? 're' : ''}published ${endpoint}${applied ? ' (applied)' : ''}\n`,
-      );
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       throw new Error(
@@ -170,6 +168,27 @@ export class DidCommTransport implements Transport {
           `Drawbridge / table-gateway), not a resolve-only mailbox front.`,
       );
     }
+    // Step 2 — the APPLY NUDGE. Best-effort: the WRITE above already succeeded. A Drawbridge front that
+    // doesn't proxy the events route throws here; that must NOT be reported as a publish failure.
+    const applied = this.handle.registry !== 'local';
+    let nudged = false;
+    if (applied) {
+      try {
+        await this.handle.gatekeeper.processEvents();
+        nudged = true;
+      } catch (err) {
+        const reason = err instanceof Error ? (err.message.split('\n')[0] ?? err.message) : String(err);
+        process.stderr.write(
+          `[didcomm] ${this.idName}: endpoint published, but the processEvents nudge could not run via ` +
+            `${this.nodeUrl} (${reason}) — the WRITE succeeded; the node drains its own queue, so the endpoint ` +
+            `still becomes resolvable. Only a concern if a sender still can't reach it after a moment.\n`,
+        );
+      }
+    }
+    process.stdout.write(
+      `[didcomm] ${this.idName}: ${changing ? `${previous} → ` : force ? 're' : ''}published ${endpoint}` +
+        `${applied ? (nudged ? ' (applied)' : ' (apply deferred to node)') : ''}\n`,
+    );
   }
 
   // DURABLE DRAIN (@didcid 0.6.3): the loop reads NON-destructively (`receiveDidComm({ack:false})` — each
