@@ -108,12 +108,44 @@ export class DidCommTransport implements Transport {
    * senders actually run.
    */
   private desiredEndpoint(): Promise<string> {
-    const fromNode = (): Promise<string> =>
-      fetch(`${this.nodeUrl}/api/v1/didcomm-endpoint`)
-        .then((r) => r.json())
-        .then((j: unknown) => (j as { endpoint: string }).endpoint);
     const override = process.env.HEARTHOLD_DIDCOMM_ENDPOINT;
-    return override ? Promise.resolve(override) : fromNode();
+    return override ? Promise.resolve(override) : this.endpointFromNode();
+  }
+
+  /**
+   * The node's own advertised DIDComm endpoint (`/api/v1/didcomm-endpoint`), VALIDATED. A resolve-only front
+   * (or a node lacking the route) answers 404 — often with a JSON body (`{"message":"Endpoint not found"}`)
+   * that `.json()` parses cleanly, so a naive read yields `endpoint: undefined` and NOTHING throws. That
+   * undefined then flows into `ready()` — which sees `undefined === undefined` as "already correct" and
+   * early-returns forever — and into `publishTo`, which writes a keyAgreement key but no DIDCommMessaging
+   * service: a HALF-PUBLISH that fails silently, surfacing only much later at a sender as "recipient has no
+   * DIDCommMessaging endpoint". So reject a non-OK status and a non-string endpoint LOUD, here, at the source.
+   */
+  private async endpointFromNode(): Promise<string> {
+    const url = `${this.nodeUrl}/api/v1/didcomm-endpoint`;
+    let res: Response;
+    try {
+      res = await fetch(url);
+    } catch (err) {
+      throw new Error(
+        `[didcomm] ${this.idName}: could not reach the node endpoint lookup ${url} — ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    if (!res.ok) {
+      throw new Error(
+        `[didcomm] ${this.idName}: node endpoint lookup ${url} returned ${res.status} — this node does not advertise a ` +
+          `DIDComm endpoint. Point HEARTHOLD_NODE_URL at a node that serves /api/v1/didcomm-endpoint, or set ` +
+          `HEARTHOLD_DIDCOMM_ENDPOINT explicitly.`,
+      );
+    }
+    const body = (await res.json().catch(() => ({}))) as { endpoint?: unknown };
+    if (typeof body.endpoint !== 'string' || !body.endpoint) {
+      throw new Error(
+        `[didcomm] ${this.idName}: node endpoint lookup ${url} returned no usable endpoint (got ${JSON.stringify(body.endpoint)}). ` +
+          `Set HEARTHOLD_DIDCOMM_ENDPOINT to a reachable address, or bind to a node that advertises one.`,
+      );
+    }
+    return body.endpoint;
   }
 
   /** The DIDComm endpoint this identity currently advertises in its DID document, or undefined. */
@@ -149,6 +181,14 @@ export class DidCommTransport implements Transport {
    * isn't left guessing. Logs the applied transition to stdout on success.
    */
   private async publishTo(endpoint: string, previous: string | undefined, force = false): Promise<void> {
+    // Last line of defence against a half-publish (`republish` can pass an explicit endpoint too): never write
+    // a DID with a keyAgreement key but no DIDCommMessaging service — it fails silently at a later sender.
+    if (typeof endpoint !== 'string' || !endpoint) {
+      throw new Error(
+        `[didcomm] ${this.idName}: refusing to publish a non-endpoint (${JSON.stringify(endpoint)}) — a half-published ` +
+          `DID carries a keyAgreement key but no DIDCommMessaging service, which fails silently at the sender.`,
+      );
+    }
     const changing = !!previous && previous !== endpoint;
     try {
       if (changing) await this.handle.keymaster.unpublishDidComm(this.idName);
