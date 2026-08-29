@@ -36,7 +36,9 @@ async function main(): Promise<void> {
   const query = process.argv[3] ?? DEFAULT_QUERY;
   const maxArg = process.argv[4];
   const maxChapters = maxArg === 'all' ? Infinity : Number(maxArg ?? 4);
-  const config = { ...loadConfig(), dataRoot: DATA_ROOT };
+  // A book is a deep-synthesis KB → default to a REASONING answer model so it thinks out of the box
+  // (recall passes think:true below). Override with HEARTHOLD_ANSWER_MODEL for a different/faster model.
+  const config = { ...loadConfig(), dataRoot: DATA_ROOT, answerModel: process.env.HEARTHOLD_ANSWER_MODEL ?? 'qwen3:8b' };
 
   rule();
   say('  📖 Hearthold Book Worm — read a book with local models, then ask it questions');

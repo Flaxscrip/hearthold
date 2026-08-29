@@ -48,7 +48,9 @@ async function main(): Promise<void> {
   const kbId = process.argv[2] ?? 'agency';
   const maxVolumes = process.argv[3] ? Number(process.argv[3]) : Infinity;
   const maxChaptersPerVolume = process.argv[4] ? Number(process.argv[4]) : Infinity;
-  const config = { ...loadConfig(), dataRoot: DATA_ROOT };
+  // A book corpus is a deep-synthesis KB → default to a REASONING answer model so the verify query (and a
+  // served warden with the same model) thinks. Override with HEARTHOLD_ANSWER_MODEL.
+  const config = { ...loadConfig(), dataRoot: DATA_ROOT, answerModel: process.env.HEARTHOLD_ANSWER_MODEL ?? 'qwen3:8b' };
 
   rule();
   say(`  📖 Building the private "${kbId}" KB — David's corpus, behind challenge/response`);
