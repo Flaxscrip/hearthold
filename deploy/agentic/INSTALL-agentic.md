@@ -165,7 +165,13 @@ the Warden, and archon requires it **confirmed** on the target registry. The ful
 3. **Then** `HEARTHOLD_EPHEMERAL_REGISTRY=hyperswarm` puts each login challenge on hyperswarm, and it now
    verifies remotely (its controller — the Warden — resolves there).
 4. **Groups stay `local`** — nothing off-node ever resolves them; only the Warden reads them via `testGroup`.
-   The knob separation is right; it just isn't the whole fix.
+   The knob separation is right; it just isn't the whole fix. **Membership does NOT leak from the move**
+   (archon-ops raised this — the T3 argument was born-local access-control keeps *who is a member* off the
+   gossip network). **Verified** (`npm run e2e:changeregistry-groups`): a hyperswarm-identity Warden still
+   creates, grants, and `testGroup`s its `local` groups, and they stay registered `local`. The move gossips
+   only the Warden's OWN DID document (its public key + service endpoint — not secret); the corpus (sealed
+   vault, never a registry object) and the membership (local groups) both stay private. T3's no-membership-leak
+   argument still holds after the move.
 
 - **Still unmeasured (Aegis), and it decides usability:** each login is a **per-login gossip** of a fresh
   challenge onto hyperswarm — if propagation is slower than a member takes to click *sign*, wire the
