@@ -13,7 +13,9 @@ import {
   extractChapter,
   chunkChapter,
   chapterUrls,
+  volumeUrls,
   ingestBook,
+  ingestCorpus,
   type BookChunk,
   type BookWormDeps,
 } from '../src/modules/bookworm.ts';
@@ -93,6 +95,43 @@ test('ingestBook: discover → fetch → chunk → sink, hermetic (stub fetch + 
   assert.equal(report.chunks, 3, 'One(1 section) + Two(2 sections)');
   assert.deepEqual(collected.map((c) => `${c.chapterTitle}/${c.section}`), ['One/Alpha', 'Two/Beta', 'Two/Gamma']);
   assert.equal(collected[0]!.url, 'https://b/01-one.html');
+});
+
+test('volumeUrls: discovers NN-name/ volume dirs, normalizes to index.html, in order, deduped', () => {
+  const corpus = `<a href="00-front/index.html">front</a>
+    <a href="01-physics-of-agency/index.html">v1</a>
+    <a href="02-conditionalism/">v2</a>
+    <a href="01-physics-of-agency/index.html">dup</a>
+    <a href="about.html">x</a>`;
+  const urls = volumeUrls(corpus, 'https://axionic.org/book/index.html');
+  assert.deepEqual(urls, [
+    'https://axionic.org/book/00-front/index.html',
+    'https://axionic.org/book/01-physics-of-agency/index.html',
+    'https://axionic.org/book/02-conditionalism/index.html',
+  ]);
+});
+
+test('ingestCorpus: discover volumes → ingest each; chunks carry their volume; failures recorded', async () => {
+  const pages: Record<string, string> = {
+    'https://b/index.html': `<a href="01-vone/index.html">1</a><a href="02-vtwo/index.html">2</a>`,
+    'https://b/01-vone/index.html': `<a href="01-alpha.html">a</a>`,
+    'https://b/01-vone/01-alpha.html': `<body><h1>Alpha</h1><h2>S</h2><p>${'w '.repeat(20)}</p></body>`,
+    // 02-vtwo's TOC is missing → volume ingest still runs (ingestBook fetches the TOC and throws → caught).
+  };
+  const collected: BookChunk[] = [];
+  const deps: BookWormDeps = {
+    fetchText: async (u) => {
+      const p = pages[u];
+      if (!p) throw new Error(`404 ${u}`);
+      return p;
+    },
+    sink: async (c) => { collected.push(c); },
+  };
+  const report = await ingestCorpus(deps, { corpusUrl: 'https://b/index.html' });
+  assert.equal(report.volumes, 1, 'v1 ingested; v2 TOC 404 → recorded, not thrown');
+  assert.equal(report.chunks, 1);
+  assert.equal(collected[0]!.volume, 'https://b/01-vone/index.html', 'the chunk carries its volume');
+  assert.ok(report.perVolume.some((v) => v.error), 'the failed volume is recorded');
 });
 
 test('ingestBook: a chapter that fails to fetch is recorded as an error, not thrown', async () => {

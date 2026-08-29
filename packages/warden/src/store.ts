@@ -47,11 +47,20 @@ export class VaultStore {
   }
 
   async put(artefact: Artefact): Promise<void> {
+    await this.putMany([artefact]);
+  }
+
+  /**
+   * Bulk add/replace — ONE read + ONE write for the whole batch (idempotent by content id, last wins). Use
+   * for a large ingest (e.g. a book corpus): per-item `put` re-reads + re-writes the whole vault each time
+   * (O(n²)); `putMany` is O(n). No-op on an empty batch.
+   */
+  async putMany(artefacts: Artefact[]): Promise<void> {
+    if (artefacts.length === 0) return;
     await mkdir(this.dataFolder, { recursive: true });
-    // Content-addressed ids are idempotent — replace an existing entry rather than duplicating it.
-    const all = (await this.readAll()).filter((a) => a.id !== artefact.id);
-    all.push(artefact);
-    await writeFile(this.file, JSON.stringify(all, null, 2), 'utf8');
+    const incoming = new Map(artefacts.map((a) => [a.id, a]));
+    const kept = (await this.readAll()).filter((a) => !incoming.has(a.id));
+    await writeFile(this.file, JSON.stringify([...kept, ...incoming.values()], null, 2), 'utf8');
   }
 
   async get(id: string): Promise<Artefact | undefined> {

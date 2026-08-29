@@ -114,6 +114,30 @@ export function chapterUrls(tocHtml: string, tocUrl: string): string[] {
   return urls;
 }
 
+/**
+ * Discover VOLUME table-of-contents URLs from a corpus index page: hrefs into a numbered volume directory
+ * (`NN-name/` or `NN-name/index.html`), normalized to that directory's `index.html`, in order, deduped.
+ * Also picks up a `00-front/` front-matter directory when present.
+ */
+export function volumeUrls(corpusHtml: string, corpusUrl: string): string[] {
+  const seen = new Set<string>();
+  const urls: string[] = [];
+  for (const m of corpusHtml.matchAll(/href="([^"]*\d{2}-[^"/]+\/(?:index\.html)?)"/gi)) {
+    let abs: string;
+    try {
+      abs = new URL(m[1]!, corpusUrl).toString().replace(/\/$/, '/index.html');
+    } catch {
+      continue;
+    }
+    if (!/\/index\.html$/i.test(abs)) abs = `${abs.replace(/\/$/, '')}/index.html`;
+    if (!seen.has(abs)) {
+      seen.add(abs);
+      urls.push(abs);
+    }
+  }
+  return urls;
+}
+
 // ── Ingestion (orchestration; fetch + sink injected so it's testable and persistence-agnostic) ──────────────
 
 /** One book passage handed to the sink to embed + store. `index` is the chunk's ordinal within its chapter. */
@@ -123,6 +147,8 @@ export interface BookChunk {
   url: string;
   index: number;
   text: string;
+  /** The volume TOC URL this chapter belongs to — present when ingesting a whole corpus. */
+  volume?: string;
 }
 
 export interface BookWormDeps {
@@ -139,6 +165,8 @@ export interface IngestBookOptions {
   /** Cap chapters ingested (undefined / Infinity = the whole book). */
   maxChapters?: number;
   maxWordsPerChunk?: number;
+  /** The volume TOC URL to stamp on each chunk's provenance (set by `ingestCorpus`). */
+  volume?: string;
 }
 
 export interface IngestReport {
@@ -171,12 +199,52 @@ export async function ingestBook(deps: BookWormDeps, opts: IngestBookOptions): P
     const pieces = chunkChapter(chapter, opts.maxWordsPerChunk);
     for (let i = 0; i < pieces.length; i++) {
       const p = pieces[i]!;
-      await deps.sink({ chapterTitle: chapter.title, section: p.section, url, index: i, text: p.text });
+      await deps.sink({ chapterTitle: chapter.title, section: p.section, url, index: i, text: p.text, ...(opts.volume ? { volume: opts.volume } : {}) });
     }
     report.chapters += 1;
     report.chunks += pieces.length;
     report.perChapter.push({ url, title: chapter.title, chunks: pieces.length });
     deps.onChapter?.(chapter.title, pieces.length, url);
+  }
+  return report;
+}
+
+export interface CorpusReport {
+  corpusUrl: string;
+  volumes: number;
+  chapters: number;
+  chunks: number;
+  perVolume: { url: string; chapters: number; chunks: number; error?: string }[];
+}
+
+/**
+ * Read a whole CORPUS: discover volume TOCs from the corpus index, then `ingestBook` each. Each passage's
+ * provenance carries its `volume`. Never throws for one bad volume. `onVolume` fires per volume for progress.
+ */
+export async function ingestCorpus(
+  deps: BookWormDeps & { onVolume?: (volumeUrl: string, chapters: number, chunks: number) => void },
+  opts: { corpusUrl: string; maxVolumes?: number; maxChaptersPerVolume?: number; maxWordsPerChunk?: number },
+): Promise<CorpusReport> {
+  const corpus = await deps.fetchText(opts.corpusUrl);
+  const vols = volumeUrls(corpus, opts.corpusUrl).slice(0, opts.maxVolumes ?? Infinity);
+  const report: CorpusReport = { corpusUrl: opts.corpusUrl, volumes: 0, chapters: 0, chunks: 0, perVolume: [] };
+
+  for (const volumeUrl of vols) {
+    try {
+      const r = await ingestBook(deps, {
+        tocUrl: volumeUrl,
+        volume: volumeUrl,
+        maxChapters: opts.maxChaptersPerVolume,
+        maxWordsPerChunk: opts.maxWordsPerChunk,
+      });
+      report.volumes += 1;
+      report.chapters += r.chapters;
+      report.chunks += r.chunks;
+      report.perVolume.push({ url: volumeUrl, chapters: r.chapters, chunks: r.chunks });
+      deps.onVolume?.(volumeUrl, r.chapters, r.chunks);
+    } catch (err) {
+      report.perVolume.push({ url: volumeUrl, chapters: 0, chunks: 0, error: err instanceof Error ? err.message : String(err) });
+    }
   }
   return report;
 }

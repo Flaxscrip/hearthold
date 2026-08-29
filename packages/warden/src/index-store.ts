@@ -25,10 +25,20 @@ export class IndexStore {
 
   /** Add or replace the entry for an artefact (idempotent by artefactId). */
   async put(entry: IndexEntry): Promise<void> {
+    await this.putMany([entry]);
+  }
+
+  /**
+   * Bulk add/replace — ONE read + ONE write for the whole batch (idempotent by artefactId, last wins). Use
+   * this for a large ingest (e.g. a book corpus): per-entry `put` re-reads + re-writes the whole file each
+   * time (O(n²)); `putMany` is O(n). No-op on an empty batch.
+   */
+  async putMany(entries: IndexEntry[]): Promise<void> {
+    if (entries.length === 0) return;
     await mkdir(join(this.file, '..'), { recursive: true });
-    const all = (await this.readAll()).filter((e) => e.artefactId !== entry.artefactId);
-    all.push(entry);
-    await writeFile(this.file, JSON.stringify(all, null, 2), 'utf8');
+    const incoming = new Map(entries.map((e) => [e.artefactId, e]));
+    const kept = (await this.readAll()).filter((e) => !incoming.has(e.artefactId));
+    await writeFile(this.file, JSON.stringify([...kept, ...incoming.values()], null, 2), 'utf8');
   }
 
   async list(): Promise<IndexEntry[]> {
