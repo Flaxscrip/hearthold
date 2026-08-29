@@ -123,8 +123,86 @@ available proof is **membership (above) + the owner's real challenge/response** 
 exercised login → session → a 6-citation answer end to end). State it that way to flaxscrip — *"membership
 verified with a control; a David-login awaits David himself,"* **not** "login verified."
 
-**DONE 2026-08-29** — all five checks above passed on flaxlap (David `did:cid:bagaaierar7rd…`, read-only, 2
-members). David is a member; his first login is his to make once the Mage is up.
+**Unconfirmed member DIDs:** if the grantee's DID resolves `confirmed=False` (pending updates not yet anchored
+— e.g. a high `versionSequence`), **compare the CONFIRMED and LATEST signing keys** before declaring the grant
+good. Login verification resolves the member's key; if confirmed and latest disagreed on it, the grant would
+succeed while the login was refused. "Resolves clean" is not sufficient on its own. (Seen 2026-08-29:
+flaxscrip's DID resolved v40 `confirmed=False` vs v35 confirmed — **identical** signing key, so safe.)
+
+The KB has exactly **two members — David and Christian** (`flaxscrip@archon.social`, `did:cid:bagaaiera7vsj…`,
+Christian's governor identity; **Christian *is* flaxscrip** — not a distinct third party, and the KB owner is
+his identity too). David is `cypher@4tress.org` / `did:cid:bagaaierar7rd…`. Both were granted + verified with
+the negative control on the FIRST (local-born) Warden — but that Warden is being replaced by the born-hyperswarm
+rebuild below, so **both grants are re-done on the new identity** (David + Christian). Their first logins are
+theirs to make once the rebuilt Warden + Mage are up.
+
+## ⚠️ Member login requires a PUBLICLY-RESOLVABLE challenge (not `local`)
+
+A member-gated KB's only door is login, and login mints a **challenge DID** the member's wallet must resolve
+from **their own node** to sign it (`createResponse` throws `challengeDID does not resolve` otherwise). A
+challenge minted on `local` resolves only on flaxlap — so **no member on another node can sign in** (found
+live: the challenge was `notFound` on public gatekeepers). The KB's identity + access-control **groups** can
+stay `local` (born-local: immediate, no gossip), but the **login challenge cannot**. The code now mints it on
+`config.ephemeralRegistry` (a login challenge *is* ephemeral) — separate from the groups' `registry` — so:
+
+**`HEARTHOLD_EPHEMERAL_REGISTRY=hyperswarm` alone is necessary but NOT sufficient** (measured by Aegis — do not
+ship the code change as "the fix"). Keymaster **silently downgrades** a `local` agent's assets back to `local`:
+`createAsset` resolves the controller `{confirm:true}` and, if it is registered `local`, rewrites the op's
+registry to `local` rather than have the gatekeeper refuse it. That downgrade sits *below* `createChallenge`, so
+it defeats the passed option, `ephemeralRegistry`, and `HEARTHOLD_REGISTRY` alike — measured: with the Warden's
+env set to `hyperswarm`, a minted challenge still came back `registration: local` and `notFound` on public
+gatekeepers, with **no error anywhere** (the downgrade is deliberate and quiet). The challenge's controller is
+the Warden, and archon requires it **confirmed** on the target registry.
+
+### ⛔ A `local`-born Warden CANNOT be migrated to a public registry (measured live)
+
+`changeRegistry(warden, 'hyperswarm')` **does not work** for a `local`-born DID, and it reports **success** while
+changing nothing off-box. `updateDID` queues the migration op under the identity's *current* registry (`local`),
+and `queueOperation` drops local ops — so the move relabels the document locally and never announces itself.
+Measured 2026-08-29: the moved Warden showed `registry=hyperswarm` on flaxlap but was `notFound` on public
+gatekeepers, its entire op chain still `event.registry=local`. **`warden change-registry` now refuses a
+local-born identity** rather than lie. (My two sandbox e2es — `changeregistry-unseal`/`-groups` — are correct
+about keys-survive and groups-stay-manageable, but both observe flaxlap's OWN view; neither crosses to a second
+node, the same blind spot as the login e2es one level up.)
+
+So the agency Warden (born `local`) is **REBUILT born-hyperswarm** (flaxscrip's decision — with private
+membership). Two other options were considered and rejected: admin export/import (`dids/export`→`dids/import`)
+makes the Warden resolvable only from the *importing* node's DB — a `local` op chain still doesn't gossip, so
+David's node never learns it via federation; the same "resolvable here, notFound from David's node" trap, plus
+it would seed a private KB's Warden into the NIH-carrying production node's DB. And an upstream archon fix
+(`updateDID` should queue the registry-change op on the **new** registry — right now **nothing born `local` can
+ever federate**) is right long-term and worth escalating to macterra, but shouldn't gate David.
+
+### The rebuild — born-hyperswarm identity, LOCAL groups (validated design)
+
+`HEARTHOLD_REGISTRY=hyperswarm` (identity + challenges publicly resolvable → login federates) **+
+`HEARTHOLD_GROUPS_REGISTRY=local`** (read/write groups stay local → membership never gossips). Validated by
+Aegis on a genuinely born-hyperswarm identity: it confirms on hyperswarm **immediately**, and a hyperswarm
+Warden **creates + grants + `testGroup`s a `local` group** with a BTC:mainnet member (the gatekeeper only
+forbids a *local* controller creating a *non-local* asset, not the reverse — `gatekeeper.ts:462`). The new
+`HEARTHOLD_GROUPS_REGISTRY` knob (defaults to the identity registry) is what splits them.
+
+```sh
+HEARTHOLD_REGISTRY=hyperswarm \            # Warden identity + login challenges → publicly resolvable
+HEARTHOLD_EPHEMERAL_REGISTRY=hyperswarm \  # challenges (redundant with a hyperswarm identity, explicit is good)
+HEARTHOLD_GROUPS_REGISTRY=local \          # read/write groups → membership stays OFF the gossip network
+HEARTHOLD_NODE_URL=http://localhost:4222 HEARTHOLD_OLLAMA_URL=http://megaflax:11434 HEARTHOLD_ANSWER_MODEL=qwen3:8b \
+HEARTHOLD_DATA_ROOT=/home/flaxscrip/.hearthold-agentic-warden \
+AGENCY_DAVID=did:cid:bagaaierar7rd7vkb5aq4ie4wzdlfpcxthvsi6q4uspn6zopy5amthleslyza \
+npm run build:agency-kb        # grants David in-build; then grant Christian:
+warden kb-grant did:cid:bagaaiera7vsjlu6oiluzd4enop5j7sfzjbwp2ujudt6uunkz6hhd4lgfe4sa read --kb agency
+```
+
+The result: a **NEW Warden DID** (the old local-born one is discarded, not migrated) — copy it into the Mage's
+`HEARTHOLD_WARDEN_DID`. The corpus is re-ingested identically (the book is public; no data loss); David + Christian
+re-granted; the Mage unit is unchanged. Then — and only then — challenges resolve off-node and the downgrade
+never fires.
+
+- **Still unmeasured (Aegis), and it decides usability:** each login is a **per-login gossip** of a fresh
+  challenge onto hyperswarm — if propagation is slower than a member takes to click *sign*, the fix likely lives
+  upstream (the member's wallet `createResponse` / a longer challenge TTL), not in the Mage.
+- **Acceptance test — the only one that counts:** a member on a **DIFFERENT node** signs in end to end.
+  Same-node tests (challenge + response on one node) always pass and hid this bug in *every* attempt so far.
 
 ## Step 3 — serve on flaxlap (Warden + member-login Mage; NO oracle)
 

@@ -109,6 +109,9 @@ Usage:
   warden autofile-grant <emissaryDid>   Trust an Emissary to auto-file (bypass ingestion quarantine)
   warden autofile-revoke <emissaryDid>  Revoke autofile trust (its submissions quarantine again)
   warden autofile-list                  List autofile-trusted Emissaries
+  warden change-registry <registry>  Move the Warden IDENTITY to another registry (e.g. hyperswarm) — SAME
+                           DID + keys, sealed vault untouched (NOT a rotation). Needed so a member-gated KB's
+                           Warden is publicly resolvable; wait for it to CONFIRM before relying on it.
   warden rotate            Rotate the Warden's signing keys (incident response; DIDs keep resolving)
   warden passphrase <new>  Re-encrypt the wallet under a new passphrase (then update the env)
   warden check             Health-check the wallet
@@ -565,6 +568,40 @@ async function main(): Promise<void> {
       process.stdout.write(
         `${cmd === 'autofile-grant' ? 'Granted' : 'Revoked'} autofile trust ${ok ? '✓' : '(no change)'}\n  emissary: ${did.slice(0, 32)}…\n` +
           (cmd === 'autofile-grant' ? '  → this Emissary’s submissions now auto-file (bypass quarantine).\n' : '  → this Emissary’s submissions now quarantine until you confirm.\n'),
+      );
+      break;
+    }
+    case 'change-registry': {
+      // Move the Warden IDENTITY's registration to another registry — SAME DID, SAME keys, the sealed vault
+      // untouched. This is NOT a rotation and NOT a rebuild. Needed to make a member-gated KB's Warden
+      // publicly resolvable (a login challenge's controller is the Warden; a `local` Warden is notFound on
+      // other nodes, so remote members can't verify the challenge). Groups stay wherever they were created.
+      const registry = process.argv[3];
+      if (!registry) throw new Error('usage: warden change-registry <registry>   (e.g. hyperswarm)');
+      const id = await ensureIdentity(handle, config);
+      // A DID BORN `local` cannot be migrated to a public registry through this path. `updateDID` queues the
+      // migration op under the identity's CURRENT registry (`local`), and `queueOperation` drops local ops
+      // ("don't distribute local DIDs") — so the move relabels the document LOCALLY, reports success, and the
+      // DID never reaches another node (measured live 2026-08-29: the moved Warden was `notFound` on public
+      // gatekeepers, its whole op chain still `event.registry=local`). Refuse loudly rather than lie.
+      const curReg = ((await handle.keymaster.resolveDID(id.did, { confirm: false }).catch(() => undefined)) as
+        | { didDocumentRegistration?: { registry?: string } }
+        | undefined)?.didDocumentRegistration?.registry;
+      if (curReg === 'local' && registry !== 'local') {
+        throw new Error(
+          `refusing: this Warden is born on \`local\`, and change-registry cannot PUBLISH a local-born DID — the ` +
+            `migration op queues on \`local\` and is dropped, so the DID stays node-only while reporting success. ` +
+            `To make it public: rebuild the Warden born on \`${registry}\` (new DID + keys), or admin export/import ` +
+            `its op chain onto a public node (dids/export → dids/import). See deploy/agentic/INSTALL-agentic.md.`,
+        );
+      }
+      const km = handle.keymaster as unknown as { changeRegistry(idName: string, registry: string): Promise<boolean> };
+      const ok = await km.changeRegistry(IDENTITY_NAME.warden, registry);
+      if (!ok) throw new Error('changeRegistry returned false — nothing changed');
+      if (registry !== 'local') await handle.gatekeeper.processEvents(); // drain onto the new (queuing) registry
+      process.stdout.write(
+        `Moved ${IDENTITY_NAME.warden} (${id.did.slice(0, 24)}…) to registry '${registry}' — SAME DID + keys, sealed vault untouched (NOT a rotation).\n` +
+          `  Wait for it to CONFIRM on '${registry}' before relying on remote resolution — remote verification needs confirm:true.\n`,
       );
       break;
     }

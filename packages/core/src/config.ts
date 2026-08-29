@@ -37,6 +37,17 @@ export interface HearthholdConfig {
    * identities are on hyperswarm can leave it, or set it distinctly, via HEARTHOLD_EPHEMERAL_REGISTRY.
    */
   ephemeralRegistry: string;
+  /**
+   * Registry for ACCESS-CONTROL groups (a KB's read/write groups). Separate from `registry` so a KB can have
+   * a PUBLICLY-resolvable identity (so members on other nodes can verify its login challenges) while its
+   * MEMBERSHIP stays PRIVATE — group membership updates are DIDs that gossip on a public registry even though
+   * the sealed content never does, so born-local groups keep *who is a member* off the federation. A
+   * hyperswarm-identity Warden manages `local` groups fine (the gatekeeper only forbids a local controller
+   * creating a NON-local asset, not the reverse). Defaults to `registry` (groups follow the identity — the
+   * historical behaviour); set `HEARTHOLD_GROUPS_REGISTRY=local` with a `hyperswarm` identity for a
+   * public-Warden / private-membership KB. Env: `HEARTHOLD_GROUPS_REGISTRY`.
+   */
+  groupsRegistry: string;
   /** Root folder holding per-agent wallets, vault, and index. */
   dataRoot: string;
   /** Emissary: the Warden's DID to address over DIDComm. */
@@ -247,6 +258,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): HearthholdConf
     // avoids the hyperswarm never-confirms stall). Federation is a deliberate promote, not the birth state.
     contentRegistry: env.HEARTHOLD_CONTENT_REGISTRY ?? DEFAULT_REGISTRY,
     ephemeralRegistry: env.HEARTHOLD_EPHEMERAL_REGISTRY ?? env.HEARTHOLD_REGISTRY ?? DEFAULT_REGISTRY,
+    groupsRegistry: env.HEARTHOLD_GROUPS_REGISTRY ?? env.HEARTHOLD_REGISTRY ?? DEFAULT_REGISTRY,
     dataRoot: env.HEARTHOLD_DATA_ROOT ?? DEFAULT_DATA_ROOT,
     wardenDid: env.HEARTHOLD_WARDEN_DID,
     sovereignDid: env.HEARTHOLD_SOVEREIGN_DID,
