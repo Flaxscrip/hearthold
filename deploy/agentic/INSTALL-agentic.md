@@ -238,7 +238,16 @@ first** (node binary, repo dir, data root; Aegis provides these). Warden first (
 > `Restart=always` (a Hearthold daemon can exit cleanly, status 0, which `Restart=on-failure` does NOT restart —
 > that is how the Warden died this morning). If the INSTALLED unit on the box still reads `Restart=on-failure`,
 > the git fix hasn't reached it: `sudo cp` the unit into `/etc/systemd/system/`, then `sudo systemctl
-> daemon-reload`. Verify with `systemctl show -p Restart hearthold-agentic-warden` → `Restart=always`.
+> daemon-reload`. Verify with `systemctl show -p Restart hearthold-agentic-warden` → `Restart=always`. And
+> verify self-heal by **killing the process and watching it return**, not by reading the unit file.
+
+> **Confirming a `systemctl restart` picked up a commit — check the mtimes of the files the commit CHANGED, not
+> the package entry point.** `tsc --build` is incremental: files a commit didn't touch keep their old
+> timestamps, so a stale-looking `packages/<pkg>/dist/index.js` carries NO information about whether its changed
+> siblings were rebuilt (and a fresh-looking one wouldn't either). To confirm a deploy is on commit `X`:
+> `git diff --name-only <prev> X -- packages/` → for each changed `src/*.ts`, check its `dist/*.js` mtime sits
+> after the pull and before the restart. (A `systemctl restart` re-execs the existing `dist`; it never rebuilds
+> — the rebuild is a separate `npm run build` step, which is a safe no-op when nothing changed.)
 
 ## Step 4 — front it (archon-ops)
 
