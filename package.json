@@ -166,6 +166,7 @@
     "e2e:foreign-credential": "npm run build && node --experimental-strip-types scripts/e2e-foreign-credential.ts",
     "e2e:emissary-module": "npm run build && node --experimental-strip-types scripts/e2e-emissary-module.ts",
     "e2e:capture-fs": "npm run build && node --experimental-strip-types scripts/e2e-capture-fs.ts",
+    "demo:capture-fs": "npm run build && node --experimental-strip-types scripts/demo-capture-fs.ts",
     "provision:agent-allowance": "npm run build && node --experimental-strip-types scripts/provision-agent-allowance.ts",
     "e2e:proven-sovereign": "npm run build && node --experimental-strip-types scripts/e2e-proven-sovereign.ts"
   },
