@@ -143,14 +143,36 @@ live: the challenge was `notFound` on public gatekeepers). The KB's identity + a
 stay `local` (born-local: immediate, no gossip), but the **login challenge cannot**. The code now mints it on
 `config.ephemeralRegistry` (a login challenge *is* ephemeral) — separate from the groups' `registry` — so:
 
-- **Set `HEARTHOLD_EPHEMERAL_REGISTRY=hyperswarm`** on the agency Warden (a publicly-resolvable registry both
-  flaxlap and the member's node peer on), while `HEARTHOLD_REGISTRY=local` keeps the groups local.
-- **Open question Aegis is measuring:** whether a `local` Warden *identity* can control a `hyperswarm`
-  challenge (the gatekeeper may refuse a DID whose controller isn't resolvable on that registry), and whether
-  hyperswarm propagation is fast enough to beat the challenge TTL — if not, the Warden identity itself goes on
-  `hyperswarm`, and/or `createResponse` gets a resolve-retry. **Do not declare login working until a member on
-  a DIFFERENT node signs in end to end** — same-node tests (challenge + response on one node) always pass and
-  hid this bug in both e2e attempts.
+**`HEARTHOLD_EPHEMERAL_REGISTRY=hyperswarm` alone is necessary but NOT sufficient** (measured by Aegis — do not
+ship the code change as "the fix"). Keymaster **silently downgrades** a `local` agent's assets back to `local`:
+`createAsset` resolves the controller `{confirm:true}` and, if it is registered `local`, rewrites the op's
+registry to `local` rather than have the gatekeeper refuse it. That downgrade sits *below* `createChallenge`, so
+it defeats the passed option, `ephemeralRegistry`, and `HEARTHOLD_REGISTRY` alike — measured: with the Warden's
+env set to `hyperswarm`, a minted challenge still came back `registration: local` and `notFound` on public
+gatekeepers, with **no error anywhere** (the downgrade is deliberate and quiet). The challenge's controller is
+the Warden, and archon requires it **confirmed** on the target registry. The full, correct sequence:
+
+1. **Move the Warden IDENTITY to a publicly-resolvable registry** — `changeRegistry(warden, 'hyperswarm')`.
+   This is `updateDID` on the registration only: **SAME DID, SAME keys, sealed vault intact** — it is NOT a
+   rotation and NOT a rebuild (do not recreate the Warden — that would orphan the corpus, the self-inflicted
+   version of the rotate catastrophe). Use `warden change-registry hyperswarm` (or the archon MCP
+   `change_registry`). **Proven safe for the sealed corpus:** `npm run e2e:changeregistry-unseal` moves a
+   sandbox Warden local→hyperswarm and the vault stays **3/3 readable** at baseline, pending, AND confirmed
+   (the signing key is unchanged by a registry move) — and the identity move itself confirmed on hyperswarm in
+   ~2 min there, so the one-time confirm is achievable.
+2. **Wait for it to CONFIRM** on hyperswarm — remote verification demands `confirm: true` on the controller,
+   so "present" is not enough; it must be confirmed.
+3. **Then** `HEARTHOLD_EPHEMERAL_REGISTRY=hyperswarm` puts each login challenge on hyperswarm, and it now
+   verifies remotely (its controller — the Warden — resolves there).
+4. **Groups stay `local`** — nothing off-node ever resolves them; only the Warden reads them via `testGroup`.
+   The knob separation is right; it just isn't the whole fix.
+
+- **Still unmeasured (Aegis), and it decides usability:** each login is a **per-login gossip** of a fresh
+  challenge onto hyperswarm — if propagation is slower than a member takes to click *sign*, wire the
+  `retries`/`delay` options `createResponse` already accepts through the member path. (The Warden's own
+  `changeRegistry` confirm is a **one-time** cost; the per-login challenge gossip is the recurring one.)
+- **Acceptance test — the only one that counts:** a member on a **DIFFERENT node** signs in end to end.
+  Same-node tests (challenge + response on one node) always pass and hid this bug in *both* e2e attempts.
 
 ## Step 3 — serve on flaxlap (Warden + member-login Mage; NO oracle)
 
