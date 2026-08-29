@@ -18,6 +18,42 @@ import { agentDataFolder } from './config.js';
  */
 export type PrivateGatekeeper = Omit<GatekeeperClient, 'importDIDs' | 'importBatch' | 'importBatchByCids'>;
 
+/**
+ * Best-effort startup check: warn LOUDLY when a configured registry isn't one the bound node supports.
+ *
+ * A node whose gatekeeper rejects `local` (a hyperswarm-only deployment) turns an unset
+ * `HEARTHOLD_CONTENT_REGISTRY` — which defaults to `local` by design, and does NOT inherit `HEARTHOLD_REGISTRY`
+ * — into a Warden that reads fine but fails every CONTENT write with `registry local not supported`. That
+ * failure otherwise surfaces only at the first write, as an opaque error (see `describeError`); this raises it
+ * at startup. Permissive: an older node or an unreachable `listRegistries` is skipped (never blocks startup) —
+ * it warns only when it can positively confirm a configured registry is unsupported. Warns rather than throws,
+ * so a read-only serve on a misconfigured content registry still starts.
+ */
+export async function warnUnusableRegistries(handle: KeymasterHandle, config: HearthholdConfig): Promise<void> {
+  let supported: unknown;
+  try {
+    supported = await (handle.gatekeeper as unknown as { listRegistries(): Promise<string[]> }).listRegistries();
+  } catch {
+    return; // unreachable / older node without the route — stay permissive
+  }
+  if (!Array.isArray(supported) || supported.length === 0) return;
+  const set = new Set(supported as string[]);
+  const checks: Array<[string, string]> = [
+    ['HEARTHOLD_REGISTRY (identity)', config.registry],
+    ['HEARTHOLD_CONTENT_REGISTRY (content)', config.contentRegistry],
+    ['HEARTHOLD_EPHEMERAL_REGISTRY (ephemeral)', config.ephemeralRegistry],
+  ];
+  for (const [label, reg] of checks) {
+    if (!set.has(reg)) {
+      process.stderr.write(
+        `[registry] WARNING: ${label} = '${reg}', but this node supports only [${(supported as string[]).join(', ')}]. ` +
+          `Writes on '${reg}' will be REJECTED (registry ${reg} not supported) — surfacing at first use, not here. ` +
+          `Set it to a supported registry (any registry key left unset defaults to 'local').\n`,
+      );
+    }
+  }
+}
+
 export interface KeymasterHandle {
   role: AgentRole;
   keymaster: Keymaster;

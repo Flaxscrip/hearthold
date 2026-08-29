@@ -5,6 +5,8 @@ import {
   passphraseFor,
   runKeyMaintenance,
   ensureIdentity,
+  warnUnusableRegistries,
+  describeError,
   type WitnessKind,
   ensureDelegationSchema,
   ensureAuthorizationSchema,
@@ -153,6 +155,9 @@ async function main(): Promise<void> {
   const passphrase = passphraseFor('warden');
 
   const handle = await openKeymaster('warden', config, passphrase);
+  // Loud at startup if a configured registry isn't one this node supports — otherwise it surfaces only at
+  // the first write, as an opaque error (this masked a `registry local not supported` rejection for a day).
+  await warnUnusableRegistries(handle, config);
 
   switch (cmd) {
     case 'init': {
@@ -585,6 +590,8 @@ async function main(): Promise<void> {
 }
 
 main().catch((err: unknown) => {
-  process.stderr.write(`warden: ${err instanceof Error ? err.message : String(err)}\n`);
+  // describeError, not String(err): a non-Error thrown from the registry write path (a bare object from the
+  // gatekeeper/HTTP client) would otherwise render as the useless "warden: [object Object]".
+  process.stderr.write(`warden: ${describeError(err)}\n`);
   process.exitCode = 1;
 });
