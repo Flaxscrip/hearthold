@@ -86,31 +86,51 @@ async function main(): Promise<void> {
   await grantAuthorization(warden, readGroup, davidDid); // David can query with his own wallet
   say(`   granted READ to the owner and to David (${DAVID_NAME}).`);
 
-  say('\n▶ 3. INGEST the corpus into the KB (Book Worm) — sealed, PUBLIC sensitivity, kb-tagged');
+  say('\n▶ 3. INGEST the corpus into the KB (Book Worm) — fetch+chunk, then parallel-embed + bulk-write');
   const store = new VaultStore(warden.dataFolder);
   const index = new IndexStore(warden.dataFolder);
   const embedder = new OllamaEmbedder(config.ollamaUrl, config.embeddingModel);
   const now = new Date().toISOString();
-  const sink = async (c: BookChunk): Promise<void> => {
-    const payload = JSON.stringify({ text: c.text, metadata: { source: 'book', volume: c.volume, chapter: c.chapterTitle, section: c.section, url: c.url } });
-    const ciphertext = await sealForWarden(warden, wid.did, payload);
-    const id = contentId(ciphertext, warden.cipher);
-    const artefact: Artefact = { id, kind: 'book', observedAt: now, storedAt: now, sensitivity: Sensitivity.PUBLIC, ciphertext, metadata: { kb: kbId, source: 'book', volume: c.volume, chapter: c.chapterTitle, section: c.section, url: c.url } };
-    await store.put(artefact);
-    await index.put({ artefactId: id, kind: 'book', observedAt: now, sensitivity: Sensitivity.PUBLIC, embedding: await embedder.embed(c.text), kb: kbId });
-  };
+
+  // Phase A — fetch + chunk the whole corpus, COLLECTING passages (no embed/write yet: fast).
+  const collected: BookChunk[] = [];
   const deps: BookWormDeps & { onVolume?: (u: string, ch: number, ck: number) => void } = {
     fetchText: async (url) => {
       const res = await fetch(url, { headers: { 'user-agent': 'Hearthold-BookWorm/0.1' } });
       if (!res.ok) throw new Error(`fetch ${url} → ${res.status}`);
       return res.text();
     },
-    sink,
+    sink: async (c) => { collected.push(c); },
     onVolume: (u, ch, ck) => say(`   ✓ ${u.replace(/.*\/book\//, '').replace(/\/index\.html$/, '')}  —  ${ch} chapter(s), ${ck} passage(s)`),
   };
   const report = await ingestCorpus(deps, { corpusUrl: CORPUS_URL, maxVolumes, maxChaptersPerVolume });
-  say(`   indexed ${report.chunks} passage(s) across ${report.chapters} chapter(s) in ${report.volumes} volume(s).`);
   for (const v of report.perVolume) if (v.error) say(`   – ${v.url} — ${v.error}`);
+
+  // Phase B — embed the passages in parallel batches (embedding is read-only → safe to parallelize; the
+  // slow network step, so concurrency is the win). Sealing is local crypto. Build artefacts + index entries.
+  const CONCURRENCY = 8;
+  const artefacts: Artefact[] = [];
+  const entries: { artefactId: string; kind: 'book'; observedAt: string; sensitivity: number; embedding: number[]; kb: string }[] = [];
+  say(`   embedding ${collected.length} passage(s) (${CONCURRENCY}-way)…`);
+  for (let i = 0; i < collected.length; i += CONCURRENCY) {
+    const batch = collected.slice(i, i + CONCURRENCY);
+    const built = await Promise.all(
+      batch.map(async (c) => {
+        const payload = JSON.stringify({ text: c.text, metadata: { source: 'book', volume: c.volume, chapter: c.chapterTitle, section: c.section, url: c.url } });
+        const ciphertext = await sealForWarden(warden, wid.did, payload);
+        const id = contentId(ciphertext, warden.cipher);
+        const artefact: Artefact = { id, kind: 'book', observedAt: now, storedAt: now, sensitivity: Sensitivity.PUBLIC, ciphertext, metadata: { kb: kbId, source: 'book', volume: c.volume, chapter: c.chapterTitle, section: c.section, url: c.url } };
+        const embedding = await embedder.embed(c.text);
+        return { artefact, entry: { artefactId: id, kind: 'book' as const, observedAt: now, sensitivity: Sensitivity.PUBLIC, embedding, kb: kbId } };
+      }),
+    );
+    for (const b of built) { artefacts.push(b.artefact); entries.push(b.entry); }
+  }
+
+  // Phase C — bulk-write the vault + index ONCE (O(n), not O(n²) per-passage rewrites).
+  await store.putMany(artefacts);
+  await index.putMany(entries);
+  say(`   indexed ${report.chunks} passage(s) across ${report.chapters} chapter(s) in ${report.volumes} volume(s).`);
 
   say('\n▶ 4. VERIFY a real member query (the owner signs a KB request — the challenge/response wall)');
   const kbs = await buildKbServices(warden, config, wid.did);
