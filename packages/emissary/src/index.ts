@@ -482,6 +482,10 @@ async function main(): Promise<void> {
         port,
         host,
         allowOrigins: [...new Set([...ownOrigin, ...allowOrigins])],
+        // Public web-authenticator reached by BYO wallet clients — same rationale as the kb-web portal: the
+        // Origin allowlist can't enumerate per-install extension origins and isn't the boundary; the signed
+        // challenge/response + the per-login poll secret are.
+        publicPortal: true,
         routes: runtime.routes(),
         onListening: (p) =>
           process.stdout.write(

@@ -76,10 +76,13 @@ export const portalApi = {
    *  shared chronicle. Available only when the Emissary has an oracle configured. */
   ask: (kbId: string, query: string, k?: number) =>
     call<{ answer: string; citations: KbCitation[] }>('/api/kb/ask', 'POST', { kbId, query, k }),
-  loginStart: (kbId: string) => call<{ loginId: string; challenge: string }>('/api/kb/login/start', 'POST', { kbId }),
-  loginPoll: (loginId: string) =>
+  // start returns a pollSecret that stays in the SPA (never in the challenge document); poll must present it,
+  // so a party reading the loginId off the public gossip network can't claim the session.
+  loginStart: (kbId: string) =>
+    call<{ loginId: string; challenge: string; pollSecret: string }>('/api/kb/login/start', 'POST', { kbId }),
+  loginPoll: (loginId: string, pollSecret: string) =>
     call<{ status: 'pending' | 'ready' | 'unknown'; session?: Session }>(
-      `/api/kb/login/poll?login=${encodeURIComponent(loginId)}`,
+      `/api/kb/login/poll?login=${encodeURIComponent(loginId)}&secret=${encodeURIComponent(pollSecret)}`,
       'GET',
     ),
   sessionRequest: (body: SessionRequestBody) => call<{ result: KbResult }>('/api/kb/session-request', 'POST', body),

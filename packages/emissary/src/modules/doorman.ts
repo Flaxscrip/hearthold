@@ -19,7 +19,7 @@
  * owns only the login/session state machine, so it is unit-testable with stubs. The live wiring (Emissary
  * keymaster, Warden transport) lives in the entrypoint that mounts this on the runtime.
  */
-import { randomBytes } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 
 import type { CapabilityModule } from '../module.js';
 
@@ -47,9 +47,19 @@ export interface DoormanDeps {
 interface Attempt {
   challenge: string;
   createdAt: number;
+  /** Secret returned to the SPA at `start`, required by `poll`. Never placed in the callback URL, so it never
+   *  enters the PUBLIC challenge document — the loginId alone (which does travel there) can't claim the session. */
+  pollSecret: string;
   session?: { token: string; subjectDid: string; expiresAt: number };
   /** Set when authentication or authorization failed, so the browser's poll learns the outcome. */
   denied?: string;
+}
+
+/** Constant-time secret compare that tolerates unequal lengths (timingSafeEqual throws on a length mismatch). */
+function secretEq(a: string, b: string): boolean {
+  const ba = Buffer.from(a);
+  const bb = Buffer.from(b);
+  return ba.length === bb.length && timingSafeEqual(ba, bb);
 }
 
 export function doormanModule(deps: DoormanDeps): CapabilityModule {
@@ -75,10 +85,12 @@ export function doormanModule(deps: DoormanDeps): CapabilityModule {
       'POST /api/door/login/start': async () => {
         sweep();
         const loginId = randomBytes(12).toString('hex');
+        // Poll secret → SPA only, never in the callback URL (which lands in the public challenge document).
+        const pollSecret = randomBytes(32).toString('hex');
         const callback = `${deps.publicUrl}/api/door/login/callback?login=${loginId}`;
         const challenge = await deps.createChallenge({ callback, kbId: deps.kbId });
-        logins.set(loginId, { challenge, createdAt: now() });
-        return { loginId, challenge, kbId: deps.kbId };
+        logins.set(loginId, { challenge, pollSecret, createdAt: now() });
+        return { loginId, challenge, pollSecret, kbId: deps.kbId };
       },
 
       // The visitor's wallet POSTs its signed response → AUTHENTICATE (Emissary) then AUTHORIZE (Warden).
@@ -113,11 +125,14 @@ export function doormanModule(deps: DoormanDeps): CapabilityModule {
         return { accepted: true };
       },
 
-      // The browser polls until its wallet has responded and the doorman has ruled.
+      // The browser polls until its wallet has responded and the doorman has ruled. Requires the poll secret
+      // from `start` — the loginId alone (public, in the challenge doc) must not be enough to claim the
+      // session/verdict. A missing/wrong secret returns the SAME `unknown` so poll can't probe loginIds.
       'GET /api/door/login/poll': async ({ query }) => {
         const id = query.get('login') ?? '';
+        const secret = query.get('secret') ?? '';
         const attempt = logins.get(id);
-        if (!attempt) return { status: 'unknown' };
+        if (!attempt || !secretEq(secret, attempt.pollSecret)) return { status: 'unknown' };
         if (attempt.denied) {
           logins.delete(id); // one-shot
           return { status: 'denied', reason: attempt.denied };

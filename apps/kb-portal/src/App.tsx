@@ -320,6 +320,9 @@ function SignInPrompt({ onSignIn }: { onSignIn: () => void }) {
 function LoginModal({ onClose, onSession }: { onClose: () => void; onSession: (s: Session) => void }) {
   const [challenge, setChallenge] = useState<string | null>(null);
   const [loginId, setLoginId] = useState<string | null>(null);
+  // The poll secret from `start` — kept only here in the SPA, never shown or put in a URL the wallet sees. It
+  // authorizes THIS browser to claim the session, so reading the loginId off the gossip network isn't enough.
+  const [pollSecret, setPollSecret] = useState<string | null>(null);
   const [qr, setQr] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -330,8 +333,9 @@ function LoginModal({ onClose, onSession }: { onClose: () => void; onSession: (s
   const start = useCallback(async () => {
     setErr(null);
     try {
-      const { loginId: id, challenge: ch } = await portalApi.loginStart(KB_ID);
+      const { loginId: id, challenge: ch, pollSecret: ps } = await portalApi.loginStart(KB_ID);
       setLoginId(id);
+      setPollSecret(ps);
       setChallenge(ch);
       setQr(await QRCode.toDataURL(`${SIGNET_URL}/?challenge=${ch}`, { margin: 1, width: 224 }));
     } catch (e) {
@@ -346,10 +350,10 @@ function LoginModal({ onClose, onSession }: { onClose: () => void; onSession: (s
   }, [start]);
 
   useEffect(() => {
-    if (!loginId) return;
+    if (!loginId || !pollSecret) return;
     const iv = window.setInterval(async () => {
       try {
-        const r = await portalApi.loginPoll(loginId);
+        const r = await portalApi.loginPoll(loginId, pollSecret);
         if (r.status === 'ready' && r.session) {
           window.clearInterval(iv);
           onSession(r.session);
@@ -362,7 +366,7 @@ function LoginModal({ onClose, onSession }: { onClose: () => void; onSession: (s
       }
     }, 2000);
     return () => window.clearInterval(iv);
-  }, [loginId, onSession]);
+  }, [loginId, pollSecret, onSession]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
