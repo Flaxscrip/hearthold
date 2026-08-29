@@ -15,10 +15,12 @@ interface ApiErr {
   error: string;
 }
 
-async function call<T>(path: string, method: 'GET' | 'POST', body?: unknown): Promise<T> {
+async function call<T>(path: string, method: 'GET' | 'POST', body?: unknown, extraHeaders?: Record<string, string>): Promise<T> {
+  const headers: Record<string, string> = { ...(extraHeaders ?? {}) };
+  if (body) headers['Content-Type'] = 'application/json';
   const res = await fetch(`${PORTAL_URL}${path}`, {
     method,
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    headers: Object.keys(headers).length ? headers : undefined,
     body: body ? JSON.stringify(body) : undefined,
   });
   const json = (await res.json()) as ApiOk | ApiErr;
@@ -81,9 +83,13 @@ export const portalApi = {
   loginStart: (kbId: string) =>
     call<{ loginId: string; challenge: string; pollSecret: string }>('/api/kb/login/start', 'POST', { kbId }),
   loginPoll: (loginId: string, pollSecret: string) =>
+    // The secret rides in a HEADER, never the query string — a query param would land in nginx access logs,
+    // Referer, and browser history, which is exactly where a secret must not be.
     call<{ status: 'pending' | 'ready' | 'unknown'; session?: Session }>(
-      `/api/kb/login/poll?login=${encodeURIComponent(loginId)}&secret=${encodeURIComponent(pollSecret)}`,
+      `/api/kb/login/poll?login=${encodeURIComponent(loginId)}`,
       'GET',
+      undefined,
+      { 'X-Hearthold-Poll-Secret': pollSecret },
     ),
   sessionRequest: (body: SessionRequestBody) => call<{ result: KbResult }>('/api/kb/session-request', 'POST', body),
 };

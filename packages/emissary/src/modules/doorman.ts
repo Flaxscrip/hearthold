@@ -128,9 +128,11 @@ export function doormanModule(deps: DoormanDeps): CapabilityModule {
       // The browser polls until its wallet has responded and the doorman has ruled. Requires the poll secret
       // from `start` — the loginId alone (public, in the challenge doc) must not be enough to claim the
       // session/verdict. A missing/wrong secret returns the SAME `unknown` so poll can't probe loginIds.
-      'GET /api/door/login/poll': async ({ query }) => {
+      'GET /api/door/login/poll': async ({ query, req }) => {
         const id = query.get('login') ?? '';
-        const secret = query.get('secret') ?? '';
+        // Secret from a HEADER, not the query string — query params get logged, referred, and kept in history.
+        const h = req.headers['x-hearthold-poll-secret'];
+        const secret = typeof h === 'string' ? h : '';
         const attempt = logins.get(id);
         if (!attempt || !secretEq(secret, attempt.pollSecret)) return { status: 'unknown' };
         if (attempt.denied) {

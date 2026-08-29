@@ -106,9 +106,12 @@ export function kbRelayModule(deps: KbRelayDeps): CapabilityModule {
       // secret from `start` — the loginId alone (public, in the challenge doc) must NOT be enough to claim the
       // session, or anyone watching the gossip network could race the poll and steal it. A missing/wrong secret
       // returns the SAME `unknown` as a missing id, so poll can't be used to probe which loginIds exist.
-      'GET /api/kb/login/poll': async ({ query }) => {
+      'GET /api/kb/login/poll': async ({ query, req }) => {
         const id = query.get('login') ?? '';
-        const secret = query.get('secret') ?? '';
+        // Secret from a HEADER, not the query string — a query param would be logged (nginx access log),
+        // referred, and kept in history; a header is not.
+        const h = req.headers['x-hearthold-poll-secret'];
+        const secret = typeof h === 'string' ? h : '';
         const attempt = logins.get(id);
         if (!attempt || !secretEq(secret, attempt.pollSecret)) return { status: 'unknown' };
         if (!attempt.session) return { status: 'pending' };

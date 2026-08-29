@@ -137,7 +137,7 @@ function applyCors(res: ServerResponse, origin: string | undefined, allowOrigins
     res.setHeader('Vary', 'Origin');
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Hearthold-Session');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Hearthold-Session, X-Hearthold-Poll-Secret');
 }
 
 function sendJson(res: ServerResponse, status: number, payload: unknown): void {

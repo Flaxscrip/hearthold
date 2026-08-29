@@ -14,10 +14,10 @@ import type { IncomingMessage } from 'node:http';
 import { doormanModule, type DoormanDeps } from '../src/modules/doorman.ts';
 
 type RouteMap = NonNullable<ReturnType<typeof doormanModule>['httpRoutes']>;
-const call = (routes: RouteMap, key: string, ctx: { body?: unknown; query?: Record<string, string> } = {}) => {
+const call = (routes: RouteMap, key: string, ctx: { body?: unknown; query?: Record<string, string>; headers?: Record<string, string> } = {}) => {
   const h = routes[key];
   if (!h) throw new Error(`no route ${key}`);
-  return h({ body: ctx.body, query: new URLSearchParams(ctx.query ?? {}), req: {} as IncomingMessage });
+  return h({ body: ctx.body, query: new URLSearchParams(ctx.query ?? {}), req: { headers: ctx.headers ?? {} } as unknown as IncomingMessage });
 };
 
 const DAVID = 'did:cid:david';
@@ -94,7 +94,7 @@ test('happy path: authenticated + authorized → session minted → ask serves t
   assert.deepEqual(spies.verifyCalls, ['did:cid:resp']); // authenticated with the Emissary's keymaster
   assert.deepEqual(spies.authorizeCalls, [DAVID]); // authorized at the Warden, by the AUTHENTICATED did
 
-  const poll = (await call(routes, 'GET /api/door/login/poll', { query: { login: loginId, secret: pollSecret } })) as { status: string; token?: string };
+  const poll = (await call(routes, 'GET /api/door/login/poll', { query: { login: loginId }, headers: { 'x-hearthold-poll-secret': pollSecret } })) as { status: string; token?: string };
   assert.equal(poll.status, 'ready');
   assert.ok(poll.token);
 
@@ -113,10 +113,10 @@ test('the loginId alone cannot claim the session: poll requires the start-issued
   const noSecret = (await call(routes, 'GET /api/door/login/poll', { query: { login: loginId } })) as { status: string; token?: string };
   assert.equal(noSecret.status, 'unknown');
   assert.equal(noSecret.token, undefined);
-  const wrong = (await call(routes, 'GET /api/door/login/poll', { query: { login: loginId, secret: 'x'.repeat(64) } })) as { status: string };
+  const wrong = (await call(routes, 'GET /api/door/login/poll', { query: { login: loginId }, headers: { 'x-hearthold-poll-secret': 'x'.repeat(64) } })) as { status: string };
   assert.equal(wrong.status, 'unknown');
   // The real SPA, holding the secret, still gets the session.
-  const ok = (await call(routes, 'GET /api/door/login/poll', { query: { login: loginId, secret: pollSecret } })) as { status: string; token?: string };
+  const ok = (await call(routes, 'GET /api/door/login/poll', { query: { login: loginId }, headers: { 'x-hearthold-poll-secret': pollSecret } })) as { status: string; token?: string };
   assert.equal(ok.status, 'ready');
   assert.ok(ok.token);
 });
@@ -126,9 +126,9 @@ test('the login is one-shot: a second poll after ready returns unknown', async (
   const routes = doormanModule(deps).httpRoutes!;
   const { loginId, pollSecret } = (await call(routes, 'POST /api/door/login/start')) as { loginId: string; pollSecret: string };
   await call(routes, 'POST /api/door/login/callback', { body: { response: 'r' }, query: { login: loginId } });
-  const first = (await call(routes, 'GET /api/door/login/poll', { query: { login: loginId, secret: pollSecret } })) as { status: string };
+  const first = (await call(routes, 'GET /api/door/login/poll', { query: { login: loginId }, headers: { 'x-hearthold-poll-secret': pollSecret } })) as { status: string };
   assert.equal(first.status, 'ready');
-  const second = (await call(routes, 'GET /api/door/login/poll', { query: { login: loginId, secret: pollSecret } })) as { status: string };
+  const second = (await call(routes, 'GET /api/door/login/poll', { query: { login: loginId }, headers: { 'x-hearthold-poll-secret': pollSecret } })) as { status: string };
   assert.equal(second.status, 'unknown');
 });
 
@@ -141,7 +141,7 @@ test('a response that does NOT verify is refused, and never reaches the Warden o
   assert.match(cb.reason ?? '', /did not verify/);
   assert.equal(spies.authorizeCalls.length, 0, 'no membership probe for an unauthenticated response');
   assert.equal(spies.serveCalls.length, 0);
-  const poll = (await call(routes, 'GET /api/door/login/poll', { query: { login: loginId, secret: pollSecret } })) as { status: string };
+  const poll = (await call(routes, 'GET /api/door/login/poll', { query: { login: loginId }, headers: { 'x-hearthold-poll-secret': pollSecret } })) as { status: string };
   assert.equal(poll.status, 'denied');
 });
 
@@ -154,7 +154,7 @@ test('AUTHENTICATED but UNAUTHORIZED (not a member) → refused at the Warden ga
   assert.match(cb.reason ?? '', /not an authorized member/);
   assert.deepEqual(spies.authorizeCalls, ['did:cid:mallory'], 'the Warden was asked — and said no');
   assert.equal(spies.serveCalls.length, 0, 'a valid signature is not enough — membership decides');
-  const poll = (await call(routes, 'GET /api/door/login/poll', { query: { login: loginId, secret: pollSecret } })) as { status: string };
+  const poll = (await call(routes, 'GET /api/door/login/poll', { query: { login: loginId }, headers: { 'x-hearthold-poll-secret': pollSecret } })) as { status: string };
   assert.equal(poll.status, 'denied');
 });
 
@@ -167,7 +167,7 @@ test('ask requires a live session: unknown token and expired session both refuse
 
   const { loginId, pollSecret } = (await call(routes, 'POST /api/door/login/start')) as { loginId: string; pollSecret: string };
   await call(routes, 'POST /api/door/login/callback', { body: { response: 'r' }, query: { login: loginId } });
-  const poll = (await call(routes, 'GET /api/door/login/poll', { query: { login: loginId, secret: pollSecret } })) as { token: string };
+  const poll = (await call(routes, 'GET /api/door/login/poll', { query: { login: loginId }, headers: { 'x-hearthold-poll-secret': pollSecret } })) as { token: string };
 
   clock = 5000; // past the 1000ms TTL
   await assert.rejects(() => Promise.resolve(call(routes, 'POST /api/door/ask', { body: { token: poll.token, query: 'q' } })), /expired/);
@@ -178,7 +178,7 @@ test('ask rejects an empty query before serving', async () => {
   const routes = doormanModule(deps).httpRoutes!;
   const { loginId, pollSecret } = (await call(routes, 'POST /api/door/login/start')) as { loginId: string; pollSecret: string };
   await call(routes, 'POST /api/door/login/callback', { body: { response: 'r' }, query: { login: loginId } });
-  const poll = (await call(routes, 'GET /api/door/login/poll', { query: { login: loginId, secret: pollSecret } })) as { token: string };
+  const poll = (await call(routes, 'GET /api/door/login/poll', { query: { login: loginId }, headers: { 'x-hearthold-poll-secret': pollSecret } })) as { token: string };
   await assert.rejects(() => Promise.resolve(call(routes, 'POST /api/door/ask', { body: { token: poll.token, query: '   ' } })), /query is required/);
   assert.equal(spies.serveCalls.length, 0);
 });

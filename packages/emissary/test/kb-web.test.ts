@@ -113,10 +113,10 @@ test('kb-relay: full login → poll returns the Warden-minted session (relay gai
   const stolen = (await call(routes, 'GET /api/kb/login/poll', { query: { login: loginId } })) as { status: string; session?: unknown };
   assert.equal(stolen.status, 'unknown', 'the loginId alone cannot claim the session');
   assert.equal(stolen.session, undefined);
-  const wrong = (await call(routes, 'GET /api/kb/login/poll', { query: { login: loginId, secret: 'deadbeef'.repeat(8) } })) as { status: string };
+  const wrong = (await call(routes, 'GET /api/kb/login/poll', { query: { login: loginId }, req: { headers: { 'x-hearthold-poll-secret': 'deadbeef'.repeat(8) } } })) as { status: string };
   assert.equal(wrong.status, 'unknown', 'a wrong secret is refused, same as unknown');
-  // Poll WITH the secret (the SPA that started the login) gets the session.
-  const poll = (await call(routes, 'GET /api/kb/login/poll', { query: { login: loginId, secret: pollSecret } })) as { status: string; session?: { token: string } };
+  // Poll WITH the secret in the header (the SPA that started the login) gets the session.
+  const poll = (await call(routes, 'GET /api/kb/login/poll', { query: { login: loginId }, req: { headers: { 'x-hearthold-poll-secret': pollSecret } } })) as { status: string; session?: { token: string } };
   assert.equal(poll.status, 'ready');
   assert.equal(poll.session?.token, 'tok#1', 'the session is the WARDEN’s, passed straight through');
 });
