@@ -50,6 +50,11 @@ async function main(): Promise<void> {
   const kbId = process.argv[2] ?? 'agency';
   const maxVolumes = process.argv[3] ? Number(process.argv[3]) : Infinity;
   const maxChaptersPerVolume = process.argv[4] ? Number(process.argv[4]) : Infinity;
+  // --owner-only (or AGENCY_DAVID=none): build the KB gated to the OWNER alone, skipping David's grant.
+  // For a SEALED build host: David's identity (BTC:mainnet) can't be resolved there, so it can't verify him
+  // — and you can't grant verified access to an identity you can't verify. Defer his grant to the node that
+  // serves the gift (his own, if he self-hosts), which resolves his identity and re-runs this to add him.
+  const ownerOnly = process.argv.includes('--owner-only') || process.env.AGENCY_DAVID === 'none';
   // A book corpus is a deep-synthesis KB → default to a REASONING answer model so the verify query (and a
   // served warden with the same model) thinks. Override with HEARTHOLD_ANSWER_MODEL.
   const config = { ...loadConfig(), dataRoot: DATA_ROOT, answerModel: process.env.HEARTHOLD_ANSWER_MODEL ?? 'qwen3:8b' };
@@ -67,10 +72,24 @@ async function main(): Promise<void> {
   const ownerId = await ensureIdentity(owner, config);
 
   say('\n▶ 1. RESOLVE members');
-  const davidDid = await warden.keymaster.resolveDID(DAVID_NAME).then((d) => (typeof d === 'string' ? d : (d as { didDocument?: { id?: string } })?.didDocument?.id));
-  if (!davidDid) throw new Error(`could not resolve David (${DAVID_NAME})`);
   say(`   owner: ${ownerId.did}`);
-  say(`   David: ${DAVID_NAME} → ${davidDid}`);
+  let davidDid: string | undefined;
+  if (ownerOnly) {
+    say('   David: SKIPPED (--owner-only) — grant deferred to a node that can resolve his identity');
+  } else {
+    // resolveDID verifies David exists on a RESOLVABLE registry. On a sealed node his BTC:mainnet DID
+    // returns notFound — fail loud rather than grant access the Warden could never actually verify at login.
+    davidDid = await warden.keymaster.resolveDID(DAVID_NAME).then((d) => (typeof d === 'string' ? d : (d as { didDocument?: { id?: string } })?.didDocument?.id)).catch(() => undefined);
+    if (!davidDid) {
+      throw new Error(
+        `could not RESOLVE David (${DAVID_NAME}) — his identity is not verifiable on this node.\n` +
+          `  A grant to a DID the Warden can't resolve is a grant it can't verify at login. Either build on a\n` +
+          `  node that resolves his identity (e.g. BTC:mainnet), or run with --owner-only and defer his grant to\n` +
+          `  the node that serves the gift. Pass AGENCY_DAVID=<his did> where a name can't resolve.`,
+      );
+    }
+    say(`   David: ${DAVID_NAME} → ${davidDid}`);
+  }
 
   say(`\n▶ 2. CREATE the member-gated KB "${kbId}" (read/write groups + signed assurance; no anonymous reader)`);
   const kbStore = new KbConfigStore(warden.dataFolder);
@@ -88,8 +107,12 @@ async function main(): Promise<void> {
     say(`   created — read ${readGroup.slice(0, 20)}… · write ${writeGroup.slice(0, 20)}…`);
   }
   await grantAuthorization(warden, readGroup, ownerId.did); // owner can query (and verify below)
-  await grantAuthorization(warden, readGroup, davidDid); // David can query with his own wallet
-  say(`   granted READ to the owner and to David (${DAVID_NAME}).`);
+  if (davidDid) {
+    await grantAuthorization(warden, readGroup, davidDid); // David can query with his own wallet
+    say(`   granted READ to the owner and to David (${DAVID_NAME}).`);
+  } else {
+    say('   granted READ to the owner only — David deferred (re-run with his DID on a node that resolves it).');
+  }
 
   say('\n▶ 3. INGEST the corpus into the KB (Book Worm) — fetch+chunk, then parallel-embed + bulk-write');
   const store = new VaultStore(warden.dataFolder);
