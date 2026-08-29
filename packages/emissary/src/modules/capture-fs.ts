@@ -13,7 +13,7 @@
  * quarantined) but cannot authorize a disclosure or bypass classification.
  */
 import { readdir, readFile, stat } from 'node:fs/promises';
-import { join, relative, extname, basename } from 'node:path';
+import { join, relative, extname, basename, resolve, sep } from 'node:path';
 import { createHash } from 'node:crypto';
 
 import { sealForWarden, PROTOCOL_VERSION, type WitnessSubmission } from '@hearthold/core';
@@ -110,6 +110,9 @@ export const DEFAULT_TEXT_EXTENSIONS = [
 /** Directory names never descended into. */
 const SKIP_DIRS = new Set(['.git', 'node_modules', 'dist', 'build', '.hearthold', '.hearthold-e2e']);
 
+/** True iff `p` is `root` or lives under it (both already absolute + normalized). */
+const within = (p: string, root: string): boolean => p === root || p.startsWith(root + sep);
+
 export interface CrawlDeps {
   /** The Emissary's own wallet — used to seal each summary to the Warden. */
   handle: KeymasterHandle;
@@ -139,6 +142,13 @@ export interface CrawlOptions {
   extensions?: string[];
   /** Fixed observation timestamp (for deterministic tests). */
   observedAt?: string;
+  /**
+   * Absolute paths the crawl must NEVER read — pass the Hearthold data root (`config.dataRoot`) here so a
+   * crawler on a node with family vaults can never ingest its own vault/wallets. Pointing the crawl AT a
+   * protected root is refused outright; a protected root *inside* the crawl root is skipped. `*.wallet.json`
+   * is always skipped regardless.
+   */
+  excludeRoots?: string[];
 }
 
 export interface CrawlFileResult {
@@ -161,15 +171,20 @@ export interface CrawlReport {
   files: CrawlFileResult[];
 }
 
-/** Recursively list files under `root`, skipping noise dirs and symlink loops (by not following symlinks). */
-async function* walk(root: string): AsyncGenerator<string> {
+/**
+ * Recursively list files under `root`, skipping noise dirs, symlinks (no loops), and any directory that is a
+ * protected `excluded` root (absolute paths) — so a protected vault dir nested inside the crawl target is
+ * never descended into.
+ */
+async function* walk(root: string, excluded: string[]): AsyncGenerator<string> {
   const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
   for (const e of entries) {
     if (e.isSymbolicLink()) continue;
     const full = join(root, e.name);
     if (e.isDirectory()) {
       if (SKIP_DIRS.has(e.name)) continue;
-      yield* walk(full);
+      if (excluded.some((x) => within(resolve(full), x))) continue; // never descend a protected root
+      yield* walk(full, excluded);
     } else if (e.isFile()) {
       yield full;
     }
@@ -187,11 +202,30 @@ export async function crawlDirectory(deps: CrawlDeps, opts: CrawlOptions): Promi
   const exts = new Set((opts.extensions ?? DEFAULT_TEXT_EXTENSIONS).map((e) => e.toLowerCase()));
   const report: CrawlReport = { root: opts.root, scanned: 0, submitted: 0, skipped: 0, dryRun: !!opts.dryRun, files: [] };
 
-  for await (const full of walk(opts.root)) {
+  // Protected roots (the Hearthold data root / vault). REFUSE outright if the crawl is pointed AT or INTO one —
+  // a crawler must never be able to read the vault it feeds. A protected root nested below the crawl target is
+  // skipped in `walk`; here we catch the "you pointed it at the vault" case and fail the whole crawl closed.
+  const excluded = (opts.excludeRoots ?? []).map((p) => resolve(p)).filter(Boolean);
+  const rootAbs = resolve(opts.root);
+  if (excluded.some((x) => within(rootAbs, x))) {
+    report.files.push({ relPath: '.', skipped: 'refused: crawl root is inside a protected root (Hearthold data root / vault)' });
+    report.skipped += 1;
+    return report;
+  }
+
+  for await (const full of walk(opts.root, excluded)) {
     report.scanned += 1;
     const relPath = relative(opts.root, full);
     const ext = extname(full).toLowerCase();
     const rec: CrawlFileResult = { relPath };
+
+    // Never ingest a wallet, wherever it sits — the one file whose disclosure is catastrophic.
+    if (/\.wallet\.json$/i.test(full)) {
+      rec.skipped = 'wallet file — never ingested';
+      report.skipped += 1;
+      report.files.push(rec);
+      continue;
+    }
 
     if (!exts.has(ext)) {
       rec.skipped = `unhandled extension ${ext || '(none)'}`;

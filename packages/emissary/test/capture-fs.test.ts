@@ -10,7 +10,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { StructuralSummarizer } from '../src/modules/capture-fs.ts';
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { StructuralSummarizer, crawlDirectory, type CrawlDeps } from '../src/modules/capture-fs.ts';
 
 const BODY_TOKEN = 'SECRET_BODY_TOKEN_zzz9';
 const sum = new StructuralSummarizer();
@@ -54,4 +58,44 @@ test('language detection maps by extension', () => {
   assert.equal(sum.summarize({ relPath: 'x.py', ext: '.py', content: 'def f():\n  pass\n' }).language, 'Python');
   assert.equal(sum.summarize({ relPath: 'x.rs', ext: '.rs', content: 'fn main(){}\n' }).language, 'Rust');
   assert.equal(sum.summarize({ relPath: 'x.txt', ext: '.txt', content: 'hi\n' }).language, undefined);
+});
+
+// ── Vault-safety: the crawler must never read the Hearthold data root or a wallet ────────────────────────────
+// dryRun avoids needing a live Warden — it exercises the walk/filter/refuse logic without submitting.
+const noopDeps: CrawlDeps = {
+  handle: {} as never,
+  wardenDid: 'did:cid:warden',
+  transport: {} as never,
+  presentDelegation: async () => undefined,
+};
+
+test('REFUSES to crawl a path inside a protected root (the vault / data root)', async () => {
+  const dataRoot = await mkdtemp(join(tmpdir(), 'cf-vault-'));
+  try {
+    await writeFile(join(dataRoot, 'warden.wallet.json'), '{"secret":"do-not-read"}');
+    const report = await crawlDirectory(noopDeps, { root: dataRoot, dryRun: true, excludeRoots: [dataRoot] });
+    assert.equal(report.scanned, 0, 'nothing under a protected root is even scanned');
+    assert.ok(report.files.some((f) => /refused/.test(f.skipped ?? '')), 'the crawl is refused outright');
+  } finally {
+    await rm(dataRoot, { recursive: true, force: true });
+  }
+});
+
+test('SKIPS a protected root nested inside the crawl target, and never a wallet file', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cf-nested-'));
+  const dataRoot = join(root, '.mydata'); // a custom data root NOT named .hearthold
+  try {
+    await writeFile(join(root, 'ok.md'), '# Fine\nbody\n');
+    await writeFile(join(root, 'stray.wallet.json'), '{"secret":"x"}'); // wallet in the open — must be skipped
+    await mkdir(dataRoot, { recursive: true });
+    await writeFile(join(dataRoot, 'vault.json'), '{"cipher":"x"}'); // inside the protected root — never scanned
+    const report = await crawlDirectory(noopDeps, { root, dryRun: true, excludeRoots: [dataRoot] });
+    const rels = report.files.map((f) => f.relPath);
+    assert.ok(rels.includes('ok.md'), 'ordinary files are still crawled');
+    assert.ok(!rels.some((r) => r.includes('.mydata')), 'the protected data root is never descended');
+    const wallet = report.files.find((f) => f.relPath === 'stray.wallet.json');
+    assert.ok(wallet && /wallet file/.test(wallet.skipped ?? ''), 'a wallet file is always skipped');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
