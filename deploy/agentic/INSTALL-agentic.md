@@ -123,8 +123,34 @@ available proof is **membership (above) + the owner's real challenge/response** 
 exercised login → session → a 6-citation answer end to end). State it that way to flaxscrip — *"membership
 verified with a control; a David-login awaits David himself,"* **not** "login verified."
 
-**DONE 2026-08-29** — all five checks above passed on flaxlap (David `did:cid:bagaaierar7rd…`, read-only, 2
-members). David is a member; his first login is his to make once the Mage is up.
+**Unconfirmed member DIDs:** if the grantee's DID resolves `confirmed=False` (pending updates not yet anchored
+— e.g. a high `versionSequence`), **compare the CONFIRMED and LATEST signing keys** before declaring the grant
+good. Login verification resolves the member's key; if confirmed and latest disagreed on it, the grant would
+succeed while the login was refused. "Resolves clean" is not sufficient on its own. (Seen 2026-08-29:
+flaxscrip's DID resolved v40 `confirmed=False` vs v35 confirmed — **identical** signing key, so safe.)
+
+**DONE 2026-08-29** — David (`did:cid:bagaaierar7rd…`) and flaxscrip@archon.social
+(`did:cid:bagaaiera7vsj…`, his governor identity) are both read members, verified with the negative control
+(3 members: owner + David + flaxscrip; read-only). Their first logins are theirs to make once the Mage is up
+**and** the challenge-registry fix above is live.
+
+## ⚠️ Member login requires a PUBLICLY-RESOLVABLE challenge (not `local`)
+
+A member-gated KB's only door is login, and login mints a **challenge DID** the member's wallet must resolve
+from **their own node** to sign it (`createResponse` throws `challengeDID does not resolve` otherwise). A
+challenge minted on `local` resolves only on flaxlap — so **no member on another node can sign in** (found
+live: the challenge was `notFound` on public gatekeepers). The KB's identity + access-control **groups** can
+stay `local` (born-local: immediate, no gossip), but the **login challenge cannot**. The code now mints it on
+`config.ephemeralRegistry` (a login challenge *is* ephemeral) — separate from the groups' `registry` — so:
+
+- **Set `HEARTHOLD_EPHEMERAL_REGISTRY=hyperswarm`** on the agency Warden (a publicly-resolvable registry both
+  flaxlap and the member's node peer on), while `HEARTHOLD_REGISTRY=local` keeps the groups local.
+- **Open question Aegis is measuring:** whether a `local` Warden *identity* can control a `hyperswarm`
+  challenge (the gatekeeper may refuse a DID whose controller isn't resolvable on that registry), and whether
+  hyperswarm propagation is fast enough to beat the challenge TTL — if not, the Warden identity itself goes on
+  `hyperswarm`, and/or `createResponse` gets a resolve-retry. **Do not declare login working until a member on
+  a DIFFERENT node signs in end to end** — same-node tests (challenge + response on one node) always pass and
+  hid this bug in both e2e attempts.
 
 ## Step 3 — serve on flaxlap (Warden + member-login Mage; NO oracle)
 

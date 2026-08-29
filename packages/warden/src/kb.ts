@@ -242,7 +242,17 @@ export class KbService {
     ) => Promise<string>;
     // A pure authentication challenge — a callback, no credential requirements. `createResponse` on the
     // member's wallet proves DID control; the callback tells the wallet where to POST the response.
-    return createChallenge({ callback, kbId }, { registry: this.config.registry });
+    //
+    // The challenge is minted on `ephemeralRegistry`, NOT `registry`. `createResponse` on the MEMBER's wallet
+    // MUST resolve this challenge DID (else `InvalidParameterError: challengeDID does not resolve`), so it has
+    // to be reachable from the member's OWN node — which a `local`-registry challenge is not (it never leaves
+    // the minting node). A member-gated KB can therefore keep its identity + access-control GROUPS on `local`
+    // (born-local: immediate, no gossip) while login challenges go on a publicly-resolvable registry — set
+    // `HEARTHOLD_EPHEMERAL_REGISTRY=hyperswarm` for a KB whose members log in from other nodes. (Found live:
+    // a `local` challenge resolved on the minting node but `notFound` on public gatekeepers, so no external
+    // member could sign in — and same-node e2e tests never caught it, because same-node resolution always
+    // succeeds. Aegis, 2026-08-29.)
+    return createChallenge({ callback, kbId }, { registry: this.config.ephemeralRegistry });
   }
 
   /** Complete login: verify the wallet's response, then mint a short-lived session bound to the DID. */

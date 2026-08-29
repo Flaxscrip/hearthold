@@ -37,9 +37,11 @@ import { OllamaEmbedder } from '@hearthold/warden/recall';
 import { ingestCorpus, type BookChunk, type BookWormDeps } from '@hearthold/emissary/modules/bookworm';
 
 const CORPUS_URL = 'https://axionic.org/book/index.html';
-// David's identity to grant read to. A NAME (name@domain) needs wider-network name resolution — a SEALED
-// node can't do that, so pass his raw did:cid via AGENCY_DAVID there. resolveDID takes either form unchanged.
-const DAVID_NAME = process.env.AGENCY_DAVID ?? 'cypher@4tress.org';
+// The grantee to add as a read member — a `did:cid` or a `name@domain` (resolveDID takes either). NO default:
+// an unset AGENCY_DAVID with no --owner-only is an error, so a run NEVER silently grants a named third party.
+// (Previously this defaulted to 'cypher@4tress.org', so any run with no env set granted David — a footgun, and
+// AGENCY_DAVID also doubled as the owner-only sentinel via '=none'. The identity and the flag are now separate.)
+const GRANTEE = process.env.AGENCY_DAVID && process.env.AGENCY_DAVID !== 'none' ? process.env.AGENCY_DAVID : undefined;
 const here = dirname(fileURLToPath(import.meta.url));
 const DATA_ROOT = process.env.HEARTHOLD_DATA_ROOT ?? join(here, '..', '.hearthold-agency-kb');
 const PASSPHRASE = process.env.HEARTHOLD_PASSPHRASE ?? 'hearthold-agency-kb';
@@ -59,6 +61,12 @@ async function main(): Promise<void> {
   // — and you can't grant verified access to an identity you can't verify. Defer his grant to the node that
   // serves the gift (his own, if he self-hosts), which resolves his identity and re-runs this to add him.
   const ownerOnly = flags.has('--owner-only') || process.env.AGENCY_DAVID === 'none';
+  if (!ownerOnly && !GRANTEE) {
+    throw new Error(
+      'specify who to grant: AGENCY_DAVID=<did|name@domain> to add a read member, or pass --owner-only to ' +
+        'build gated to the owner alone. No third party is ever granted by default.',
+    );
+  }
   // A book corpus is a deep-synthesis KB → default to a REASONING answer model so the verify query (and a
   // served warden with the same model) thinks. Override with HEARTHOLD_ANSWER_MODEL.
   const config = { ...loadConfig(), dataRoot: DATA_ROOT, answerModel: process.env.HEARTHOLD_ANSWER_MODEL ?? 'qwen3:8b' };
@@ -83,16 +91,16 @@ async function main(): Promise<void> {
   } else {
     // resolveDID verifies David exists on a RESOLVABLE registry. On a sealed node his BTC:mainnet DID
     // returns notFound — fail loud rather than grant access the Warden could never actually verify at login.
-    davidDid = await warden.keymaster.resolveDID(DAVID_NAME).then((d) => (typeof d === 'string' ? d : (d as { didDocument?: { id?: string } })?.didDocument?.id)).catch(() => undefined);
+    davidDid = await warden.keymaster.resolveDID(GRANTEE).then((d) => (typeof d === 'string' ? d : (d as { didDocument?: { id?: string } })?.didDocument?.id)).catch(() => undefined);
     if (!davidDid) {
       throw new Error(
-        `could not RESOLVE David (${DAVID_NAME}) — his identity is not verifiable on this node.\n` +
+        `could not RESOLVE David (${GRANTEE}) — his identity is not verifiable on this node.\n` +
           `  A grant to a DID the Warden can't resolve is a grant it can't verify at login. Either build on a\n` +
           `  node that resolves his identity (e.g. BTC:mainnet), or run with --owner-only and defer his grant to\n` +
           `  the node that serves the gift. Pass AGENCY_DAVID=<his did> where a name can't resolve.`,
       );
     }
-    say(`   David: ${DAVID_NAME} → ${davidDid}`);
+    say(`   David: ${GRANTEE} → ${davidDid}`);
   }
 
   say(`\n▶ 2. CREATE the member-gated KB "${kbId}" (read/write groups + signed assurance; no anonymous reader)`);
@@ -113,7 +121,7 @@ async function main(): Promise<void> {
   await grantAuthorization(warden, readGroup, ownerId.did); // owner can query (and verify below)
   if (davidDid) {
     await grantAuthorization(warden, readGroup, davidDid); // David can query with his own wallet
-    say(`   granted READ to the owner and to David (${DAVID_NAME}).`);
+    say(`   granted READ to the owner and to David (${GRANTEE}).`);
   } else {
     say('   granted READ to the owner only — David deferred (re-run with his DID on a node that resolves it).');
   }
@@ -194,7 +202,7 @@ async function main(): Promise<void> {
 
   say(`\n  KB "${kbId}" is built and member-gated (${report.chunks} passages). A non-member is refused at the`);
   say('  challenge; the manuscript never leaves the custodian. 📖');
-  if (davidDid) say(`  David (${DAVID_NAME}) can query it with his own wallet.`);
+  if (davidDid) say(`  David (${GRANTEE}) can query it with his own wallet.`);
   else say('  David is NOT yet a member — grant deferred to a node that resolves his identity (re-run there with his DID).');
   say(`\n  For deploy: point the kb-web Mage at this Warden (HEARTHOLD_WARDEN_DID=${wid.did}), kbId="${kbId}".`);
 }

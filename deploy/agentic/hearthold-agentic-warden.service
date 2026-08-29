@@ -20,6 +20,8 @@ Group=flaxscrip
 WorkingDirectory=/home/flaxscrip/hearthold
 # 0600 secrets + config: HEARTHOLD_PASSPHRASE, HEARTHOLD_DATA_ROOT=/home/flaxscrip/.hearthold-agentic-warden,
 #   HEARTHOLD_REGISTRY=local  (flaxlap accepts local — access-control born local, no gossip/stall),
+#   HEARTHOLD_EPHEMERAL_REGISTRY=hyperswarm  (REQUIRED for member login from other nodes: the login challenge
+#       must be publicly resolvable, and a `local` challenge is not — see INSTALL-agentic.md "Member login"),
 #   HEARTHOLD_NODE_URL=http://localhost:4222, HEARTHOLD_OLLAMA_URL=http://megaflax:11434,
 #   HEARTHOLD_ANSWER_MODEL=qwen3:8b
 EnvironmentFile=/home/flaxscrip/hearthold/.env.agentic-warden
