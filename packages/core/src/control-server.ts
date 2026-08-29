@@ -89,8 +89,9 @@ export interface ControlServerOptions {
    * `moz-extension://` ids), a mobile or desktop wallet, etc. The Origin allowlist is NOT the security boundary
    * for such a service: any non-browser caller already bypasses it (a missing Origin header passes), and it
    * cannot list per-install extension origins — so enforcing the full allowlist only blocks legitimate clients.
-   * When true, browser-EXTENSION origins (`chrome-extension://`, `moz-extension://` — the wallet add-on) are
-   * additionally accepted and reflected; arbitrary named web origins are NOT (a drive-by http(s) page still
+   * When true, browser-EXTENSION origins (`chrome-extension://`, `moz-extension://`, `safari-web-extension://`
+   * — the wallet add-on on any engine) are additionally accepted and reflected; arbitrary named web origins are
+   * NOT (a drive-by http(s) page still
    * falls to the allowlist and is refused, so the open web gains no CORS read access), and the opaque `null`
    * stays refused. The real gates are the SIGNED challenge/response (verified server-side) and the per-login
    * poll secret — never the Origin. The Host anti-rebinding check is unchanged. Default false — every local
@@ -126,9 +127,20 @@ export function isAllowedOrigin(origin: string | undefined, allowOrigins: string
   if (origin === undefined) return true; // curl / same-origin — no Origin header
   if (origin === 'null') return false; // opaque origin (sandboxed iframe, file://) — refused in both modes
   // A public BYO-wallet portal additionally admits browser-EXTENSION origins — the wallet add-on, whose
-  // per-install id (chrome-extension://<id>, moz-extension://<uuid>) can't be enumerated in an allowlist. It
-  // does NOT open the check to arbitrary named origins: an http(s) page falls through to the allowlist below.
-  if (publicPortal && (origin.startsWith('chrome-extension://') || origin.startsWith('moz-extension://'))) return true;
+  // per-install id can't be enumerated in an allowlist. All three engines' schemes are covered
+  // (chrome-extension://<id>, moz-extension://<uuid>, safari-web-extension://<uuid> — the Mac/Safari path a
+  // Xcode-converted build takes; flaxscrip and David are on Macs). It does NOT open the check to arbitrary
+  // named origins: an http(s) page falls through to the allowlist below. A hostile extension already holds
+  // host permissions and bypasses CORS from its service worker, so refusing extension origins never stopped a
+  // malicious one — it only broke a legitimate wallet posting from its popup.
+  if (
+    publicPortal &&
+    (origin.startsWith('chrome-extension://') ||
+      origin.startsWith('moz-extension://') ||
+      origin.startsWith('safari-web-extension://'))
+  ) {
+    return true;
+  }
   if (allowOrigins.includes(origin)) return true;
   try {
     return LOOPBACK.has(new URL(origin).hostname.replace(/^\[|\]$/g, '').toLowerCase());

@@ -25,6 +25,7 @@ test('publicPortal mode: adds browser-extension schemes, NOT the open web', () =
   // The whole point: the wallet add-on's per-install extension origin is admitted…
   assert.equal(isAllowedOrigin('chrome-extension://abcdefghijklmnopabcdefghijklmnop', ALLOW, true), true, 'chrome extension admitted');
   assert.equal(isAllowedOrigin('moz-extension://11111111-2222-3333-4444-555555555555', ALLOW, true), true, 'firefox extension admitted');
+  assert.equal(isAllowedOrigin('safari-web-extension://AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE', ALLOW, true), true, 'safari extension admitted (Mac path)');
   // …while an arbitrary named web origin is STILL refused (falls through to the allowlist). This is the
   // regression guard: publicPortal must not become "allow any origin".
   assert.equal(isAllowedOrigin('https://evil.example.com', ALLOW, true), false, 'drive-by web page still refused in publicPortal mode');
