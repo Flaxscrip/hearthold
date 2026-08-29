@@ -13,6 +13,17 @@ export interface HearthholdConfig {
    * must be the Drawbridge URL (e.g. :4222), not the raw Gatekeeper (:4224).
    */
   nodeUrl: string;
+  /**
+   * OPTIONAL public-resolver fallback for DID RESOLUTION only (env `HEARTHOLD_RESOLVER_FALLBACK_URL`). When
+   * set, a DID the bound (private) node can't resolve is looked up at this public gatekeeper — with client
+   * verification (`{verify:true}`) + an id-match check, so it validates identity WITHOUT touching or exposing
+   * the vault. This decouples DATA custody (stays private/sealed) from IDENTITY resolution (public DID docs
+   * are not secret): a private-data Warden can then verify + admit EXTERNAL members (e.g. a person whose DID
+   * lives on another registry). Absent ⇒ full isolation, unchanged — resolution never leaves the bound node.
+   * A deliberate egress: a full-isolation Sovereign leaves it unset; point it at a resolver you trust
+   * (e.g. the canonical public node, or your own). See docs/resolver-fallback.md.
+   */
+  resolverFallbackUrl?: string;
   /** Registry used when anchoring operations (e.g. 'hyperswarm' on the local node). */
   registry: string;
   /**
@@ -242,6 +253,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): HearthholdConf
   const classifierModel = env.HEARTHOLD_CLASSIFIER_MODEL ?? DEFAULT_CLASSIFIER_MODEL;
   return {
     nodeUrl: env.HEARTHOLD_NODE_URL ?? DEFAULT_NODE_URL,
+    ...(env.HEARTHOLD_RESOLVER_FALLBACK_URL ? { resolverFallbackUrl: env.HEARTHOLD_RESOLVER_FALLBACK_URL } : {}),
     registry: env.HEARTHOLD_REGISTRY ?? DEFAULT_REGISTRY,
     // Content is born `local` by default, REGARDLESS of the identity registry (privacy by construction +
     // avoids the hyperswarm never-confirms stall). Federation is a deliberate promote, not the birth state.

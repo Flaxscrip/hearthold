@@ -18,6 +18,11 @@ import { agentDataFolder } from './config.js';
  */
 export type PrivateGatekeeper = Omit<GatekeeperClient, 'importDIDs' | 'importBatch' | 'importBatchByCids'>;
 
+// The pure resolver-fallback logic lives in its own zero-import module so it is unit-testable without
+// dragging in the Keymaster/Gatekeeper/config chain. Re-exported here because callers wire it via this file.
+export { withResolverFallback, resolvedId, type DidResolver } from './resolver-fallback.js';
+import { withResolverFallback } from './resolver-fallback.js';
+
 export interface KeymasterHandle {
   role: AgentRole;
   keymaster: Keymaster;
@@ -46,9 +51,18 @@ export async function openKeymaster(
   const wallet = new WalletJson('wallet.json', dataFolder);
   const cipher = new CipherNode();
 
+  // OPTIONAL resolver fallback: a Sovereign-configured public resolver the keymaster consults ONLY to resolve
+  // a DID the bound node can't (an external member's identity). Data custody stays on `gatekeeper` (the bound
+  // node) — the fallback wrapper delegates every method but `resolveDID` to it, so anchoring/export/import all
+  // remain local; only identity LOOKUP federates. Absent config ⇒ the primary unchanged (full isolation).
+  const fallbackResolver = config.resolverFallbackUrl
+    ? await GatekeeperClient.create({ url: config.resolverFallbackUrl })
+    : undefined;
+  const resolving = withResolverFallback(gatekeeper, fallbackResolver);
+
   const keymaster = new Keymaster({
     passphrase,
-    gatekeeper,
+    gatekeeper: resolving,
     wallet,
     cipher,
     // CONTENT is born on `contentRegistry` (default `local`): issued credentials, image assets, schemas — all
