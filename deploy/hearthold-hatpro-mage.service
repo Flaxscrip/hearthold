@@ -1,0 +1,30 @@
+[Unit]
+Description=Hearthold HATPro KB Mage — public kb-web bridge for hatpro-kb (HTTP -> DIDComm relay to the HATPro Warden)
+Documentation=file:/opt/hearthold/deploy/INSTALL-hatpro.md
+After=network-online.target docker.service hearthold-hatpro-warden.service
+Wants=network-online.target
+# Started after its Warden so the mailbox has a drainer, though they address each
+# other by did:cid over DIDComm and will reconnect in either order.
+
+[Service]
+Type=simple
+User=flaxscrip
+Group=flaxscrip
+WorkingDirectory=/opt/hearthold
+# Secrets + config (0600). Must contain HEARTHOLD_WARDEN_DID or kb-web exits immediately.
+EnvironmentFile=/opt/hearthold/.env.hatpro-mage
+# Binds 127.0.0.1:4314 (4313 is the personal KB's bridge). nginx terminates TLS.
+ExecStart=/home/flaxscrip/.nvm/versions/node/v22.15.1/bin/node /opt/hearthold/packages/emissary/dist/index.js kb-web 4314
+Restart=on-failure
+RestartSec=5
+# Hardening — mirrors hearthold-kb-mage.service
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+# This world-facing process can write ONLY its own data root — deliberately no
+# access to either Warden vault.
+ReadWritePaths=/home/flaxscrip/.hearthold-hatpro-mage
+
+[Install]
+WantedBy=multi-user.target

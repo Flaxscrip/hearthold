@@ -1,0 +1,30 @@
+[Unit]
+Description=Hearthold HATPro Warden — custodian for the hatpro-kb Knowledge Base (traveler profile partitions)
+Documentation=file:/opt/hearthold/deploy/INSTALL-hatpro.md
+After=network-online.target docker.service
+Wants=network-online.target
+# Reaches the local Archon node (Drawbridge on :4222), which runs in Docker on this box.
+
+[Service]
+Type=simple
+User=flaxscrip
+Group=flaxscrip
+WorkingDirectory=/opt/hearthold
+# Secrets + config (0600). Holds HEARTHOLD_PASSPHRASE which unlocks this Warden's wallet.
+# Distinct from .env.warden: that is flaxscrip's PERSONAL home KB. This one holds
+# public hotel-visitor submissions from HATPro traveler-wallet.
+EnvironmentFile=/opt/hearthold/.env.hatpro-warden
+ExecStart=/home/flaxscrip/.nvm/versions/node/v22.15.1/bin/node /opt/hearthold/packages/warden/dist/index.js serve
+Restart=on-failure
+RestartSec=5
+# Hardening — mirrors hearthold-warden.service
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+# Only this Warden's own data root is writable. Note it does NOT include
+# ~/.hearthold-warden, so the HATPro custodian cannot touch the personal vault.
+ReadWritePaths=/home/flaxscrip/.hearthold-hatpro-warden
+
+[Install]
+WantedBy=multi-user.target

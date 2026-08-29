@@ -18,20 +18,49 @@ for the node, so a host-native process reaches the sealed node over loopback whi
   process can't fetch it; that's the *second* reason host-native is required, alongside the GPU).
 - **Loopback to the node** for the mints (via the bridge below).
 - **`HEARTHOLD_NODE_URL` MUST be explicit.** Unset, it defaults to `flaxlap.local:4222` — a *different node*.
-  Set it to the bridge (`http://127.0.0.1:4299`) or the mints land on the wrong node.
+  Set it to the agent-window (`http://127.0.0.1:4296` — see the corrected node-front prereq below), or the
+  mints land on the wrong node.
 - **`AGENCY_DAVID`** — a sealed node can't resolve a `name@domain`, so pass David's raw DID:
   `AGENCY_DAVID=did:cid:bagaaierar7rd7vkb5aq4ie4wzdlfpcxthvsi6q4uspn6zopy5amthleslyza` (his doc IS resolvable
   on the sealed node; only the name lookup isn't). Off a sealed node, the `cypher@4tress.org` name default works.
 
-## Prereq — the node bridge (Aegis, do this FIRST)
-Add a tcp-forward bridge (same kind as the ~10 already published here):
-```
-tcp-forward  127.0.0.1:4299  ->  table-gateway:4299
-```
-Then the pair runs host-native with these env values (in the 0600 env files):
-- `HEARTHOLD_NODE_URL=http://127.0.0.1:4299`   — the sealed node over loopback via the new bridge
+## Prereq — the node front (Aegis, do this FIRST)
+
+> **CORRECTED 2026-08-29 — use the `agent-window` at `127.0.0.1:4296`, NOT `4299`.** Aegis brought up the
+> `agent-window` (live, proven end-to-end: a host-native Warden+Emissary complete a DIDComm login + cited
+> oracle answer through it in ~9s). It answers `/api/v1/didcomm-endpoint` itself (so endpoint auto-discovery
+> publishes a real endpoint), and it pins `/deliver` to the node's own mailbox. The old `4299` bridge reaches
+> an **admin-keyed gatekeeper** (enumerate/export ungated, destructive routes with the key attached) — do not
+> point the agency mints at it. The exact window bring-up is Aegis's; the env values below are corrected, but
+> reconcile the surrounding steps with his current setup before the stand-up.
+
+The pair runs host-native with these env values (in the 0600 env files):
+- `HEARTHOLD_NODE_URL=http://127.0.0.1:4296`   — the sealed node via the **agent-window** (loopback)
+- **no `HEARTHOLD_DIDCOMM_ENDPOINT`** — auto-discovery is correct now that the window answers the lookup
 - `HEARTHOLD_OLLAMA_URL=http://127.0.0.1:11434` — the **HOST** Ollama (GPU, `qwen3:8b` already resident)
-- `HEARTHOLD_ANSWER_MODEL=qwen3:8b`, `HEARTHOLD_REGISTRY=local`
+- `HEARTHOLD_ANSWER_MODEL=qwen3:8b`, `HEARTHOLD_REGISTRY=local` (this node's gatekeeper accepts `local`)
+
+### Verify the window + publish endpoints (catches a half-publish at install time)
+
+The window must be up before the pair publishes its DIDComm endpoint. It is part of the node lifecycle now —
+`deploy/aegis-up.sh` starts it (step 3) and `aegis-down.sh` tears it down — or standalone from the aegis repo
+root:
+```
+docker compose -p aegis-window -f deploy/topology/docker-compose.agent-window.yml --env-file .env up -d
+```
+Confirm: `curl -s http://127.0.0.1:4296/api/v1/didcomm-endpoint` → `{"endpoint":"http://drawbridge:4222/didcomm"}`.
+
+Then run `warden republish` and `emissary republish` **once each**. Expect a REAL endpoint in the output — if
+it prints `now: undefined`, the window isn't up and the identity has **half-published**: fix the window and
+republish before going further. (This is the install-time catch for the half-publish trap; the code-level
+fail-loud fix is tracked separately.)
+
+**The advertised endpoint is `http://drawbridge:4222/didcomm` — an IN-SEAL address, and that is correct** even
+though the agents run host-native: on `/deliver` it is the *relay* that fetches the endpoint, not the agent.
+Do not "fix" it to a host address — an in-seal endpoint that failed the first live login was the tell.
+
+See `deploy/topology/AGENT-WINDOW.md` (Aegis) for the allowlist (a reason per row), the `/deliver` pin, and the
+refusal matrix.
 
 Members: owner + **David** (`cypher@4tress.org` → `did:cid:bagaaierar7rd7vkb5aq4ie4wzdlfpcxthvsi6q4uspn6zopy5amthleslyza`).
 
@@ -45,7 +74,7 @@ Members: owner + **David** (`cypher@4tress.org` → `did:cid:bagaaierar7rd7vkb5a
 
 ## Env files (0600, under `~/.hearthold-agency/`)
 - `.env.agency-warden`: `HEARTHOLD_PASSPHRASE`, `HEARTHOLD_DATA_ROOT=~/.hearthold-agency-warden`,
-  `HEARTHOLD_REGISTRY=local`, `HEARTHOLD_ANSWER_MODEL=qwen3:8b`, `HEARTHOLD_NODE_URL=http://127.0.0.1:4299`,
+  `HEARTHOLD_REGISTRY=local`, `HEARTHOLD_ANSWER_MODEL=qwen3:8b`, `HEARTHOLD_NODE_URL=http://127.0.0.1:4296`,
   `HEARTHOLD_OLLAMA_URL=http://127.0.0.1:11434`, `HEARTHOLD_APP=<repo path>`, `HEARTHOLD_NODE=<node bin>`,
   and on a sealed node `AGENCY_DAVID=did:cid:…thleslyza` (David's DID — a name can't resolve there).
 - `.env.agency-kb-mage`: same passphrase/model/node/app/URLs, `HEARTHOLD_DATA_ROOT=~/.hearthold-agency-kb-mage`,
