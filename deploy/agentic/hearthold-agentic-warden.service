@@ -26,7 +26,9 @@ WorkingDirectory=/home/flaxscrip/hearthold
 #   HEARTHOLD_ANSWER_MODEL=qwen3:8b
 EnvironmentFile=/home/flaxscrip/hearthold/.env.agentic-warden
 ExecStart=/home/flaxscrip/.nvm/versions/node/v22.15.1/bin/node /home/flaxscrip/hearthold/packages/warden/dist/index.js serve
-Restart=on-failure
+# Restart=always (NOT on-failure): a long-running Hearthold daemon that exits cleanly (status 0) must still
+# come back — on-failure leaves a clean exit dead forever. Verify self-heal by KILLING it, not by reading this.
+Restart=always
 RestartSec=5
 NoNewPrivileges=true
 PrivateTmp=true
