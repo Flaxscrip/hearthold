@@ -1,0 +1,34 @@
+# Agency Warden on flaxlap — custodian of KB "agency" (David's sealed corpus).
+# TEMPLATE: the <PLACEHOLDER> paths are flaxlap-specific (node binary, repo checkout, data root, user).
+# Aegis fills them from flaxlap; do NOT install as-is. See deploy/agentic/INSTALL-agentic.md.
+[Unit]
+Description=Hearthold Agency Warden — custodian of KB "agency" (David's corpus; private, holds the sealed vault)
+Documentation=file:/home/flaxscrip/hearthold/deploy/agentic/INSTALL-agentic.md
+After=network-online.target docker.service
+Wants=network-online.target
+# Reaches the LOCAL Archon node on flaxlap (Drawbridge :4222). Reasoning is via megaflax:11434 over the tailnet.
+
+[Service]
+Type=simple
+User=<FLAXLAP_USER>
+Group=<FLAXLAP_USER>
+WorkingDirectory=<FLAXLAP_REPO>
+# 0600 secrets + config: HEARTHOLD_PASSPHRASE, HEARTHOLD_DATA_ROOT=<agency warden data root>,
+#   HEARTHOLD_REGISTRY=local  (flaxlap accepts local — access-control born local, no gossip/stall),
+#   HEARTHOLD_NODE_URL=http://localhost:4222, HEARTHOLD_OLLAMA_URL=http://megaflax:11434,
+#   HEARTHOLD_ANSWER_MODEL=qwen3:8b
+EnvironmentFile=<FLAXLAP_ENV_DIR>/.env.agentic-warden
+ExecStart=<FLAXLAP_NODE_BIN> <FLAXLAP_REPO>/packages/warden/dist/index.js serve
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+# Isolation: writes ONLY its own data root (the sealed agency vault).
+# ⛔ NEVER run `warden rotate` against this identity — it silently orphans the sealed corpus.
+#    See the SAFETY RAIL in INSTALL-agentic.md (recovery is possible but must NOT go via a file restore).
+ReadWritePaths=<FLAXLAP_AGENCY_WARDEN_DATA_ROOT>
+
+[Install]
+WantedBy=multi-user.target
