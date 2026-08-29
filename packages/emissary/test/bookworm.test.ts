@@ -18,8 +18,11 @@ import {
   type BookWormDeps,
 } from '../src/modules/bookworm.ts';
 
-test('decodeEntities: named + numeric', () => {
+test('decodeEntities: named + decimal + HEX numeric', () => {
   assert.equal(decodeEntities('Popper &amp; Deutsch &mdash; &#39;agency&#39;'), "Popper & Deutsch — 'agency'");
+  // Hex numeric — the real-book case (`Everett&#x27;s Demon`) that a decimal-only decoder left mangled.
+  assert.equal(decodeEntities('Everett&#x27;s Demon'), "Everett's Demon");
+  assert.equal(decodeEntities('&#x2014;'), '—');
 });
 
 test('htmlToText: drops script/style/nav, keeps prose with paragraph breaks', () => {

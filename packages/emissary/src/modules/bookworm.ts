@@ -27,7 +27,8 @@ const ENTITIES: Record<string, string> = {
 /** Decode HTML entities (named + numeric) to text. */
 export function decodeEntities(s: string): string {
   return s
-    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16))) // hex numeric (e.g. &#x27;)
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n))) // decimal numeric (e.g. &#39;)
     .replace(/&([a-z0-9#]+);/gi, (m, e) => ENTITIES[e] ?? ENTITIES[String(e).toLowerCase()] ?? m);
 }
 
