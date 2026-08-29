@@ -189,7 +189,7 @@ HEARTHOLD_GROUPS_REGISTRY=local \          # read/write groups → membership st
 HEARTHOLD_NODE_URL=http://localhost:4222 HEARTHOLD_OLLAMA_URL=http://megaflax:11434 HEARTHOLD_ANSWER_MODEL=qwen3:8b \
 HEARTHOLD_DATA_ROOT=/home/flaxscrip/.hearthold-agentic-warden \
 AGENCY_DAVID=did:cid:bagaaierar7rd7vkb5aq4ie4wzdlfpcxthvsi6q4uspn6zopy5amthleslyza \
-npm run build:agency-kb        # grants David in-build; then grant Christian:
+npm run build:agency-kb        # grants David in-build; publishes the Warden endpoint (step ▶5); then grant Christian:
 warden kb-grant did:cid:bagaaiera7vsjlu6oiluzd4enop5j7sfzjbwp2ujudt6uunkz6hhd4lgfe4sa read --kb agency
 ```
 
@@ -198,11 +198,21 @@ The result: a **NEW Warden DID** (the old local-born one is discarded, not migra
 re-granted; the Mage unit is unchanged. Then — and only then — challenges resolve off-node and the downgrade
 never fires.
 
-- **Still unmeasured (Aegis), and it decides usability:** each login is a **per-login gossip** of a fresh
-  challenge onto hyperswarm — if propagation is slower than a member takes to click *sign*, the fix likely lives
-  upstream (the member's wallet `createResponse` / a longer challenge TTL), not in the Mage.
-- **Acceptance test — the only one that counts:** a member on a **DIFFERENT node** signs in end to end.
-  Same-node tests (challenge + response on one node) always pass and hid this bug in *every* attempt so far.
+- **The build now advertises the Warden's DIDComm endpoint itself** (build step ▶5 → `transport.ready()`), so
+  the Mage can reach it without a manual `warden republish`. On a Drawbridge-fronted node the write lands but the
+  `processEvents` apply-nudge can't run (`Cannot POST /api/v1/events/process`) — since `transport.ts` split the
+  WRITE from the nudge, that is a **warning, not a failure**: the endpoint publishes, the node drains its own
+  queue. (Previously this threw and made `republish`/serve-startup report a false failure on a successful write.)
+- **RESOLVED — per-login gossip is a non-issue** (Aegis, measured on a genuinely separate node, 2026-08-29): a
+  fresh login challenge minted via the public front resolves on `archon.technology` at **t+0s, first attempt,
+  sub-second** — no `createResponse` retry / TTL change needed. Drop it from the risk list.
+- **Federation prereqs — CONFIRMED live:** the born-hyperswarm Warden and its login challenges resolve on a
+  DIFFERENT node (`archon.technology`, `error=None, doc=PRESENT`); `readGroup` is `notFound` off-node (membership
+  stays private). The bug that blocked login (`challengeDID does not resolve`) is closed.
+- **Acceptance test — the ONE step still pending:** a **member** (Christian/flaxscrip or David) signs in from a
+  wallet pointed at a **public** node, end to end. The owner-driven full journey through flaxlap passes but does
+  **not** count (owner resolves same-node — the trap that hid this bug in every prior attempt). Aegis cannot run
+  it (doesn't hold their keys); it needs a real member.
 
 ## Step 3 — serve on flaxlap (Warden + member-login Mage; NO oracle)
 
