@@ -242,10 +242,20 @@ Warden's runtime under the six live services; the footgun this recipe used to ca
 cd apps/kb-portal && npm ci
 VITE_PORTAL_URL=https://agentic.archon.technology \
 VITE_KB_ID=agency \
+VITE_MEMBER_GATED=true \
 VITE_SIGNET_URL=https://wallet.archon.technology \
+VITE_KB_TITLE='The Architecture of Agency' \
+VITE_KB_EYEBROW='A Private Chronicle' \
+VITE_KB_TAGLINE='Sign in to consult the manuscript.' \
 npm run build -- --outDir dist-agentic
 # then copy dist-agentic to the nginx document root on the archon host.
 ```
+
+> **`VITE_MEMBER_GATED=true` is required for the agency KB.** Without it the SPA shows the anonymous
+> "Consult" box (the public-oracle path), which a member-gated KB has no route for — the box would 404 and,
+> worse, invite non-members to try to read a private corpus. With it, the consult box appears **only after
+> sign-in** and queries ride the member's session. The current `dist-agentic` (built at ae1b075) predates this
+> flag and MUST be rebuilt.
 
 ---
 

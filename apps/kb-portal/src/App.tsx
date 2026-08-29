@@ -15,6 +15,10 @@ const KB_EXAMPLES = ((env.VITE_KB_EXAMPLES as string | undefined) ?? '')
   .filter(Boolean);
 // The Sovereign Signet web app (or any Archon web wallet) that handles ?challenge=… deep links.
 const SIGNET_URL = (env.VITE_SIGNET_URL as string | undefined) ?? 'https://wallet.archon.technology';
+// Member-gated KB (no anonymous oracle): the consult box is hidden until the visitor signs in, and queries
+// then ride the member's SESSION (not the /api/kb/ask oracle route, which such a deployment does not run).
+// Set VITE_MEMBER_GATED=true for a private KB (e.g. the agency book); leave unset for a public oracle KB.
+const MEMBER_GATED = (env.VITE_MEMBER_GATED as string | undefined) === 'true';
 
 export function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -39,7 +43,7 @@ export function App() {
             </div>
           ) : (
             <button className="login" onClick={() => setLoginOpen(true)}>
-              <span className="k">⚿</span> Enter as a creator
+              <span className="k">⚿</span> {MEMBER_GATED ? 'Sign in' : 'Enter as a creator'}
             </button>
           )}
         </header>
@@ -48,20 +52,41 @@ export function App() {
           <p className="kicker">{KB_EYEBROW}</p>
           <h1>{KB_TITLE}</h1>
           <p className="lede">{KB_LEDE}</p>
-          <AskBox />
-          {session && <Contribute session={session} />}
+          {/* Member-gated: the consult box appears only after sign-in and queries via the member's session.
+              Public (oracle): the anonymous AskBox is always shown. */}
+          {MEMBER_GATED ? (
+            session ? <AskBox session={session} /> : <SignInPrompt onSignIn={() => setLoginOpen(true)} />
+          ) : (
+            <AskBox />
+          )}
+          {/* Contribute (write) is hidden on a member-gated read KB — its members are readers. */}
+          {session && !MEMBER_GATED && <Contribute session={session} />}
         </main>
 
         <footer>
-          <span className="g">
-            Reading is <b>open</b> to all
-          </span>
-          <span className="sep">·</span>
-          <span className="g">
-            Publishing is <b>curated</b> — creators sign in with their own wallet
-          </span>
-          <span className="sep">·</span>
-          <span className="g">Your keys never enter this page; the record keeps no note of who asked what</span>
+          {MEMBER_GATED ? (
+            <>
+              <span className="g">
+                Reading is <b>by membership</b> — sign in with your own wallet
+              </span>
+              <span className="sep">·</span>
+              <span className="g">The manuscript never leaves the custodian; you see verified answers, not the text</span>
+              <span className="sep">·</span>
+              <span className="g">Your keys never enter this page</span>
+            </>
+          ) : (
+            <>
+              <span className="g">
+                Reading is <b>open</b> to all
+              </span>
+              <span className="sep">·</span>
+              <span className="g">
+                Publishing is <b>curated</b> — creators sign in with their own wallet
+              </span>
+              <span className="sep">·</span>
+              <span className="g">Your keys never enter this page; the record keeps no note of who asked what</span>
+            </>
+          )}
         </footer>
       </div>
 
@@ -78,8 +103,9 @@ export function App() {
   );
 }
 
-// ── Anonymous public query — no wallet. Answered by the portal's read-only oracle reader. ──
-function AskBox() {
+// ── Consult the chronicle. Anonymous (public oracle) when no `session`; a MEMBER query over the session when
+//    signed in (a member-gated KB has no /api/kb/ask oracle, so it must ride the session). ──
+function AskBox({ session }: { session?: Session | null }) {
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
   const [answer, setAnswer] = useState<string | null>(null);
@@ -95,16 +121,24 @@ function AskBox() {
       setAnswer(null);
       setCites([]);
       try {
-        const r = await portalApi.ask(KB_ID, query);
-        setAnswer(r.answer);
-        setCites(r.citations ?? []);
+        if (session) {
+          const { result } = await portalApi.sessionRequest({ token: session.token, kbId: KB_ID, action: 'query', query });
+          if (result.type === 'hearthold/kb-error') throw new Error(result.reason);
+          if (result.type !== 'hearthold/kb-result' || result.action !== 'query') throw new Error('unexpected reply from the chronicle');
+          setAnswer(result.answer);
+          setCites(result.citations ?? []);
+        } else {
+          const r = await portalApi.ask(KB_ID, query);
+          setAnswer(r.answer);
+          setCites(r.citations ?? []);
+        }
       } catch (e) {
         setErr(e instanceof Error ? e.message : String(e));
       } finally {
         setBusy(false);
       }
     },
-    [q],
+    [q, session],
   );
 
   return (
@@ -146,7 +180,10 @@ function AskBox() {
           </div>
         )}
         <div className="assur">
-          <span className="dot" /> Reading is open to all · answers draw only on the public chronicle
+          <span className="dot" />{' '}
+          {session
+            ? 'Signed in · answers are verified from the manuscript, which never leaves the custodian'
+            : 'Reading is open to all · answers draw only on the public chronicle'}
         </div>
       </form>
 
@@ -171,12 +208,31 @@ function AskBox() {
                 </div>
               </div>
             )}
-            <p className="caveat">Machine-derived from the public chronicle · your query is not logged.</p>
+            <p className="caveat">
+              {session
+                ? 'Machine-derived from the manuscript · the text itself never leaves the custodian.'
+                : 'Machine-derived from the public chronicle · your query is not logged.'}
+            </p>
           </div>
         </section>
       )}
       {err && <p className="err">✗ {err}</p>}
     </>
+  );
+}
+
+// ── Member-gated, signed out: no anonymous consult — prompt to sign in. ──
+function SignInPrompt({ onSignIn }: { onSignIn: () => void }) {
+  return (
+    <section className="signin-gate">
+      <p className="gate-lede">
+        This chronicle is private. Members consult it with their own wallet — the manuscript never leaves the
+        custodian, and you receive verified answers, not the text.
+      </p>
+      <button className="login primary" onClick={onSignIn}>
+        <span className="k">⚿</span> Sign in to consult
+      </button>
+    </section>
   );
 }
 
