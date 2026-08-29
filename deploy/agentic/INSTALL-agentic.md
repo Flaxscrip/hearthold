@@ -220,6 +220,26 @@ Member-gated: the `kb-web` Mage runs **without** an oracle reader (no anonymous 
 units in this directory (`hearthold-agentic-{warden,mage}.service`) — **reconcile the flaxlap-specific paths
 first** (node binary, repo dir, data root; Aegis provides these). Warden first (mailbox drainer), then the Mage.
 
+> **`.env.agentic-mage` MUST set `HEARTHOLD_PORTAL_ALLOW_ORIGIN` — it is load-bearing for member login and lives
+> ONLY on the host (env files are gitignored), so record it here or it silently regresses.**
+> ```
+> HEARTHOLD_WARDEN_DID=did:cid:…              # the born-hyperswarm Warden DID from Step 1's build
+> HEARTHOLD_PORTAL_ALLOW_ORIGIN=https://wallet.archon.technology
+> ```
+> The wallet POSTs the challenge RESPONSE to the callback route cross-origin (Origin `wallet.archon.technology`).
+> Without this var the Mage 403s that preflight and the browser fails with a CORS error on
+> `/api/kb/login/callback` + `/api/kb/session-request` — a **confirmed** live failure (2026-08-29: flaxscrip hit
+> exactly this; the var was absent, adding it flipped the preflight 403→204 with the correct `access-control-
+> allow-origin`, while a rogue origin still gets 403). A missing value here looks like "the login button does
+> nothing", not like a config gap — the classic silent cause. (mages sets the same var in its own
+> `/opt/hearthold/.env.mages-mage` on archon.technology; mages does NOT run on flaxlap.)
+
+> **Deploy the unit files, don't just leave the git fix in the repo.** The service files here carry
+> `Restart=always` (a Hearthold daemon can exit cleanly, status 0, which `Restart=on-failure` does NOT restart —
+> that is how the Warden died this morning). If the INSTALLED unit on the box still reads `Restart=on-failure`,
+> the git fix hasn't reached it: `sudo cp` the unit into `/etc/systemd/system/`, then `sudo systemctl
+> daemon-reload`. Verify with `systemctl show -p Restart hearthold-agentic-warden` → `Restart=always`.
+
 ## Step 4 — front it (archon-ops)
 
 `agentic.archon.technology` → nginx → flaxlap over the tailnet, using the **deferred-resolution** pattern
