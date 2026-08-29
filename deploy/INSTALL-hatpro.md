@@ -51,7 +51,8 @@ therefore the KB identity.
 2. **Portal build.** The SPA must be built with this KB's id into a separate dist so it
    does not collide with the personal portal:
    ```bash
-   cd /opt/hearthold && npm run build
+# SKIP the root build for a portal SPA on a live tree — the portal has NO workspace deps, and the root
+# build regenerates packages/*/dist under every running Warden. Only the apps/kb-portal build below is needed.
    cd apps/kb-portal
    VITE_PORTAL_URL=https://kb.hatpro.archon.technology \
    VITE_KB_ID=hatpro-kb \

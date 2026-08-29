@@ -8,8 +8,10 @@ and David (once granted) query it, behind the challenge/response wall. Public UR
 > archon.technology host and a megaflax+doorman shape. Why: flaxlap has **both `local` and `BTC:mainnet`**, so
 > the access-control objects are born `local` (no gossip, no confirm-stall) **and** David's mainnet identity
 > resolves for his grant + login — standard `kb-web` member login, **no doorman**. It **isolates** David's KB
-> on its own host (zero coupling to the shared /opt/hearthold tree that carries HATPro/NIH). And measured, it
-> is the more available host (25-day-stable Linux server; its Archon stack self-recovers after reboot).
+> on its own host (zero coupling to the shared /opt/hearthold tree that carries HATPro/NIH). It is a
+> 25-day-stable Linux server — **but its Archon stack does NOT auto-recover after a reboot** (all 32 containers
+> are `RestartPolicy: no`, corrected from an earlier wrong claim). That is a **fixable config gap** — unlike
+> megaflax, whose macOS blocks Docker autostart entirely — and it is a **hard pre-go-live condition** below.
 
 ## Topology
 
@@ -37,13 +39,23 @@ David ──HTTPS──▶ agentic.archon.technology
   proven end-to-end — `scripts/e2e-xreg-login.ts`.
 - **megaflax:11434** reachable from flaxlap over the tailnet with `qwen3:8b` + `nomic-embed-text` resident.
 - **`#60` merged** — the born-in-git baseline. flaxlap starts clean: everything below is committed, not host-only.
+- **flaxlap's checkout must be updated FIRST.** `~/hearthold` on flaxlap is **319 commits behind main**
+  (`build-agency-kb.ts` is absent; the classifier runaway fix #61 is absent — the corpus build would stall
+  20 min/passage without it). Before Step 1: `cd ~/hearthold && git pull origin main && npm ci && npm run build`.
+- **Disk:** flaxlap's root fs is ~90% full (48 G free). The corpus is ~32 MB (fits trivially), but the 90% is
+  worth attention independently.
 
-## Restart policies (do this first — the one real fragility we found)
+## Restart policies — a HARD pre-go-live condition (corrected: it's the whole stack)
 
-flaxlap's single observed outage was a container with **`RestartPolicy: no`** (bitcoin-core), which stayed down
-until a human noticed. Before hosting David's KB:
-- Set `restart: unless-stopped` on `bitcoin-core-1` (and audit flaxlap for anything else with no restart policy).
-- The agency systemd units below carry `Restart=on-failure` + `RestartSec` from the start.
+**Correction:** an earlier claim that flaxlap's Archon stack self-recovers after reboot was wrong. Measured:
+**all 32 containers are `RestartPolicy: no`**, and only `docker.service`/`docker.socket` are enabled systemd
+units (no `@reboot` cron). So after a reboot flaxlap stays down until a person runs `docker compose up` — the
+**same outcome as megaflax**, not better. The difference that still favours flaxlap: this is a **config gap you
+can close** (`docker update --restart=unless-stopped $(docker ps -q)`, or systemd units), whereas megaflax's is
+an OS restriction we can't fix. For a gift that must be up when David opens it, **closing this is a hard
+condition before go-live, not a nice-to-have** — the whole Archon stack (gatekeeper, drawbridge, mongodb,
+didcomm, the mediators), not just `bitcoin-core`. The agency systemd units below carry `Restart=on-failure`
+from the start.
 
 ## Step 1 — build the corpus ON flaxlap (a rebuild, not a copy)
 
@@ -57,12 +69,18 @@ HEARTHOLD_REGISTRY=local \
 HEARTHOLD_NODE_URL=http://localhost:4222 \
 HEARTHOLD_OLLAMA_URL=http://megaflax:11434 \
 HEARTHOLD_ANSWER_MODEL=qwen3:8b \
-HEARTHOLD_DATA_ROOT=<flaxlap agency data root> \
+HEARTHOLD_DATA_ROOT=/home/flaxscrip/.hearthold-agentic-warden \
 HEARTHOLD_PASSPHRASE=<0600 secret> \
 AGENCY_DAVID=none \
 npm run build:agency-kb
 # copy the printed Warden DID → the Mage's HEARTHOLD_WARDEN_DID.
 ```
+
+**Embeddings note:** the build embeds 1363 passages. Today `HEARTHOLD_OLLAMA_URL` is a single host for BOTH
+embed and answer, and the answer model (`qwen3:8b`) is only on megaflax — so as written, embeddings also go to
+megaflax over the tailnet (1363 round-trips: functional, a few minutes). flaxlap has `nomic-embed-text`
+locally; splitting embed (local) from answer (megaflax) would be faster and cut the tailnet dependency for the
+build, but needs a config field (a follow-up, not a blocker). For the first build, megaflax-for-both is fine.
 
 ## Step 2 — David's grant (flaxscrip's DIRECT instruction to Aegis) + POSITIVE verification
 
@@ -89,14 +107,29 @@ first** (node binary, repo dir, data root; Aegis provides these). Warden first (
 `agentic.archon.technology` → nginx → flaxlap over the tailnet, using the **deferred-resolution** pattern
 (`set $var` + `resolver`), **never a literal upstream hostname** (a literal resolves at nginx startup and is
 fatal to every vhost on the box, HATPro included). **Standalone cert lineage**, not the shared 13-SAN bundle.
-Build the portal SPA for this KB:
+HTTP-only vhost first so certbot can convert it (nginx won't start with an `ssl` listener and no cert).
+
+**No anonymous route.** The KB is member-gated with no oracle, so the Mage exposes only the login/session
+routes (`/api/kb/login/{start,callback}`, `/api/kb/login/poll`, `/api/kb/session-request`) — **no `/api/kb/ask`**.
+So there is no oracle rate-limit zone; gate the whole `/api/` surface behind the standard api limit. The query
+(`session-request`) path is a **reasoning** answer (`qwen3:8b`, ~30 s typical) — keep a generous
+`proxy_read_timeout` (210 s, as mages uses); the login-poll is fast.
+
+**Build the portal SPA out of tree — the SPA source + the login/session wire protocol are UNCHANGED across all
+98 commits between the deployed tree and main (verified by diff), so it is version-safe; build it in an isolated
+clone at a pinned commit and copy `dist-agentic` into place** — never in `/opt/hearthold` (that would add a 4th
+untracked `dist-*` to the production tree, the drift #60 cleaned). The portal has **no `@hearthold/*` workspace
+deps**, so it needs no `packages/*/dist` — **do NOT run the root `npm run build`** (that regenerates every
+Warden's runtime under the six live services; the footgun this recipe used to carry):
 
 ```sh
-cd apps/kb-portal
+# in an isolated clone, NOT /opt/hearthold:
+cd apps/kb-portal && npm ci
 VITE_PORTAL_URL=https://agentic.archon.technology \
 VITE_KB_ID=agency \
 VITE_SIGNET_URL=https://wallet.archon.technology \
 npm run build -- --outDir dist-agentic
+# then copy dist-agentic to the nginx document root on the archon host.
 ```
 
 ---

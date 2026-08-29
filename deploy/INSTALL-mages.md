@@ -115,7 +115,8 @@ yet). Never wildcard.
 ## Portal build
 
 ```bash
-cd /opt/hearthold && npm run build
+# SKIP the root build for a portal SPA on a live tree — the portal has NO workspace deps, and the root
+# build regenerates packages/*/dist under every running Warden. Only the apps/kb-portal build below is needed.
 cd apps/kb-portal
 VITE_PORTAL_URL=https://mages.archon.social \
 VITE_KB_ID=city-of-mages \

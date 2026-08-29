@@ -1,6 +1,6 @@
 # Agency Mage on flaxlap — member-login kb-web bridge for agentic.archon.technology.
-# TEMPLATE: <PLACEHOLDER> paths + the tailnet bind are flaxlap-specific. Aegis fills them; not installable as-is.
-# See deploy/agentic/INSTALL-agentic.md.
+# flaxlap paths confirmed by Aegis. Binds flaxlap's TAILNET ip (100.70.23.88), NOT loopback — the fronting
+# nginx is on the archon box and reaches this Mage over the tailnet. See deploy/agentic/INSTALL-agentic.md.
 [Unit]
 Description=Hearthold Agency Mage — member-login kb-web bridge for agentic.archon.technology (HTTP↔DIDComm)
 Documentation=file:/home/flaxscrip/hearthold/deploy/agentic/INSTALL-agentic.md
@@ -10,20 +10,20 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=<FLAXLAP_USER>
-Group=<FLAXLAP_USER>
-WorkingDirectory=<FLAXLAP_REPO>
+User=flaxscrip
+Group=flaxscrip
+WorkingDirectory=/home/flaxscrip/hearthold
 # 0600 secrets + config:
 #   HEARTHOLD_WARDEN_DID=<the agency Warden did>   (REQUIRED — kb-web exits immediately if unset)
 #   HEARTHOLD_PORTAL_PUBLIC_URL=https://agentic.archon.technology   (baked into the login callback)
-#   HEARTHOLD_PORTAL_HOST=<flaxlap TAILNET ip>   ← NOT 127.0.0.1: the fronting nginx is on a DIFFERENT host
-#       (the archon box) and reaches this Mage over the tailnet, like sovereign.archon.technology → megaflax.
-#   HEARTHOLD_PASSPHRASE, HEARTHOLD_DATA_ROOT, HEARTHOLD_NODE_URL=http://localhost:4222,
-#   HEARTHOLD_OLLAMA_URL=http://megaflax:11434, HEARTHOLD_ANSWER_MODEL=qwen3:8b
+#   HEARTHOLD_PORTAL_HOST=100.70.23.88   ← flaxlap's TAILNET ip (NOT 127.0.0.1): the fronting nginx is on the
+#       archon box, reaching this Mage over the tailnet, like sovereign.archon.technology → megaflax:4400.
+#   HEARTHOLD_PASSPHRASE, HEARTHOLD_DATA_ROOT=/home/flaxscrip/.hearthold-agentic-mage,
+#   HEARTHOLD_NODE_URL=http://localhost:4222, HEARTHOLD_OLLAMA_URL=http://megaflax:11434, ANSWER_MODEL=qwen3:8b
 #   Member-gated: do NOT set HEARTHOLD_ORACLE_KB — there is no anonymous oracle; login is required.
-EnvironmentFile=<FLAXLAP_ENV_DIR>/.env.agentic-mage
-# <PORT>: a free flaxlap port, reachable from the archon host over the tailnet (bound via HEARTHOLD_PORTAL_HOST).
-ExecStart=<FLAXLAP_NODE_BIN> <FLAXLAP_REPO>/packages/emissary/dist/index.js kb-web <PORT>
+EnvironmentFile=/home/flaxscrip/hearthold/.env.agentic-mage
+# Port 4300 (free on flaxlap; nothing above :4257 listens), bound on the tailnet ip via HEARTHOLD_PORTAL_HOST.
+ExecStart=/home/flaxscrip/.nvm/versions/node/v22.15.1/bin/node /home/flaxscrip/hearthold/packages/emissary/dist/index.js kb-web 4300
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true
@@ -31,7 +31,7 @@ PrivateTmp=true
 ProtectSystem=full
 ProtectHome=read-only
 # The world-facing bridge writes ONLY its own data root — no access to the Warden vault.
-ReadWritePaths=<FLAXLAP_AGENCY_MAGE_DATA_ROOT>
+ReadWritePaths=/home/flaxscrip/.hearthold-agentic-mage
 
 [Install]
 WantedBy=multi-user.target
