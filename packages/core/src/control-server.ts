@@ -81,6 +81,18 @@ export interface ControlServerOptions {
    * transport and loopback-bound, so a wildcard is a DNS-rebinding / localhost-CSRF surface.
    */
   allowOrigins?: string[];
+  /**
+   * Mark this as a PUBLIC-facing portal (the kb-web login/session Mage) reached by bring-your-own-wallet
+   * clients whose Origin can't be enumerated — a browser extension (per-install `chrome-extension://` /
+   * `moz-extension://` ids), a mobile or desktop wallet, etc. The Origin allowlist is NOT the security boundary
+   * for such a service: any non-browser caller already bypasses it (a missing Origin header passes), and it
+   * cannot list per-install extension origins — so enforcing it only blocks legitimate clients while stopping
+   * no scripted attacker. When true, any real Origin is accepted (still refusing the opaque `null`) and the
+   * caller's Origin is reflected for CORS. The real gates are the SIGNED challenge/response (verified
+   * server-side) and the per-login poll secret — never the Origin. The Host anti-rebinding check is unchanged.
+   * Default false — every local control plane keeps its strict Origin allowlist.
+   */
+  publicPortal?: boolean;
 }
 
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '::1']);
@@ -102,10 +114,13 @@ function isAllowedHost(hostHeader: string | undefined, bindHost: string, allowOr
   });
 }
 
-/** A browser `Origin` is allowed iff it is loopback (any port) or explicitly configured. Absent Origin = non-browser/same-origin → allowed. */
-function isAllowedOrigin(origin: string | undefined, allowOrigins: string[]): boolean {
+/** A browser `Origin` is allowed iff it is loopback (any port), explicitly configured, or — on a public portal
+ *  — any real (non-opaque) origin. Absent Origin = non-browser/same-origin → allowed; `null` (opaque) is
+ *  refused in BOTH modes (see `publicPortal`). */
+function isAllowedOrigin(origin: string | undefined, allowOrigins: string[], publicPortal = false): boolean {
   if (origin === undefined) return true; // curl / same-origin — no Origin header
-  if (origin === 'null') return false; // opaque origin (sandboxed iframe, file://)
+  if (origin === 'null') return false; // opaque origin (sandboxed iframe, file://) — refused in both modes
+  if (publicPortal) return true; // BYO-wallet portal: any real origin; the signature + poll secret are the gate, not CORS
   if (allowOrigins.includes(origin)) return true;
   try {
     return LOOPBACK.has(new URL(origin).hostname.replace(/^\[|\]$/g, '').toLowerCase());
@@ -114,14 +129,15 @@ function isAllowedOrigin(origin: string | undefined, allowOrigins: string[]): bo
   }
 }
 
-/** Reflect the validated origin (NEVER `*`), so only allow-listed browser origins can read responses. */
-function applyCors(res: ServerResponse, origin: string | undefined, allowOrigins: string[]): void {
-  if (origin && isAllowedOrigin(origin, allowOrigins)) {
+/** Reflect the validated origin (NEVER `*`), so only allowed browser origins can read responses. On a public
+ *  portal every real origin is validated (see `isAllowedOrigin`), so the caller's Origin is reflected. */
+function applyCors(res: ServerResponse, origin: string | undefined, allowOrigins: string[], publicPortal = false): void {
+  if (origin && isAllowedOrigin(origin, allowOrigins, publicPortal)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Hearthold-Session');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Hearthold-Session, X-Hearthold-Poll-Secret');
 }
 
 function sendJson(res: ServerResponse, status: number, payload: unknown): void {
@@ -159,25 +175,29 @@ export function startControlServer(options: ControlServerOptions): ControlServer
   });
 
   const allowOrigins = options.allowOrigins ?? [];
+  const publicPortal = options.publicPortal ?? false;
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const method = req.method ?? 'GET';
     const origin = typeof req.headers.origin === 'string' ? req.headers.origin : undefined;
 
     // Anti-DNS-rebinding: refuse a request whose Host isn't loopback / the bound host / an allowed origin.
+    // This check is UNCHANGED on a public portal — it still binds to the portal's own host.
     if (!isAllowedHost(req.headers.host, host, allowOrigins)) {
       res.writeHead(403, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: false, error: 'forbidden: host not allowed' }));
       return;
     }
     // Anti-CSRF: refuse a browser request from a disallowed origin outright (not just unreadable via CORS).
-    if (!isAllowedOrigin(origin, allowOrigins)) {
+    // On a public portal (BYO-wallet) this admits any real origin and refuses only opaque `null` — the Origin
+    // is not the boundary there; the signed challenge/response + per-login poll secret are.
+    if (!isAllowedOrigin(origin, allowOrigins, publicPortal)) {
       res.writeHead(403, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: false, error: 'forbidden: origin not allowed' }));
       return;
     }
     // CORS reflects the validated origin (never `*`) for every subsequent response on this request.
-    applyCors(res, origin, allowOrigins);
+    applyCors(res, origin, allowOrigins, publicPortal);
 
     if (method === 'OPTIONS') {
       res.writeHead(204);

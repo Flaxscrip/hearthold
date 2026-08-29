@@ -105,6 +105,11 @@ export function startKbPortalServer(opts: KbPortalOptions): ControlServer {
     port: opts.port,
     host: opts.host,
     allowOrigins: portalOrigins,
+    // A deliberately-public Mage reached by bring-your-own-wallet clients (browser add-on with per-install
+    // extension origins, mobile/desktop Signets). The Origin allowlist can't enumerate those and isn't the
+    // security boundary here — the signed challenge/response + the per-login poll secret are. So accept any
+    // real origin (opaque `null` still refused); the Host anti-rebinding check still binds to this portal.
+    publicPortal: true,
     routes: runtime.routes(),
     onListening: (p) =>
       process.stdout.write(

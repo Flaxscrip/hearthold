@@ -15,10 +15,12 @@ interface ApiErr {
   error: string;
 }
 
-async function call<T>(path: string, method: 'GET' | 'POST', body?: unknown): Promise<T> {
+async function call<T>(path: string, method: 'GET' | 'POST', body?: unknown, extraHeaders?: Record<string, string>): Promise<T> {
+  const headers: Record<string, string> = { ...(extraHeaders ?? {}) };
+  if (body) headers['Content-Type'] = 'application/json';
   const res = await fetch(`${PORTAL_URL}${path}`, {
     method,
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    headers: Object.keys(headers).length ? headers : undefined,
     body: body ? JSON.stringify(body) : undefined,
   });
   const json = (await res.json()) as ApiOk | ApiErr;
@@ -76,11 +78,18 @@ export const portalApi = {
    *  shared chronicle. Available only when the Emissary has an oracle configured. */
   ask: (kbId: string, query: string, k?: number) =>
     call<{ answer: string; citations: KbCitation[] }>('/api/kb/ask', 'POST', { kbId, query, k }),
-  loginStart: (kbId: string) => call<{ loginId: string; challenge: string }>('/api/kb/login/start', 'POST', { kbId }),
-  loginPoll: (loginId: string) =>
+  // start returns a pollSecret that stays in the SPA (never in the challenge document); poll must present it,
+  // so a party reading the loginId off the public gossip network can't claim the session.
+  loginStart: (kbId: string) =>
+    call<{ loginId: string; challenge: string; pollSecret: string }>('/api/kb/login/start', 'POST', { kbId }),
+  loginPoll: (loginId: string, pollSecret: string) =>
+    // The secret rides in a HEADER, never the query string — a query param would land in nginx access logs,
+    // Referer, and browser history, which is exactly where a secret must not be.
     call<{ status: 'pending' | 'ready' | 'unknown'; session?: Session }>(
       `/api/kb/login/poll?login=${encodeURIComponent(loginId)}`,
       'GET',
+      undefined,
+      { 'X-Hearthold-Poll-Secret': pollSecret },
     ),
   sessionRequest: (body: SessionRequestBody) => call<{ result: KbResult }>('/api/kb/session-request', 'POST', body),
 };

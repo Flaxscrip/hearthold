@@ -92,20 +92,31 @@ test('kb-relay: exposes the four member-login/session routes', () => {
 test('kb-relay: login/start relays to the Warden and the callback carries the loginId', async () => {
   const tx = stubTransport();
   const routes = kbRelayModule({ transport: tx, wardenDid: 'w', publicUrl: 'https://mages.example' }).httpRoutes! as RouteMap;
-  const out = (await call(routes, 'POST /api/kb/login/start', { body: { kbId: 'hearthold-kb' } })) as { loginId: string; challenge: string };
+  const out = (await call(routes, 'POST /api/kb/login/start', { body: { kbId: 'hearthold-kb' } })) as { loginId: string; challenge: string; pollSecret: string };
   assert.ok(out.loginId && out.challenge);
+  assert.ok(out.pollSecret && out.pollSecret.length >= 32, 'start returns a poll secret');
   const start = tx.calls.find((c) => c.type === 'hearthold/kb-login-start') as { callback?: string; kbId?: string } | undefined;
   assert.equal(start?.kbId, 'hearthold-kb');
   assert.match(start?.callback ?? '', new RegExp(`login=${out.loginId}$`));
+  // The poll secret must NOT be in the callback (which lands in the public challenge document).
+  assert.ok(!(start?.callback ?? '').includes(out.pollSecret), 'the poll secret never enters the public callback URL');
 });
 
 test('kb-relay: full login → poll returns the Warden-minted session (relay gains no authority)', async () => {
   const tx = stubTransport();
   const routes = kbRelayModule({ transport: tx, wardenDid: 'w', publicUrl: 'https://mages.example' }).httpRoutes! as RouteMap;
-  const { loginId } = (await call(routes, 'POST /api/kb/login/start', { body: { kbId: 'k' } })) as { loginId: string };
+  const { loginId, pollSecret } = (await call(routes, 'POST /api/kb/login/start', { body: { kbId: 'k' } })) as { loginId: string; pollSecret: string };
   const cb = (await call(routes, 'POST /api/kb/login/callback', { body: { response: 'signed' }, query: { login: loginId } })) as { accepted: boolean };
   assert.equal(cb.accepted, true);
-  const poll = (await call(routes, 'GET /api/kb/login/poll', { query: { login: loginId } })) as { status: string; session?: { token: string } };
+  // Poll WITHOUT the secret — a party who only read the loginId off the gossip network — gets `unknown`, never
+  // the session; and it is indistinguishable from an unknown id (no existence oracle).
+  const stolen = (await call(routes, 'GET /api/kb/login/poll', { query: { login: loginId } })) as { status: string; session?: unknown };
+  assert.equal(stolen.status, 'unknown', 'the loginId alone cannot claim the session');
+  assert.equal(stolen.session, undefined);
+  const wrong = (await call(routes, 'GET /api/kb/login/poll', { query: { login: loginId }, req: { headers: { 'x-hearthold-poll-secret': 'deadbeef'.repeat(8) } } })) as { status: string };
+  assert.equal(wrong.status, 'unknown', 'a wrong secret is refused, same as unknown');
+  // Poll WITH the secret in the header (the SPA that started the login) gets the session.
+  const poll = (await call(routes, 'GET /api/kb/login/poll', { query: { login: loginId }, req: { headers: { 'x-hearthold-poll-secret': pollSecret } } })) as { status: string; session?: { token: string } };
   assert.equal(poll.status, 'ready');
   assert.equal(poll.session?.token, 'tok#1', 'the session is the WARDEN’s, passed straight through');
 });

@@ -12,7 +12,7 @@
  * Contrast `auth:web` (the doorman), where the EMISSARY authenticates the visitor itself — the pattern for a
  * SEALED Warden that can't resolve its members. All three compose on one runtime; a deployment picks the set.
  */
-import { randomBytes } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 
 import { PROTOCOL_VERSION, type Transport, type KbSessionMessage } from '@hearthold/core';
@@ -35,8 +35,19 @@ export interface KbRelayDeps {
 interface LoginAttempt {
   kbId: string;
   challenge: string;
+  /** Secret returned to the SPA at `start`, required by `poll`. NEVER placed in the callback URL, so it never
+   *  enters the PUBLIC challenge document — a party who reads the loginId off the gossip network still can't
+   *  poll for the session. */
+  pollSecret: string;
   session?: KbSessionMessage;
   createdAt: number;
+}
+
+/** Constant-time secret compare that tolerates unequal lengths (timingSafeEqual throws on a length mismatch). */
+function secretEq(a: string, b: string): boolean {
+  const ba = Buffer.from(a);
+  const bb = Buffer.from(b);
+  return ba.length === bb.length && timingSafeEqual(ba, bb);
 }
 
 export function kbRelayModule(deps: KbRelayDeps): CapabilityModule {
@@ -56,6 +67,10 @@ export function kbRelayModule(deps: KbRelayDeps): CapabilityModule {
         const { kbId } = (body ?? {}) as { kbId?: string };
         if (!kbId) throw new Error('kbId is required');
         const loginId = randomBytes(12).toString('hex');
+        // The poll secret is minted here and returned ONLY to the SPA; it is deliberately NOT part of the
+        // callback URL, so it never lands in the public challenge document. The loginId, which DOES travel in
+        // the public callback, is no longer sufficient to claim the session at `poll`.
+        const pollSecret = randomBytes(32).toString('hex');
         const callback = `${deps.publicUrl}/api/kb/login/callback?login=${loginId}`;
         const reply = await deps.transport.request(
           deps.wardenDid,
@@ -66,8 +81,8 @@ export function kbRelayModule(deps: KbRelayDeps): CapabilityModule {
           const why = reply.type === 'hearthold/error' ? reply.reason : reply.type;
           throw new Error(`Warden did not issue a challenge: ${why}`);
         }
-        logins.set(loginId, { kbId, challenge: reply.challenge, createdAt: now() });
-        return { loginId, challenge: reply.challenge };
+        logins.set(loginId, { kbId, challenge: reply.challenge, pollSecret, createdAt: now() });
+        return { loginId, challenge: reply.challenge, pollSecret };
       },
 
       // The member's wallet POSTs its signed response here → Warden verifies + mints the session.
@@ -87,11 +102,18 @@ export function kbRelayModule(deps: KbRelayDeps): CapabilityModule {
         return { accepted: true };
       },
 
-      // Browser polls until its wallet has responded and the Warden has minted a session.
-      'GET /api/kb/login/poll': async ({ query }) => {
+      // Browser polls until its wallet has responded and the Warden has minted a session. Requires the poll
+      // secret from `start` — the loginId alone (public, in the challenge doc) must NOT be enough to claim the
+      // session, or anyone watching the gossip network could race the poll and steal it. A missing/wrong secret
+      // returns the SAME `unknown` as a missing id, so poll can't be used to probe which loginIds exist.
+      'GET /api/kb/login/poll': async ({ query, req }) => {
         const id = query.get('login') ?? '';
+        // Secret from a HEADER, not the query string — a query param would be logged (nginx access log),
+        // referred, and kept in history; a header is not.
+        const h = req.headers['x-hearthold-poll-secret'];
+        const secret = typeof h === 'string' ? h : '';
         const attempt = logins.get(id);
-        if (!attempt) return { status: 'unknown' };
+        if (!attempt || !secretEq(secret, attempt.pollSecret)) return { status: 'unknown' };
         if (!attempt.session) return { status: 'pending' };
         const session = attempt.session;
         logins.delete(id); // one-shot
