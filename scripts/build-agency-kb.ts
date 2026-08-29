@@ -47,14 +47,18 @@ const say = (m = ''): void => process.stdout.write(`${m}\n`);
 const rule = (): void => say('─'.repeat(78));
 
 async function main(): Promise<void> {
-  const kbId = process.argv[2] ?? 'agency';
-  const maxVolumes = process.argv[3] ? Number(process.argv[3]) : Infinity;
-  const maxChaptersPerVolume = process.argv[4] ? Number(process.argv[4]) : Infinity;
+  // Parse --flags OUT before reading positionals, so `agency --owner-only` doesn't put the flag in the
+  // maxVolumes slot (Number('--owner-only')=NaN → every volume filtered out → an empty, falsely-"built" KB).
+  const flags = new Set(process.argv.slice(2).filter((a) => a.startsWith('--')));
+  const positionals = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+  const kbId = positionals[0] ?? 'agency';
+  const maxVolumes = positionals[1] ? Number(positionals[1]) : Infinity;
+  const maxChaptersPerVolume = positionals[2] ? Number(positionals[2]) : Infinity;
   // --owner-only (or AGENCY_DAVID=none): build the KB gated to the OWNER alone, skipping David's grant.
   // For a SEALED build host: David's identity (BTC:mainnet) can't be resolved there, so it can't verify him
   // — and you can't grant verified access to an identity you can't verify. Defer his grant to the node that
   // serves the gift (his own, if he self-hosts), which resolves his identity and re-runs this to add him.
-  const ownerOnly = process.argv.includes('--owner-only') || process.env.AGENCY_DAVID === 'none';
+  const ownerOnly = flags.has('--owner-only') || process.env.AGENCY_DAVID === 'none';
   // A book corpus is a deep-synthesis KB → default to a REASONING answer model so the verify query (and a
   // served warden with the same model) thinks. Override with HEARTHOLD_ANSWER_MODEL.
   const config = { ...loadConfig(), dataRoot: DATA_ROOT, answerModel: process.env.HEARTHOLD_ANSWER_MODEL ?? 'qwen3:8b' };
@@ -133,6 +137,15 @@ async function main(): Promise<void> {
   };
   const report = await ingestCorpus(deps, { corpusUrl: CORPUS_URL, maxVolumes, maxChaptersPerVolume });
   for (const v of report.perVolume) if (v.error) say(`   – ${v.url} — ${v.error}`);
+  // Fail LOUD on an empty corpus — an empty KB must NEVER render as "built" (a success banner over nothing
+  // is the exact failure to catch). Likely a bad corpus URL, a discovery/crawl miss, or maxVolumes=NaN.
+  if (report.chunks === 0) {
+    throw new Error(
+      `ingested 0 passages from ${CORPUS_URL} (volumes=${report.volumes}, chapters=${report.chapters}) — ` +
+        `refusing to report an empty KB as built. Check the corpus URL is reachable, discovery matched volumes, ` +
+        `and maxVolumes/maxChaptersPerVolume aren't NaN (put --flags before positional args).`,
+    );
+  }
 
   // Phase B — embed the passages in parallel batches (embedding is read-only → safe to parallelize; the
   // slow network step, so concurrency is the win). Sealing is local crypto. Build artefacts + index entries.
@@ -179,8 +192,10 @@ async function main(): Promise<void> {
   }
   rule();
 
-  say(`\n  KB "${kbId}" is built and member-gated. David (${DAVID_NAME}) can query it with his own wallet;`);
-  say('  a non-member is refused at the challenge. The manuscript never leaves the custodian. 📖');
+  say(`\n  KB "${kbId}" is built and member-gated (${report.chunks} passages). A non-member is refused at the`);
+  say('  challenge; the manuscript never leaves the custodian. 📖');
+  if (davidDid) say(`  David (${DAVID_NAME}) can query it with his own wallet.`);
+  else say('  David is NOT yet a member — grant deferred to a node that resolves his identity (re-run there with his DID).');
   say(`\n  For deploy: point the kb-web Mage at this Warden (HEARTHOLD_WARDEN_DID=${wid.did}), kbId="${kbId}".`);
 }
 
