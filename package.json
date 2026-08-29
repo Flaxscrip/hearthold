@@ -168,7 +168,8 @@
     "e2e:capture-fs": "npm run build && node --experimental-strip-types scripts/e2e-capture-fs.ts",
     "demo:capture-fs": "npm run build && node --experimental-strip-types scripts/demo-capture-fs.ts",
     "provision:agent-allowance": "npm run build && node --experimental-strip-types scripts/provision-agent-allowance.ts",
-    "e2e:proven-sovereign": "npm run build && node --experimental-strip-types scripts/e2e-proven-sovereign.ts"
+    "e2e:proven-sovereign": "npm run build && node --experimental-strip-types scripts/e2e-proven-sovereign.ts",
+    "demo:book-kb": "npm run build && node --experimental-strip-types scripts/book-kb.ts"
   },
   "engines": {
     "node": ">=22"
