@@ -65,8 +65,14 @@ export type ContentResolver = (artefactId: string) => Promise<string | null>;
  */
 export type PartitionKeyLookup = (partitionId: string) => CipherPrivateJwk | undefined;
 
-/** Answers a query from retrieved snippets. Injectable; the live one calls a local chat model. */
-export type Answerer = (query: string, passages: { observedAt: string; text: string }[]) => Promise<string>;
+/** Answers a query from retrieved snippets. Injectable; the live one calls a local chat model.
+ *  `opts.think` lets a REASONING answer model reason before answering (deep synthesis over a knowledge KB) —
+ *  off by default (fast, and correct for the classifier's structured labels). */
+export type Answerer = (
+  query: string,
+  passages: { observedAt: string; text: string }[],
+  opts?: { think?: boolean },
+) => Promise<string>;
 
 const SYSTEM_PROMPT = `You are a private recall assistant answering ONLY from the user's own archived
 notes below. Answer the question concisely from the notes. If the notes don't contain the answer, say
@@ -77,7 +83,7 @@ const RECALL_UNAVAILABLE = 'Recall is temporarily unavailable — the local mode
 
 /** Build the live answerer: a local Ollama chat model over the retrieved passages. */
 export function ollamaAnswerer(url: string, model: string): Answerer {
-  return async (query, passages) => {
+  return async (query, passages, opts) => {
     const context = passages.map((p, i) => `[${i + 1}] (${p.observedAt}) ${p.text}`).join('\n');
     let res: Response;
     try {
@@ -87,16 +93,20 @@ export function ollamaAnswerer(url: string, model: string): Answerer {
         body: JSON.stringify({
           model,
           stream: false,
-          ...noThink(model), // disable the hidden <think> pass on reasoning models (the /no_think prompt idiom is inert)
+          // Default: disable the hidden <think> pass on reasoning models (fast; the /no_think idiom is inert).
+          // `think` (a deep-synthesis KB, e.g. the Book Worm): let a REASONING model reason first — richer
+          // answers over retrieved passages, at a latency cost. Only reasoning models get `think:true`; a
+          // non-reasoning answer model falls back to a normal answer (passing `think` to it would error).
+          ...(opts?.think && /qwen3|deepseek-r1|magistral|\bthinking\b/i.test(model) ? { think: true } : noThink(model)),
           options: { temperature: 0 },
           messages: [
             { role: 'system', content: SYSTEM_PROMPT },
             { role: 'user', content: `Notes:\n${context}\n\nQuestion: ${query}` },
           ],
         }),
-        // Chat is far slower than embeddings (real RAG can take seconds) — allow 120s — but still bounded so a
-        // stalled/reloading model returns a clean status instead of hanging to the proxy timeout.
-        signal: AbortSignal.timeout(120_000),
+        // Chat is far slower than embeddings (real RAG can take seconds). A thinking pass takes longer still,
+        // so allow more headroom when reasoning — still bounded so a stalled model returns a clean status.
+        signal: AbortSignal.timeout(opts?.think ? 240_000 : 120_000),
       });
     } catch {
       return RECALL_UNAVAILABLE;
@@ -109,6 +119,9 @@ export function ollamaAnswerer(url: string, model: string): Answerer {
 
 export interface RecallOptions {
   k?: number;
+  /** Let a reasoning answer model think before answering — deep synthesis over a knowledge KB (Book Worm).
+   *  Off by default (fast). A thinking pass is slower; use it where answer quality matters more than latency. */
+  think?: boolean;
   /** Drop artefacts above this sensitivity from recall (e.g. exclude SEALED). */
   maxSensitivity?: number;
   /** Scope retrieval: one KB id, an array of ids (a member's visible set of partitions), `null` for the
@@ -199,7 +212,7 @@ export class RecallService {
     if (passages.length === 0) {
       return { query, answer: "I couldn't retrieve any readable notes for that.", citations: [], descriptionSource: 'machine-derived' };
     }
-    const answer = await this.answer(query, passages);
+    const answer = await this.answer(query, passages, { think: opts.think });
     return { query, answer, citations, descriptionSource: 'machine-derived' };
   }
 }

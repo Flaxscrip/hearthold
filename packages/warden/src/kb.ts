@@ -73,6 +73,8 @@ interface KbServiceOptions {
   memberPartitions?: boolean;
   /** Where a scope-less contribution lands. Default 'shared'. */
   defaultScope?: 'shared' | 'private';
+  /** Let recall answers REASON before answering (a deep-synthesis/book KB). Default off. See KbConfig.answerThink. */
+  answerThink?: boolean;
   /**
    * Open enrollment: auto-join a proven DID on its first action (grant read+write + a private partition),
    * capped. Called at the top of `execute` (after auth). Absent ⇒ off (a DID must be granted by a Sovereign).
@@ -500,7 +502,7 @@ export class KbService {
       // (proof-of-human) read may reach SEALED; a factor1 read gets ≤MEDIUM. SEALED KB content therefore
       // never surfaces to a factor1 / public-portal reader who only cleared the coarse read action.
       const kbCeiling = (readAuthz.requiredAssurance ?? 'factor1') === 'factor2' ? Sensitivity.SEALED : Sensitivity.MEDIUM;
-      const result = await RecallService.forWarden(this.warden, this.config, keyFor).recall(req.query, { k: req.k, kb: visible, maxSensitivity: kbCeiling });
+      const result = await RecallService.forWarden(this.warden, this.config, keyFor).recall(req.query, { k: req.k, kb: visible, maxSensitivity: kbCeiling, think: this.opts.answerThink });
       // Label each citation by partition so the portal can show where an answer came from.
       const citations = result.citations.map((c) => ({
         artefactId: c.artefactId,

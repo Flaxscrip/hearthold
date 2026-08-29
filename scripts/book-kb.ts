@@ -36,7 +36,9 @@ async function main(): Promise<void> {
   const query = process.argv[3] ?? DEFAULT_QUERY;
   const maxArg = process.argv[4];
   const maxChapters = maxArg === 'all' ? Infinity : Number(maxArg ?? 4);
-  const config = { ...loadConfig(), dataRoot: DATA_ROOT };
+  // A book is a deep-synthesis KB → default to a REASONING answer model so it thinks out of the box
+  // (recall passes think:true below). Override with HEARTHOLD_ANSWER_MODEL for a different/faster model.
+  const config = { ...loadConfig(), dataRoot: DATA_ROOT, answerModel: process.env.HEARTHOLD_ANSWER_MODEL ?? 'qwen3:8b' };
 
   rule();
   say('  📖 Hearthold Book Worm — read a book with local models, then ask it questions');
@@ -80,7 +82,8 @@ async function main(): Promise<void> {
   for (const c of report.perChapter) if (c.error) say(`   – ${c.url} — skipped: ${c.error}`);
 
   say(`\n▶ 3. ASK  "${query}"`);
-  const result = await RecallService.forWarden(warden, config).recall(query, { k: 6, maxSensitivity: Sensitivity.HIGH });
+  // think: the Book Worm is a deep-synthesis KB — let a reasoning answer model reason over the passages.
+  const result = await RecallService.forWarden(warden, config).recall(query, { k: 6, maxSensitivity: Sensitivity.HIGH, think: true });
   say();
   rule();
   const failed = /temporarily unavailable|couldn't retrieve|Nothing has been indexed/i.test(result.answer);
