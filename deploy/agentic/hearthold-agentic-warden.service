@@ -6,6 +6,12 @@ Documentation=file:/home/flaxscrip/hearthold/deploy/agentic/INSTALL-agentic.md
 After=network-online.target docker.service
 Wants=network-online.target
 # Reaches the LOCAL Archon node on flaxlap (Drawbridge :4222). Reasoning is via megaflax:11434 over the tailnet.
+# ⚠️ `After=docker.service` is NOT enough: docker being up ≠ the gatekeeper CONTAINER being ready, so this
+#    Warden could start into a not-yet-ready node. Once the boot-time `docker compose up -d` systemd unit
+#    exists (Aegis; it replays the health-gated compose graph), add it here:
+#        After=<archon-stack-up>.service
+#        Requires=<archon-stack-up>.service
+#    so the Warden never starts into a dead/half-ready gatekeeper. See INSTALL-agentic.md "Restart policies".
 
 [Service]
 Type=simple

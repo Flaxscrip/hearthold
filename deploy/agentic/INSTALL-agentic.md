@@ -50,12 +50,25 @@ David ──HTTPS──▶ agentic.archon.technology
 **Correction:** an earlier claim that flaxlap's Archon stack self-recovers after reboot was wrong. Measured:
 **all 32 containers are `RestartPolicy: no`**, and only `docker.service`/`docker.socket` are enabled systemd
 units (no `@reboot` cron). So after a reboot flaxlap stays down until a person runs `docker compose up` — the
-**same outcome as megaflax**, not better. The difference that still favours flaxlap: this is a **config gap you
-can close** (`docker update --restart=unless-stopped $(docker ps -q)`, or systemd units), whereas megaflax's is
-an OS restriction we can't fix. For a gift that must be up when David opens it, **closing this is a hard
-condition before go-live, not a nice-to-have** — the whole Archon stack (gatekeeper, drawbridge, mongodb,
-didcomm, the mediators), not just `bitcoin-core`. The agency systemd units below carry `Restart=on-failure`
-from the start.
+**same outcome as megaflax**, not better. The difference that still favours flaxlap: this is a **fixable config
+gap**, whereas megaflax's is an OS restriction we can't fix. **Closing it is a hard condition before go-live**,
+for the whole Archon stack (gatekeeper, drawbridge, mongodb, didcomm, the mediators), not just `bitcoin-core`.
+
+**But NOT via a `docker update --restart` sweep** — flaxlap's resolved compose already carries **77
+`depends_on`/`service_healthy`/`healthcheck` conditions** (in the `include:`d graph, invisible in the top-level
+file). A per-container restart policy discards all of them: Docker's restart has no notion of order or
+readiness, so it fires everything at once and a Warden can come up into a not-yet-ready gatekeeper. It is also
+imperative host mutation — the next `docker compose up` silently reverts it to `no`, failing born-in-git. Do
+this instead, both recorded in git:
+1. **`restart: unless-stopped` in the compose files** (not `docker update`) — survives daemon restarts.
+2. **A boot-time systemd unit running `docker compose up -d`** — compose *replays the dependency graph with
+   health gating*, so the stack comes up ordered and ready (the same shape as megaflax's `deploy/aegis-up.sh`).
+   The agency units below then `After=`/`Requires=` that unit, so a Warden never starts into a dead gatekeeper.
+
+**Acceptance test (don't accept the fix on inspection — including "the compose has 77 health conditions,"
+which is a reason to expect convergence, not evidence of it): a real reboot in a window, wait, then query the
+KB WITHOUT touching the box.** Confirming containers are "up shortly after boot" is NOT valid — that's exactly
+the check that misread a human running `compose up` as self-recovery. The valid check is a hands-off query.
 
 ## Step 1 — build the corpus ON flaxlap (a rebuild, not a copy)
 
