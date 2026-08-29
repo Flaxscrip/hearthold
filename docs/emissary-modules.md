@@ -90,7 +90,7 @@ class Emissary {
 | `query` | relay a KB query to the Warden (recall) + its portal face | built | DIDComm relay |
 | `proof-relay` | relay proof requests to the Sovereign/Signet | built | challenge/response |
 | `auth` | sovereign sign-in — challenge/response login + sessions | built | `createChallenge` / `verifyResponse` |
-| `capture:web` | fetch + chunk + embed web content (e.g. a book) into recall (inbound) | **prototype** (`demo:book-kb`) | `capture` + a web adapter + section-chunker |
+| `capture:web` | 📖 **Book Worm** — fetch + chunk + embed a web book into recall (inbound) | **built** | `capture` + a web adapter + section-chunker |
 | `capture:didcomm-in` | drain inbound DIDComm messages into the KB (inbound) | planned | `capture` + durable-drain reader |
 | `capture:phone` | phone / device data intake (inbound) | planned | `capture` + a device adapter |
 | `capture:fs` | file-system scanner → derived summary+hash per file → Warden (inbound) | **built** | `capture` + `sealForWarden` |
