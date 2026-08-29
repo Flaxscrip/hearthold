@@ -111,8 +111,11 @@ async function main(): Promise<void> {
     readGroup = existing.readGroup;
     say(`   KB already configured — reusing (readGroup ${readGroup.slice(0, 20)}…)`);
   } else {
-    readGroup = await createRegistryGroup(warden, `kb-read-${kbId}`, config.registry);
-    const writeGroup = await createRegistryGroup(warden, `kb-write-${kbId}`, config.registry);
+    // Groups on `groupsRegistry` (default = identity registry), so a PUBLIC-identity Warden can keep MEMBERSHIP
+    // private: HEARTHOLD_REGISTRY=hyperswarm (identity resolvable off-node → login challenges verify) +
+    // HEARTHOLD_GROUPS_REGISTRY=local (membership never gossips). Verified: a hyperswarm Warden manages local groups.
+    readGroup = await createRegistryGroup(warden, `kb-read-${kbId}`, config.groupsRegistry);
+    const writeGroup = await createRegistryGroup(warden, `kb-write-${kbId}`, config.groupsRegistry);
     const policyAsset = await initKbAssurance(warden, config, kbId, selfSigner(warden, wid.did));
     // answerThink: a book corpus is a deep-synthesis KB — recall reasons over the retrieved passages.
     await kbStore.put({ kbId, readGroup, writeGroup, policyAsset, governorDid: undefined, answerThink: true });
