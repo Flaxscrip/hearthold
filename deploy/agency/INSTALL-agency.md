@@ -40,6 +40,28 @@ The pair runs host-native with these env values (in the 0600 env files):
 - `HEARTHOLD_OLLAMA_URL=http://127.0.0.1:11434` — the **HOST** Ollama (GPU, `qwen3:8b` already resident)
 - `HEARTHOLD_ANSWER_MODEL=qwen3:8b`, `HEARTHOLD_REGISTRY=local` (this node's gatekeeper accepts `local`)
 
+### Verify the window + publish endpoints (catches a half-publish at install time)
+
+The window must be up before the pair publishes its DIDComm endpoint. It is part of the node lifecycle now —
+`deploy/aegis-up.sh` starts it (step 3) and `aegis-down.sh` tears it down — or standalone from the aegis repo
+root:
+```
+docker compose -p aegis-window -f deploy/topology/docker-compose.agent-window.yml --env-file .env up -d
+```
+Confirm: `curl -s http://127.0.0.1:4296/api/v1/didcomm-endpoint` → `{"endpoint":"http://drawbridge:4222/didcomm"}`.
+
+Then run `warden republish` and `emissary republish` **once each**. Expect a REAL endpoint in the output — if
+it prints `now: undefined`, the window isn't up and the identity has **half-published**: fix the window and
+republish before going further. (This is the install-time catch for the half-publish trap; the code-level
+fail-loud fix is tracked separately.)
+
+**The advertised endpoint is `http://drawbridge:4222/didcomm` — an IN-SEAL address, and that is correct** even
+though the agents run host-native: on `/deliver` it is the *relay* that fetches the endpoint, not the agent.
+Do not "fix" it to a host address — an in-seal endpoint that failed the first live login was the tell.
+
+See `deploy/topology/AGENT-WINDOW.md` (Aegis) for the allowlist (a reason per row), the `/deliver` pin, and the
+refusal matrix.
+
 Members: owner + **David** (`cypher@4tress.org` → `did:cid:bagaaierar7rd7vkb5aq4ie4wzdlfpcxthvsi6q4uspn6zopy5amthleslyza`).
 
 ## ⚠️ Two things to know
