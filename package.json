@@ -171,7 +171,9 @@
     "provision:agent-allowance": "npm run build && node --experimental-strip-types scripts/provision-agent-allowance.ts",
     "e2e:proven-sovereign": "npm run build && node --experimental-strip-types scripts/e2e-proven-sovereign.ts",
     "demo:book-kb": "npm run build && node --experimental-strip-types scripts/book-kb.ts",
-    "build:agency-kb": "npm run build && node --experimental-strip-types scripts/build-agency-kb.ts"
+    "build:agency-kb": "npm run build && node --experimental-strip-types scripts/build-agency-kb.ts",
+    "ask:agency": "node --experimental-strip-types scripts/ask-agency.ts",
+    "agency-web": "node --experimental-strip-types scripts/agency-web.ts"
   },
   "engines": {
     "node": ">=22"
