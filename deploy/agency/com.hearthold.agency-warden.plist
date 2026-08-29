@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Agency KB Warden (macOS LaunchAgent, megaflax) — the custodian that HOLDS David's "agency" corpus KB,
+  drains its DIDComm mailbox through the local Archon node, and serves member-gated queries. Loopback-only;
+  no network exposure. The env file (0600) holds HEARTHOLD_PASSPHRASE + the data root + qwen3:8b answer model.
+
+  Install:  cp to ~/Library/LaunchAgents/ ; adjust the two paths below ; launchctl load -w it.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.hearthold.agency-warden</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <!-- adjust to the repo's deploy path on megaflax -->
+    <string>/opt/hearthold/deploy/agency/run-agency.sh</string>
+    <!-- the 0600 env file: HEARTHOLD_PASSPHRASE, HEARTHOLD_DATA_ROOT=~/.hearthold-agency-warden,
+         HEARTHOLD_REGISTRY=local, HEARTHOLD_ANSWER_MODEL=qwen3:8b, HEARTHOLD_NODE_URL, HEARTHOLD_APP, HEARTHOLD_NODE -->
+    <string>/Users/flaxscrip/.hearthold-agency/.env.agency-warden</string>
+    <string>warden</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+  <key>ProcessType</key><string>Background</string>
+  <key>StandardOutPath</key><string>/Users/flaxscrip/.hearthold-agency/agency-warden.log</string>
+  <key>StandardErrorPath</key><string>/Users/flaxscrip/.hearthold-agency/agency-warden.err</string>
+</dict>
+</plist>
