@@ -96,9 +96,17 @@ then authenticate through the doorman with no deferral.
   mints+verifies the challenge, the Warden authorizes via `testGroup`, David reads the shared corpus, Mallory
   is refused, the probe is gated. Passed live on the flaxlap node.
 
-## Relationship to the agency KB
+## Relationship to the agency KB — what the doorman does and does NOT retire
 
-This is the durable path for David's private "agency" KB (`deploy/agency/INSTALL-agency.md`). The sealed KB
-Warden grants David read; the doorman on a public-facing Emissary authenticates him through the normal
-challenge/response wall and serves the shared corpus — retiring the `--owner-only` deferral that existed only
-because the sealed node couldn't resolve David.
+The doorman removes resolution from the **login + serve path**: once David is enrolled, a sealed Warden can
+authenticate (via the doorman) and authorize (via `testGroup`, no resolution) and serve him — durably, on a
+node that can't resolve him. That is real and load-bearing.
+
+It does **not** retire the agency KB's `--owner-only` deferral, and an earlier draft of this doc wrongly said
+it did (caught by Aegis, verified in the archon source). **Enrollment resolves; authorization doesn't.**
+`grantAuthorization` → `addGroupMember` calls `resolveDID(memberDid)` to validate the member and throws
+`InvalidParameterError` if it can't — so *granting* David is still a Warden act that needs a node which
+resolves his registry (BTC:mainnet). The doorman only removes resolution from the *query* path, not the
+*grant* path. So David's read grant still waits on a Warden whose node can resolve him; `--owner-only` stands
+until then. What the doorman changes is that **after** the grant, the KB can run sealed and still admit him —
+enrollment-time and serving-time topology are decoupled.
