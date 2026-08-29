@@ -76,11 +76,13 @@ npm run build:agency-kb
 # copy the printed Warden DID → the Mage's HEARTHOLD_WARDEN_DID.
 ```
 
-**Embeddings note:** the build embeds 1363 passages. Today `HEARTHOLD_OLLAMA_URL` is a single host for BOTH
-embed and answer, and the answer model (`qwen3:8b`) is only on megaflax — so as written, embeddings also go to
-megaflax over the tailnet (1363 round-trips: functional, a few minutes). flaxlap has `nomic-embed-text`
-locally; splitting embed (local) from answer (megaflax) would be faster and cut the tailnet dependency for the
-build, but needs a config field (a follow-up, not a blocker). For the first build, megaflax-for-both is fine.
+**Embeddings note:** the build embeds 1363 passages via the single `HEARTHOLD_OLLAMA_URL` → megaflax, and that
+is the **faster** option, not a compromise. Measured warm from flaxlap: megaflax over the tailnet embeds at
+**~65 ms** vs flaxlap's own local `nomic` at **~105 ms** — the M1 Max GPU beats flaxlap's 2 GB Quadro by more
+than the tailnet round-trip costs. So do **not** split embed/answer hosts: a local-embed split would add
+~40 ms/embed (~55 s on the build, and per-query at serve time), adds config surface for a regression, and buys
+nothing on availability (the answer model is on megaflax either way, so a split embeds the question then fails
+to answer it). Single URL → megaflax.
 
 ## Step 2 — David's grant (flaxscrip's DIRECT instruction to Aegis) + POSITIVE verification
 
