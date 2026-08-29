@@ -70,12 +70,19 @@ npm run build -- --outDir dist-hatpro
 
 ## Caveats — what this reconciliation does NOT yet make safe
 
-- **The `dist-*` recipe is unverified against the live assets.** The currently-served `apps/kb-portal/dist-
-  {mages,hatpro}/` trees were built at some earlier commit, and `VITE_*` values bake in at build time, so a
-  fresh build from a newer commit produces *different* output than what is serving now. "Reproducible" needs
-  this recipe **plus a pinned commit**, and someone must diff a fresh build against the backed-up `dist-*`
-  before trusting it enough to replace the live directories. **Until that diff is done, the live `dist-*`
-  trees are irreplaceable, not regenerable** — do not clean or regenerate them in place.
+- **The `dist-*` recipe reproduces `mages` but NOT `hatpro` — they were built at different commits** (verified
+  2026-08-29, isolated-clone rebuild at `ae1b075` diffed against the backups). Build the portal in an isolated
+  clone at a pinned commit and copy the output into place (never a root build on the live tree — the portal has
+  no workspace deps; ~5 MB install, ~1 s). Results:
+  - **`mages` is effectively reproducible** — the rebuilt CSS is **byte-identical** (same content hash) and the
+    JS differs by 48 bytes (a transitive-dep patch, not a source change). The recipe is sound; the live `mages`
+    dist is **not** irreplaceable.
+  - **`hatpro` is a materially OLDER build** — its live CSS is *less than half* the current size (`+5737` B on
+    rebuild) plus `~2.5 KB` of JS, and doesn't match `mages`'s live CSS either. So **regenerating `dist-hatpro`
+    from the recipe would CHANGE it (silently upgrade the NIH-facing portal's UI) — that is a DEPLOY, not a
+    rebuild.** "Just rebuild it" is the trap. The backup at
+    `archon-ops:~/…/host-only-backup-20260829-031332/portal-builds/` is the ONLY copy of the current `hatpro`
+    build and cannot be regenerated — keep it.
 - **The `.env.*` files are host-only by design** (0600 secrets: `HEARTHOLD_PASSPHRASE`, `HEARTHOLD_WARDEN_DID`,
   registry, node URL, Ollama URL). They are intentionally **not** committed. A rebuild recreates them on the
   host; the unit files reference them via `EnvironmentFile=` and contain no inline secrets.
