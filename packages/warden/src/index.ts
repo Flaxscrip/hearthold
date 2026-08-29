@@ -579,6 +579,22 @@ async function main(): Promise<void> {
       const registry = process.argv[3];
       if (!registry) throw new Error('usage: warden change-registry <registry>   (e.g. hyperswarm)');
       const id = await ensureIdentity(handle, config);
+      // A DID BORN `local` cannot be migrated to a public registry through this path. `updateDID` queues the
+      // migration op under the identity's CURRENT registry (`local`), and `queueOperation` drops local ops
+      // ("don't distribute local DIDs") — so the move relabels the document LOCALLY, reports success, and the
+      // DID never reaches another node (measured live 2026-08-29: the moved Warden was `notFound` on public
+      // gatekeepers, its whole op chain still `event.registry=local`). Refuse loudly rather than lie.
+      const curReg = ((await handle.keymaster.resolveDID(id.did, { confirm: false }).catch(() => undefined)) as
+        | { didDocumentRegistration?: { registry?: string } }
+        | undefined)?.didDocumentRegistration?.registry;
+      if (curReg === 'local' && registry !== 'local') {
+        throw new Error(
+          `refusing: this Warden is born on \`local\`, and change-registry cannot PUBLISH a local-born DID — the ` +
+            `migration op queues on \`local\` and is dropped, so the DID stays node-only while reporting success. ` +
+            `To make it public: rebuild the Warden born on \`${registry}\` (new DID + keys), or admin export/import ` +
+            `its op chain onto a public node (dids/export → dids/import). See deploy/agentic/INSTALL-agentic.md.`,
+        );
+      }
       const km = handle.keymaster as unknown as { changeRegistry(idName: string, registry: string): Promise<boolean> };
       const ok = await km.changeRegistry(IDENTITY_NAME.warden, registry);
       if (!ok) throw new Error('changeRegistry returned false — nothing changed');

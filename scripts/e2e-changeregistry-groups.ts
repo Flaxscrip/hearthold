@@ -11,6 +11,12 @@
  *
  * Run on flaxlap (has both registries):
  *   HEARTHOLD_NODE_URL=http://flaxlap.local:4222 HEARTHOLD_PASSPHRASE=… node --experimental-strip-types scripts/e2e-changeregistry-groups.ts
+ *
+ * ⚠️ CAVEAT: this observes flaxlap's OWN view only. It proves a hyperswarm-relabelled Warden still MANAGES its
+ * local groups (true, and useful) — it does NOT prove the Warden's own identity federated. A `local`-born DID's
+ * changeRegistry never leaves the node (the migration op queues on `local` and is dropped; measured live
+ * 2026-08-29). So this stays valid for a Warden that is *genuinely* public (rebuilt born-hyperswarm), but on a
+ * local-born one the premise ("moved to hyperswarm") is a local relabel, not federation.
  */
 import { loadConfig, openKeymaster, ensureIdentity, createRegistryGroup, grantAuthorization, IDENTITY_NAME } from '@hearthold/core';
 

@@ -150,35 +150,43 @@ registry to `local` rather than have the gatekeeper refuse it. That downgrade si
 it defeats the passed option, `ephemeralRegistry`, and `HEARTHOLD_REGISTRY` alike — measured: with the Warden's
 env set to `hyperswarm`, a minted challenge still came back `registration: local` and `notFound` on public
 gatekeepers, with **no error anywhere** (the downgrade is deliberate and quiet). The challenge's controller is
-the Warden, and archon requires it **confirmed** on the target registry. The full, correct sequence:
+the Warden, and archon requires it **confirmed** on the target registry.
 
-1. **Move the Warden IDENTITY to a publicly-resolvable registry** — `changeRegistry(warden, 'hyperswarm')`.
-   This is `updateDID` on the registration only: **SAME DID, SAME keys, sealed vault intact** — it is NOT a
-   rotation and NOT a rebuild (do not recreate the Warden — that would orphan the corpus, the self-inflicted
-   version of the rotate catastrophe). Use `warden change-registry hyperswarm` (or the archon MCP
-   `change_registry`). **Proven safe for the sealed corpus:** `npm run e2e:changeregistry-unseal` moves a
-   sandbox Warden local→hyperswarm and the vault stays **3/3 readable** at baseline, pending, AND confirmed
-   (the signing key is unchanged by a registry move) — and the identity move itself confirmed on hyperswarm in
-   ~2 min there, so the one-time confirm is achievable.
-2. **Wait for it to CONFIRM** on hyperswarm — remote verification demands `confirm: true` on the controller,
-   so "present" is not enough; it must be confirmed.
-3. **Then** `HEARTHOLD_EPHEMERAL_REGISTRY=hyperswarm` puts each login challenge on hyperswarm, and it now
-   verifies remotely (its controller — the Warden — resolves there).
-4. **Groups stay `local`** — nothing off-node ever resolves them; only the Warden reads them via `testGroup`.
-   The knob separation is right; it just isn't the whole fix. **Membership does NOT leak from the move**
-   (archon-ops raised this — the T3 argument was born-local access-control keeps *who is a member* off the
-   gossip network). **Verified** (`npm run e2e:changeregistry-groups`): a hyperswarm-identity Warden still
-   creates, grants, and `testGroup`s its `local` groups, and they stay registered `local`. The move gossips
-   only the Warden's OWN DID document (its public key + service endpoint — not secret); the corpus (sealed
-   vault, never a registry object) and the membership (local groups) both stay private. T3's no-membership-leak
-   argument still holds after the move.
+### ⛔ A `local`-born Warden CANNOT be migrated to a public registry (measured live)
+
+`changeRegistry(warden, 'hyperswarm')` **does not work** for a `local`-born DID, and it reports **success** while
+changing nothing off-box. `updateDID` queues the migration op under the identity's *current* registry (`local`),
+and `queueOperation` drops local ops — so the move relabels the document locally and never announces itself.
+Measured 2026-08-29: the moved Warden showed `registry=hyperswarm` on flaxlap but was `notFound` on public
+gatekeepers, its entire op chain still `event.registry=local`. **`warden change-registry` now refuses a
+local-born identity** rather than lie. (My two sandbox e2es — `changeregistry-unseal`/`-groups` — are correct
+about keys-survive and groups-stay-manageable, but both observe flaxlap's OWN view; neither crosses to a second
+node, the same blind spot as the login e2es one level up.)
+
+So the agency Warden (born `local`) needs one of these — **flaxscrip's decision:**
+
+1. **Rebuild the Warden BORN on `hyperswarm`** (`HEARTHOLD_REGISTRY=hyperswarm`) and rebuild the KB (~10 min; the
+   corpus anchors nothing). This is a **NEW DID + new keys** — the current sealed vault is discarded, not
+   migrated, and David's + flaxscrip's grants are redone on the new identity. Clean, supported paths. *(Aegis
+   leans this for the gift.)* To keep membership private, the read/write **groups should still be `local`** — a
+   hyperswarm-*identity* Warden manages `local` groups fine (`e2e:changeregistry-groups`), so the build wants
+   identity=hyperswarm + groups=local (needs a build-script knob to split them, or accept hyperswarm groups and
+   the membership-gossip that implies).
+2. **Admin export/import** the existing Warden's op chain onto a public node (`dids/export` → `dids/import`) —
+   keeps the SAME DID, keys, vault, and grants, but is a manual seeding into the gossip network and needs an
+   admin key on the receiving node (archon-ops).
+3. **Upstream fix** (escalate to macterra regardless): `updateDID` should queue a registry-change op on the
+   **new** registry. Right now **nothing born `local` can ever federate** — a genuine archon bootstrapping gap.
+
+Once the Warden is *genuinely* public (option 1 or 2, confirmed), then — and only then — `HEARTHOLD_EPHEMERAL_
+REGISTRY=hyperswarm` (the `ephemeralRegistry` separation, still correct) puts each login challenge somewhere an
+off-node member can resolve, and the silent downgrade never fires.
 
 - **Still unmeasured (Aegis), and it decides usability:** each login is a **per-login gossip** of a fresh
-  challenge onto hyperswarm — if propagation is slower than a member takes to click *sign*, wire the
-  `retries`/`delay` options `createResponse` already accepts through the member path. (The Warden's own
-  `changeRegistry` confirm is a **one-time** cost; the per-login challenge gossip is the recurring one.)
+  challenge onto hyperswarm — if propagation is slower than a member takes to click *sign*, the fix likely lives
+  upstream (the member's wallet `createResponse` / a longer challenge TTL), not in the Mage.
 - **Acceptance test — the only one that counts:** a member on a **DIFFERENT node** signs in end to end.
-  Same-node tests (challenge + response on one node) always pass and hid this bug in *both* e2e attempts.
+  Same-node tests (challenge + response on one node) always pass and hid this bug in *every* attempt so far.
 
 ## Step 3 — serve on flaxlap (Warden + member-login Mage; NO oracle)
 

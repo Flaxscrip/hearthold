@@ -7,6 +7,12 @@
  * signing key doesn't change under `changeRegistry`, so it SHOULD stay readable — but that's reasoning, and this
  * is the sealed gift. Prove it in a sandbox before touching the live Warden. Run on flaxlap (has hyperswarm):
  *   HEARTHOLD_NODE_URL=http://flaxlap.local:4222 HEARTHOLD_PASSPHRASE=… node --experimental-strip-types scripts/e2e-changeregistry-unseal.ts
+ *
+ * ⚠️ CAVEAT (learned the hard way): this observes flaxlap's OWN view only. It proves the KEY survives a registry
+ * relabel — it does NOT prove the move FEDERATES. A `local`-born DID's changeRegistry relabels the doc locally,
+ * but the migration op queues on `local` and is dropped, so no other node ever learns of it (measured live
+ * 2026-08-29: the moved Warden was `notFound` on public gatekeepers). "changeRegistry succeeded locally" ≠ "the
+ * DID is public." Federation requires resolving the DID from a SECOND node — see INSTALL-agentic.md.
  */
 import { loadConfig, openKeymaster, ensureIdentity, sealForWarden, unsealAsWarden, IDENTITY_NAME } from '@hearthold/core';
 
