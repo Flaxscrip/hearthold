@@ -1,0 +1,25 @@
+[Unit]
+Description=Hearthold City of Mages Mage — public kb-web bridge (HTTP -> DIDComm relay to the Mages Warden)
+Documentation=file:/opt/hearthold/deploy/INSTALL-mages.md
+After=network-online.target docker.service hearthold-mages-warden.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=flaxscrip
+Group=flaxscrip
+WorkingDirectory=/opt/hearthold
+EnvironmentFile=/opt/hearthold/.env.mages-mage
+ExecStart=/home/flaxscrip/.nvm/versions/node/v22.15.1/bin/node /opt/hearthold/packages/emissary/dist/index.js kb-web 4315
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+# Isolation: this unit can write ONLY its own data root. It has no access to
+# the personal (~/.hearthold-warden) or hatpro Warden vaults.
+ReadWritePaths=/home/flaxscrip/.hearthold-mages-mage
+
+[Install]
+WantedBy=multi-user.target
