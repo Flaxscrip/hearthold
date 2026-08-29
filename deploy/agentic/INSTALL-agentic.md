@@ -238,15 +238,18 @@ deps**, so it needs no `packages/*/dist` — **do NOT run the root `npm run buil
 Warden's runtime under the six live services; the footgun this recipe used to carry):
 
 ```sh
-# in an isolated clone, NOT /opt/hearthold:
+# in an isolated clone, NOT /opt/hearthold. This is the COMPLETE set of VITE vars the agency build reads —
+# copy the WHOLE block. A partial list is how a future rebuild silently loses VITE_MEMBER_GATED and reverts to
+# the public-oracle page (the exact bug this deploy is fixing, one rebuild along). The SPA reads only these.
 cd apps/kb-portal && npm ci
+VITE_MEMBER_GATED=true \
 VITE_PORTAL_URL=https://agentic.archon.technology \
 VITE_KB_ID=agency \
-VITE_MEMBER_GATED=true \
 VITE_SIGNET_URL=https://wallet.archon.technology \
 VITE_KB_TITLE='The Architecture of Agency' \
 VITE_KB_EYEBROW='A Private Chronicle' \
 VITE_KB_TAGLINE='Sign in to consult the manuscript.' \
+VITE_KB_EXAMPLES='What is the Sovereign Kernel?|How does constitutive alignment differ from substantive?|What is authored agency?' \
 npm run build -- --outDir dist-agentic
 # then copy dist-agentic to the nginx document root on the archon host.
 ```
