@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Agency KB Mage (macOS LaunchAgent, megaflax) — the world-facing kb-web bridge (HTTP↔DIDComm) for the
+  "agency" KB. Binds 127.0.0.1:4313 ONLY (loopback); it faces nothing until an endpoint is chosen at handoff.
+  It addresses the Warden by did:cid (HEARTHOLD_WARDEN_DID in its env file), never by URL, and holds no
+  deciding secret. HEARTHOLD_ANSWER_MODEL=qwen3:8b so served answers reason (the KB is answerThink:true).
+
+  Install after the Warden is up (so the mailbox has a drainer + the Warden DID is known).
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.hearthold.agency-kb-mage</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>/opt/hearthold/deploy/agency/run-agency.sh</string>
+    <!-- the 0600 env file: HEARTHOLD_PASSPHRASE, HEARTHOLD_DATA_ROOT=~/.hearthold-agency-kb-mage,
+         HEARTHOLD_WARDEN_DID=<the agency Warden did>, HEARTHOLD_ANSWER_MODEL=qwen3:8b, HEARTHOLD_NODE_URL,
+         HEARTHOLD_APP, HEARTHOLD_NODE, optional HEARTHOLD_KB_WEB_PORT (default 4313) -->
+    <string>/Users/flaxscrip/.hearthold-agency/.env.agency-kb-mage</string>
+    <string>kb-mage</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+  <key>ProcessType</key><string>Background</string>
+  <key>StandardOutPath</key><string>/Users/flaxscrip/.hearthold-agency/agency-kb-mage.log</string>
+  <key>StandardErrorPath</key><string>/Users/flaxscrip/.hearthold-agency/agency-kb-mage.err</string>
+</dict>
+</plist>
