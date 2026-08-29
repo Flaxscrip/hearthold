@@ -124,6 +124,13 @@ first** (node binary, repo dir, data root; Aegis provides these). Warden first (
 fatal to every vhost on the box, HATPro included). **Standalone cert lineage**, not the shared 13-SAN bundle.
 HTTP-only vhost first so certbot can convert it (nginx won't start with an `ssl` listener and no cert).
 
+> **Config lifecycle:** certbot rewrites the vhost file **in place** (adding the 443 block + redirect), so the
+> LIVE config becomes `/etc/nginx/sites-available/agentic.archon.technology.conf`. Any staged copy (e.g.
+> `~/archon-ops/agentic/…conf`) is then a **stale template** — edit the live file, not the template (same
+> lifecycle as mages/hatpro). **Status: the front is LIVE** (HTTPS 200 serving the SPA at `ae1b075`, standalone
+> single-name cert). `/api/*` returns **502 until the flaxlap Mage is up** — contained to this one host by the
+> deferred resolution, by design.
+
 **No anonymous route.** The KB is member-gated with no oracle, so the Mage exposes only the login/session
 routes (`/api/kb/login/{start,callback}`, `/api/kb/login/poll`, `/api/kb/session-request`) — **no `/api/kb/ask`**.
 So there is no oracle rate-limit zone; gate the whole `/api/` surface behind the standard api limit. The query
