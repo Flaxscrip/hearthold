@@ -24,6 +24,7 @@ import {
 
 import { crawlDirectory } from './modules/capture-fs.js';
 import { doormanModule } from './modules/doorman.js';
+import { makeHeldReader } from './held-reader.js';
 import { Emissary } from './module.js';
 import { makeEmissaryProjectorHandler } from './handler.js';
 import { makeKbRelayHandler } from './kb-relay.js';
@@ -445,56 +446,17 @@ async function main(): Promise<void> {
         return reply.type === 'hearthold/kb-authorize-result' && (reply as KbAuthorizeResultMessage).authorized === true;
       };
 
-      // SERVE — the doorman's OWN shared-scope read session (a held read member, the oracle mechanism pinned
-      // to scope:'shared'). Session cached and re-logged-in on expiry; concurrent logins collapse into one.
-      let readerToken: string | null = null;
-      let readerExp = 0;
-      let loginInFlight: Promise<string> | null = null;
-      const login = async (): Promise<string> => {
-        const start = await transport.request(
-          wardenDid,
-          { type: 'hearthold/kb-login-start', version: PROTOCOL_VERSION, kbId, callback: `${publicUrl}/api/door/ask` },
-          { timeoutMs: 60_000 },
-        );
-        if (start.type !== 'hearthold/kb-login-challenge') {
-          throw new Error(`doorman reader login: no challenge (${'reason' in start ? start.reason : start.type})`);
-        }
-        const response = await handle.keymaster.createResponse(start.challenge, { registry: config.registry });
-        const sess = await transport.request(
-          wardenDid,
-          { type: 'hearthold/kb-login-complete', version: PROTOCOL_VERSION, kbId, response },
-          { timeoutMs: 60_000 },
-        );
-        if (sess.type !== 'hearthold/kb-session') {
-          throw new Error(`doorman reader login failed: ${'reason' in sess ? sess.reason : sess.type}`);
-        }
-        readerToken = sess.token;
-        readerExp = new Date(sess.expiresAt).getTime();
-        return sess.token;
-      };
-      const token = async (): Promise<string> => {
-        if (readerToken && readerExp - Date.now() > 30_000) return readerToken;
-        if (!loginInFlight) loginInFlight = login().finally(() => { loginInFlight = null; });
-        return loginInFlight;
-      };
-      const serveShared = async (query: string, k?: number): Promise<{ answer: string; citations: unknown[] }> => {
-        const ask = async () =>
-          transport.request(
-            wardenDid,
-            { type: 'hearthold/kb-session-request', version: PROTOCOL_VERSION, token: await token(), kbId, action: 'query', query, k: k ?? 5, scope: 'shared' },
-            { timeoutMs: 200_000 },
-          );
-        let reply = await ask();
-        // A stale reader session surfaces as a kb-error — re-login ONCE and retry (never loop).
-        if (reply.type === 'hearthold/kb-error' && /session|token|unauthor|expired|401/i.test(reply.reason)) {
-          readerToken = null;
-          reply = await ask();
-        }
-        if (reply.type === 'hearthold/kb-error') throw new Error(reply.reason);
-        if (reply.type !== 'hearthold/kb-result' || reply.action !== 'query') throw new Error('the doorman could not answer that');
-        const citations = reply.citations.filter((c) => c.scope !== 'private');
-        return { answer: reply.answer, citations };
-      };
+      // SERVE — the doorman's OWN shared-scope read session (a held read member — the same mechanism the
+      // anonymous oracle uses, shared via makeHeldReader and pinned to scope:'shared').
+      const reader = makeHeldReader({
+        transport,
+        wardenDid,
+        kbId,
+        createResponse: (challenge, o) => handle.keymaster.createResponse(challenge, o),
+        registry: config.registry,
+        callbackUrl: `${publicUrl}/api/door/ask`,
+      });
+      const serveShared = (query: string, k?: number) => reader.serveShared(query, k);
 
       const km = handle.keymaster as unknown as {
         createChallenge(c?: Record<string, unknown>, o?: Record<string, unknown>): Promise<string>;
