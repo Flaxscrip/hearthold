@@ -73,21 +73,26 @@ the check that misread a human running `compose up` as self-recovery. The valid 
 ## Step 1 — build the corpus ON flaxlap (a rebuild, not a copy)
 
 The corpus is **sealed to the Warden's key** (`sealForWarden` → `encryptMessage`), so megaflax's `vault.json`
-cannot be copied here — it must be **rebuilt** on flaxlap (~minutes; the 1363 passages are local sealed files,
-not registry writes, so there is no seed-to-hyperswarm and no stall). Owner-only for now; David's grant is Step 2.
+cannot be copied here — it must be **rebuilt** on flaxlap (~minutes; the 1366 passages are local sealed files,
+not registry writes, so there is no seed-to-hyperswarm and no stall). Because flaxlap **resolves BTC:mainnet**,
+**David is granted DURING the build** (`AGENCY_DAVID=<his DID>`) — no doorman, no `--owner-only`, no second
+operation. This is flaxscrip's direct instruction to Aegis (see Step 2).
 
 ```sh
-# on flaxlap, in the repo checkout, with the 0600 env file loaded:
+# on flaxlap, in the repo checkout (at ae1b075+), with the 0600 env file loaded:
 HEARTHOLD_REGISTRY=local \
 HEARTHOLD_NODE_URL=http://localhost:4222 \
 HEARTHOLD_OLLAMA_URL=http://megaflax:11434 \
 HEARTHOLD_ANSWER_MODEL=qwen3:8b \
 HEARTHOLD_DATA_ROOT=/home/flaxscrip/.hearthold-agentic-warden \
 HEARTHOLD_PASSPHRASE=<0600 secret> \
-AGENCY_DAVID=none \
+AGENCY_DAVID=did:cid:bagaaierar7rd7vkb5aq4ie4wzdlfpcxthvsi6q4uspn6zopy5amthleslyza \
 npm run build:agency-kb
 # copy the printed Warden DID → the Mage's HEARTHOLD_WARDEN_DID.
 ```
+
+**DONE 2026-08-29** (flaxscrip's direct go to Aegis): 1366 passages / 240 chapters / 9 volumes; David granted;
+vault 5.2 MB · index 28 MB. Warden `did:cid:bagaaierajafd6rsoosnlavkgat7qs2mfxr5477ha7ecpigy2oogp2jvfm7pq`.
 
 **Embeddings note:** the build embeds 1363 passages via the single `HEARTHOLD_OLLAMA_URL` → megaflax, and that
 is the **faster** option, not a compromise. Measured warm from flaxlap: megaflax over the tailnet embeds at
@@ -97,19 +102,29 @@ than the tailnet round-trip costs. So do **not** split embed/answer hosts: a loc
 nothing on availability (the answer model is on megaflax either way, so a split embeds the question then fails
 to answer it). Single URL → megaflax.
 
-## Step 2 — David's grant (flaxscrip's DIRECT instruction to Aegis) + POSITIVE verification
+## Step 2 — verify David's grant POSITIVELY, with a negative control
 
-> This grants read on a real person's mainnet DID. It is **flaxscrip's direct instruction to Aegis**, never
-> relayed through an assistant. It runs on flaxlap, which resolves BTC:mainnet.
+> The grant reads on a real person's mainnet DID; it is **flaxscrip's direct instruction to Aegis**, never
+> relayed through an assistant. It happens in the Step-1 build (flaxlap resolves David). **Verify it — never
+> infer from a clean exit code or the "David can query it" banner** (deny-by-default makes "failed" and
+> "healthy" look identical from outside). The **negative control** is the part that makes the affirmative
+> mean anything — a `testGroup` that returned `true` for every DID would pass the affirmative check alone.
 
-Re-run the grant with David's DID (or `AGENCY_DAVID=did:cid:bagaaierar7rd…`), then **verify positively — never
-infer from a clean exit code** (deny-by-default makes "failed" and "healthy" look identical from outside):
-
-```sh
-# 1. membership:
-warden kb-status --kb agency            # David's DID present in the read group
-# 2. a REAL login end to end: challenge → David's wallet responds → session → a query returns an answer.
 ```
+david in members[] literally   true
+testGroup(read, DAVID)         true     ← required
+testGroup(read, STRANGER)      false    ← the control: without it, `true` proves nothing
+david has WRITE                false    ← read-only, as intended
+readGroup members: 2 (owner + David)
+```
+
+**Honest scope of the proof:** we cannot complete a login *as* David — only he holds his key. The strongest
+available proof is **membership (above) + the owner's real challenge/response** (the Step-1 verify query, which
+exercised login → session → a 6-citation answer end to end). State it that way to flaxscrip — *"membership
+verified with a control; a David-login awaits David himself,"* **not** "login verified."
+
+**DONE 2026-08-29** — all five checks above passed on flaxlap (David `did:cid:bagaaierar7rd…`, read-only, 2
+members). David is a member; his first login is his to make once the Mage is up.
 
 ## Step 3 — serve on flaxlap (Warden + member-login Mage; NO oracle)
 
