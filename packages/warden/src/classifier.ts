@@ -46,8 +46,12 @@ const FORMAT_SCHEMA = {
   type: 'object',
   properties: {
     sensitivity: { type: 'string', enum: ['PUBLIC', 'LOW', 'MEDIUM', 'HIGH', 'SEALED'] },
-    tags: { type: 'array', items: { type: 'string' } },
-    reason: { type: 'string' },
+    // BOUND the array + string. An unbounded `tags` array is a grammar branch that never has to
+    // terminate; paired with greedy decoding (temp 0, no repeat penalty) the model degenerates into a
+    // repetition loop INSIDE it ("Usage Usage Usage …") and runs to the Ollama server timeout. Caps make
+    // the JSON grammar terminate. (Found via a classifier runaway — Aegis, #58 review.)
+    tags: { type: 'array', items: { type: 'string' }, maxItems: 8 },
+    reason: { type: 'string', maxLength: 400 },
   },
   required: ['sensitivity', 'tags', 'reason'],
 } as const;
@@ -87,7 +91,12 @@ export class OllamaClassifier implements Classifier {
           model: this.model,
           stream: false,
           ...noThink(this.model), // reasoning models burn <think> tokens before the label; skip it (the /no_think prompt idiom is inert)
-          options: { temperature: 0 },
+          // temp 0 is greedy; Ollama's default `repeat_penalty` is 1.0 (no penalty) and there is no output
+          // cap — the textbook runaway-repetition recipe. `repeat_penalty` breaks the loop, `num_predict`
+          // bounds the worst case (256 ≫ this schema's max output), and the schema caps above make valid
+          // output terminate. All three together: the demo corpus went from >20 min (4 silent timeouts) to
+          // ~12.5s, 8/8 genuinely classified (Aegis, #58 review).
+          options: { temperature: 0, num_predict: 256, repeat_penalty: 1.1 },
           format: FORMAT_SCHEMA,
           messages: [
             { role: 'system', content: SYSTEM_PROMPT },
@@ -113,12 +122,15 @@ export class OllamaClassifier implements Classifier {
       };
     } catch (err) {
       // Fail safe: quarantine and flag for review.
+      const reason = err instanceof Error ? err.message : String(err);
+      // Make the fail-safe VISIBLE. A silent SEALED is indistinguishable from a real SEALED verdict, and this
+      // path is on EVERY submit — so a model outage or a bad-output runaway silently quarantines content while
+      // reporting success. Log when we fall back (kind + model + reason, never the artefact text) so an
+      // operator can tell "the model failed" from "this was truly sensitive". (Aegis, #58 review.)
+      process.stderr.write(`[classifier] FAIL-SAFE → ${DEFAULT_SENSITIVITY} (kind=${input.kind}, model=${this.model}): ${reason}\n`);
       return {
         sensitivity: DEFAULT_SENSITIVITY,
-        metadata: {
-          error: err instanceof Error ? err.message : String(err),
-          model: this.model,
-        },
+        metadata: { error: reason, model: this.model },
         needsHumanConfirmation: true,
       };
     }
