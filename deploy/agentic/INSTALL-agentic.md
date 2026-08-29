@@ -258,14 +258,16 @@ VITE_KB_TITLE='The Architecture of Agency' \
 VITE_KB_EYEBROW='A Private Chronicle' \
 VITE_KB_TAGLINE='Sign in to consult the manuscript.' \
 VITE_KB_EXAMPLES='What is the Sovereign Kernel, and why does it matter for AI alignment?|How does the corpus distinguish constitutive alignment from substantive alignment?|What are the four load-bearing components of authored agency?|What does axionic agency say about value, ethics, and the good?|What is the critique of preference-based alignment?' \
+VITE_KB_SOURCE_URL='https://axionic.org/book' \
 npm run build -- --outDir dist-agentic
 # then copy dist-agentic to the nginx document root on the archon host.
 ```
 
-> **This is the COMPLETE VITE set (8 vars).** `VITE_KB_EXAMPLES` (pipe-separated) restores the suggested
+> **This is the COMPLETE VITE set (9 vars).** `VITE_KB_EXAMPLES` (pipe-separated) restores the suggested
 > questions — chips under the consult box once signed in, and a preview list on the sign-in screen so a visitor
-> sees the corpus's depth before committing. It is benign if omitted (no chips) but the navigation aid is the
-> point; include it. The 5 above are corpus-specific.
+> sees the corpus's depth before committing. `VITE_KB_SOURCE_URL` links the original work (the public book)
+> from the footer and the sign-in screen. Both are benign if omitted (no chips / no link) but the navigation
+> aids are the point; include them. The 5 example questions are corpus-specific.
 
 > **`VITE_MEMBER_GATED=true` is required for the agency KB.** Without it the SPA shows the anonymous
 > "Consult" box (the public-oracle path), which a member-gated KB has no route for — the box would 404 and,

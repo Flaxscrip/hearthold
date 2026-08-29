@@ -191,6 +191,9 @@ form.ask { margin: 38px auto 0; width: min(680px, 100%); }
   font-family: var(--serif); font-size: 14.5px; color: var(--vellum); line-height: 1.45;
   padding: 11px 15px; background: var(--ink-3); border: 1px solid var(--rule-soft); border-left: 2px solid var(--iris-deep); border-radius: 10px;
 }
+.gate-source { margin: 26px 0 0; font-family: var(--sans); font-size: 13px; color: var(--vellum-dim); text-align: center; }
+.gate-source a, .srcurl { color: var(--iris); text-decoration: none; border-bottom: 1px solid var(--rule); }
+.gate-source a:hover, .srcurl:hover { color: var(--vellum); border-bottom-color: var(--iris); }
 
 /* ── footer ── */
 footer {

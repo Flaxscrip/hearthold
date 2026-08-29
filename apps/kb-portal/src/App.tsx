@@ -13,6 +13,10 @@ const KB_EXAMPLES = ((env.VITE_KB_EXAMPLES as string | undefined) ?? '')
   .split('|')
   .map((s) => s.trim())
   .filter(Boolean);
+// A link to the ORIGINAL work behind the corpus (the public book / source). Shown in the footer and on the
+// sign-in screen — attribution, and a way to read the source directly. Unset → not shown.
+const KB_SOURCE_URL = ((env.VITE_KB_SOURCE_URL as string | undefined) ?? '').trim();
+const prettyUrl = (u: string): string => u.replace(/^https?:\/\//, '').replace(/\/+$/, '');
 // The Sovereign Signet web app (or any Archon web wallet) that handles ?challenge=… deep links.
 const SIGNET_URL = (env.VITE_SIGNET_URL as string | undefined) ?? 'https://wallet.archon.technology';
 // Member-gated KB (no anonymous oracle): the consult box is hidden until the visitor signs in, and queries
@@ -100,6 +104,17 @@ export function App() {
               </span>
               <span className="sep">·</span>
               <span className="g">Your keys never enter this page; the record keeps no note of who asked what</span>
+            </>
+          )}
+          {KB_SOURCE_URL && (
+            <>
+              <span className="sep">·</span>
+              <span className="g">
+                The original work:{' '}
+                <a className="srcurl" href={KB_SOURCE_URL} target="_blank" rel="noreferrer">
+                  {prettyUrl(KB_SOURCE_URL)} ↗
+                </a>
+              </span>
             </>
           )}
         </footer>
@@ -288,6 +303,14 @@ function SignInPrompt({ onSignIn }: { onSignIn: () => void }) {
             ))}
           </ul>
         </div>
+      )}
+      {KB_SOURCE_URL && (
+        <p className="gate-source">
+          Read the original work at{' '}
+          <a href={KB_SOURCE_URL} target="_blank" rel="noreferrer">
+            {prettyUrl(KB_SOURCE_URL)} ↗
+          </a>
+        </p>
       )}
     </section>
   );
