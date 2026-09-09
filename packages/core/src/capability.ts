@@ -7,7 +7,7 @@
  * change. Issuance, the invocation reference monitor, and consent discharge land in later phases.
  *
  * Prior art this composes / adapts (tracked in docs/attributions.md):
- *   - Object-capability model & "designation ≡ authority": Alan H. Karp (HP Labs; W3C public-credentials).
+ *   - Object-capability model & "designation ≡ authority": Alan H. Karp (SitePassword; W3C public-credentials).
  *     A capability fuses designation and authorization into one unforgeable token — which is precisely why
  *     a confused deputy cannot arise. Karp's concrete recommendation — that an authorization carry a
  *     REQUIRED type distinguishing it from a `credential` — is `AUTHORIZATION_TYPE` below.
