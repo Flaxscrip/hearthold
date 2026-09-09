@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Invocation & object-capability model
+    url: https://github.com/Flaxscrip/hearthold/blob/main/docs/invocation.md
+    about: The capability invocation & attenuation model — start here for ocap / caveat / delegation questions.
+  - name: Prior-art attributions
+    url: https://github.com/Flaxscrip/hearthold/blob/main/docs/attributions.md
+    about: Credits and the prior work Hearthold composes — object-capabilities, ZCAP-LD, Macaroons, and more.
+  - name: Security model
+    url: https://github.com/Flaxscrip/hearthold/blob/main/docs/security-model.md
+    about: Sensitivity × authorization tiers × disclosure modes, and the deny-by-default release ladder.
