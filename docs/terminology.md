@@ -96,6 +96,7 @@ You are a **Sovereign** (your own trinity + vault) who can **also** be a **KB me
   PVM "G" factor). **Formerly called a "sphere"** in some docs — that usage is **retired** (see *Sphere* below).
 - **Emissary** — a Sovereign's world-facing companion (contribute/present). One-third of the trinity.
 - **governor** — the DID that signs a policy: a KB's assurance-policy signer, or the family parent.
+- **issuer** — the party (a `did:cid`) whose signature attests a claim, and on whose signature a **Verifier's** trust rests — never the Warden's unbacked word. It varies per evidence leaf: for an externally-**issued** credential the issuer is that external authority (a utility VC, a professional cert); for a **witnessed/attested** fact the **Warden** is the issuer (it derives and signs, backed only by the Sovereign's own infrastructure — weak alone). The evidence graph is *issuer-attested*: a Verifier resolves the issuer DID(s), checks the signature, and decides whether it trusts that issuer for the claim (`docs/evidence-graph.md`).
 - **KB member** — a DID authorized (via a group) to read/write a shared KB.
 - **KB Warden** — the one custodian hosting a shared KB (may host many).
 - **private partition** — a member's private DB inside a KB Warden (member-key sealed; write-host/read-guest).
