@@ -170,6 +170,76 @@ export function cityKappa(obj: Record<string, unknown>): string {
   return 'sha256:' + sha256hex(cityCanonical(c));
 }
 
+/** A carried v1 document, distinct from the richer Game of 42 producer shape below.
+ * Unrecognized fields are retained and hashed, not interpreted as permissions.
+ */
+export interface ImportedCityKeyV1 extends Record<string, unknown> {
+  version: 1;
+  name: string;
+  palette: { cool: string; warm: string; sword: string; mage: string };
+  descriptions?: Record<string, string>;
+  holds?: { root: string; count: number };
+  prior?: string;
+  kappa?: string;
+}
+
+const CITY_DIGEST = /^sha256:[0-9a-f]{64}$/;
+const cityObject = (v: unknown): v is Record<string, unknown> =>
+  v !== null && typeof v === 'object' && !Array.isArray(v);
+
+/** Local import only. Matching content is neither a signature nor a grant.
+ * Limits apply before hashing; no network, DID resolution, or admission side effects.
+ * originalJson permits an unchanged byte-preserving re-export of the input string.
+ */
+export function importCityKeyV1(originalJson: string): {
+  key: ImportedCityKeyV1;
+  originalJson: string;
+  derivedKappa: string;
+  integrity: 'matched' | 'unlabelled';
+  authority: 'unverified';
+} {
+  if (Buffer.byteLength(originalJson, 'utf8') > 1024 * 1024) throw new Error('City Key exceeds 1 MiB');
+  const value: unknown = JSON.parse(originalJson);
+  // JSON.parse accepts 1e400 as Infinity; the canonicalizer must never silently
+  // turn such a value into null. Bound nesting before recursive canonicalization.
+  function checkJson(v: unknown, depth: number): void {
+    if (depth > 64) throw new Error('City Key exceeds 64 nesting levels');
+    if (typeof v === 'number' && !Number.isFinite(v)) throw new Error('City Key has a non-finite number');
+    if (Array.isArray(v)) for (const item of v) checkJson(item, depth + 1);
+    else if (cityObject(v)) for (const item of Object.values(v)) checkJson(item, depth + 1);
+  }
+  checkJson(value, 0);
+  if (!cityObject(value) || value.version !== 1 || typeof value.name !== 'string') {
+    throw new Error('Expected a named City Key version 1');
+  }
+  const palette = value.palette;
+  if (!cityObject(palette) || ['cool', 'warm', 'sword', 'mage'].some(k => typeof palette[k] !== 'string')) {
+    throw new Error('City Key palette requires cool, warm, sword and mage strings');
+  }
+  if ('descriptions' in value && (!cityObject(value.descriptions) ||
+      Object.values(value.descriptions).some(v => typeof v !== 'string'))) {
+    throw new Error('City Key descriptions must map keys to strings');
+  }
+  for (const field of ['kappa', 'prior']) {
+    if (field in value && (typeof value[field] !== 'string' || !CITY_DIGEST.test(value[field]))) {
+      throw new Error(`City Key ${field} must be sha256:<64 lowercase hex>`);
+    }
+  }
+  if ('holds' in value) {
+    const holds = value.holds;
+    if (!cityObject(holds) || typeof holds.root !== 'string' || !CITY_DIGEST.test(holds.root) ||
+        typeof holds.count !== 'number' || !Number.isSafeInteger(holds.count) || holds.count < 0) {
+      throw new Error('City Key holds requires a digest root and non-negative safe integer count');
+    }
+  }
+  const derivedKappa = cityKappa(value);
+  if ('kappa' in value && value.kappa !== derivedKappa) throw new Error('City Key kappa mismatch');
+  return {
+    key: value as ImportedCityKeyV1, originalJson, derivedKappa,
+    integrity: 'kappa' in value ? 'matched' : 'unlabelled', authority: 'unverified',
+  };
+}
+
 /** The soulbis production carrier palette (game42's amber/sapphire is the forge theme, not canon). */
 export const CITY_CARRIER_PALETTE = { cool: '#141a3d', warm: '#f0eee8', sword: '#e8523a', mage: '#4dd9e8' };
 

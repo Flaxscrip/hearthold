@@ -120,6 +120,7 @@ revocation, and the real-time authority watch — verified live across a multi-a
   enterprise TBAC governance agenda (Janssen / Linux Foundation)
 - [docs/standards-alignment.md](docs/standards-alignment.md) — alignment with IETF / IAM standards
 - [docs/PVM-MAPPING.md](docs/PVM-MAPPING.md) — mapping to the Privacy Is Value Model
+- [docs/star-hold.md](docs/star-hold.md) — City Key v1 import contract, hash fixtures, and Star Hold integration boundaries
 
 ## Attribution
 

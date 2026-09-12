@@ -1,0 +1,55 @@
+{
+  "profile": "agentprivacy-json-sorted/1",
+  "provenance": "Synthetic vectors; expected canonical bytes and SHA-256 independently generated using Python json.dumps(sort_keys=True, ensure_ascii=False, separators=(',', ':')) and hashlib. Numeric cases restricted to integers and exactly representable 1.25; this is not a general Python implementation of ECMAScript numeric serialization.",
+  "vectors": [
+    {
+      "id": "legacy-minimal",
+      "content": {
+        "version": 1,
+        "name": "Synthetic Star",
+        "palette": {
+          "cool": "#141a3d",
+          "warm": "#f0eee8",
+          "sword": "#e8523a",
+          "mage": "#4dd9e8"
+        }
+      },
+      "canonical": "{\"name\":\"Synthetic Star\",\"palette\":{\"cool\":\"#141a3d\",\"mage\":\"#4dd9e8\",\"sword\":\"#e8523a\",\"warm\":\"#f0eee8\"},\"version\":1}",
+      "kappa": "sha256:bbfa85281b0ccc30bd22b331697a7721c3b4267529ec3cca077c12c6e0dd0be5"
+    },
+    {
+      "id": "hold-and-unknown-fields",
+      "content": {
+        "version": 1,
+        "name": "Synthetic Star",
+        "palette": {
+          "cool": "#141a3d",
+          "warm": "#f0eee8",
+          "sword": "#e8523a",
+          "mage": "#4dd9e8"
+        },
+        "descriptions": {
+          "32": "Protect"
+        },
+        "prior": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "holds": {
+          "root": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+          "count": 2
+        },
+        "extension": {
+          "kappa": "nested-content",
+          "seal": "retained",
+          "unicode": "café ⚔",
+          "items": [
+            3,
+            1,
+            2
+          ],
+          "value": 1.25
+        }
+      },
+      "canonical": "{\"descriptions\":{\"32\":\"Protect\"},\"extension\":{\"items\":[3,1,2],\"kappa\":\"nested-content\",\"seal\":\"retained\",\"unicode\":\"café ⚔\",\"value\":1.25},\"holds\":{\"count\":2,\"root\":\"sha256:2222222222222222222222222222222222222222222222222222222222222222\"},\"name\":\"Synthetic Star\",\"palette\":{\"cool\":\"#141a3d\",\"mage\":\"#4dd9e8\",\"sword\":\"#e8523a\",\"warm\":\"#f0eee8\"},\"prior\":\"sha256:1111111111111111111111111111111111111111111111111111111111111111\",\"version\":1}",
+      "kappa": "sha256:a0110a584971f5d8399a03ebd5e5573cffc5e2d5027565961d0df4a28bac9212"
+    }
+  ]
+}
