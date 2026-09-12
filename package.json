@@ -2,7 +2,7 @@
   "name": "hearthold",
   "version": "0.1.0",
   "private": true,
-  "description": "Hearthold — a Sovereign First Person's 7th Capital, made safely liquid. Two separated Archon agents: Warden (home Keeper) and Emissary (Companion).",
+  "description": "Hearthold \u2014 a Sovereign First Person's 7th Capital, made safely liquid. Two separated Archon agents: Warden (home Keeper) and Emissary (Companion).",
   "type": "module",
   "license": "MIT",
   "workspaces": [
@@ -54,6 +54,7 @@
     "proto:vwc": "npm run build && node --experimental-strip-types scripts/proto-vwc.ts",
     "e2e:dtg-set": "npm run build && node --experimental-strip-types scripts/e2e-dtg-set.ts",
     "e2e:trust-registry": "npm run build && node --experimental-strip-types scripts/e2e-trust-registry.ts",
+    "e2e:star-key": "npm run build && node --experimental-strip-types scripts/e2e-star-key.ts",
     "e2e:inward-registry": "npm run build && node --experimental-strip-types scripts/e2e-inward-registry.ts",
     "interop:registry": "npm run build && node --experimental-strip-types scripts/interop-http-registry.ts",
     "demo:vp-setup": "npm run build && node --experimental-strip-types scripts/demo-vp-setup.ts",
